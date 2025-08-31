@@ -1,5 +1,5 @@
 :root {
-    --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-family-base: 'Poppins', sans-serif;
     --font-size-base: 16px;
 
     --space-0: 0px;
@@ -39,10 +39,10 @@
     
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-background-50: hsl(60, 4%, 5%);
-        --color-background-100: hsl(40, 6%, 12%);
-        --color-background-200: hsl(30, 4%, 15%);
-        --color-background-300: hsl(34, 5%, 30%);
+        --color-background-50: hsl(60, 0%, 5%);
+        --color-background-100: hsl(0, 0%, 7%);
+        --color-background-200: hsl(0, 0%, 9%);
+        --color-background-300: hsl(34, 0%, 15%);
         --color-background-400: hsl(30, 4%, 40%);
         --color-background-500: hsl(33, 4%, 50%);
         --color-background-600: hsl(30, 4%, 60%);
@@ -51,7 +51,7 @@
         --color-background-900: hsl(40, 6%, 90%);
         --color-background-950: hsl(0, 4%, 95%);
 
-        --color-background: hsl(30, 4%, 11%);
+        --color-background: hsl(0, 0%, 7%);
         --color-neutral: hsl(202, 7%, 78%);
         --color-text: hsl(243, 76%, 95%);
         --color-primary: hsl(38, 100%, 60%);

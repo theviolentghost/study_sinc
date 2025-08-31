@@ -6,7 +6,7 @@ import { google } from 'googleapis';
 import { YtDlp } from 'ytdlp-nodejs';
 import SpotifyWebApi from 'spotify-web-api-node';
 import SpotifyToYoutube from 'spotify-to-youtube';
-import progress_emitter from './progress.emitter.js';
+import progress_emitter from '../progress.emitter.js';
 import { spawn, exec } from 'child_process';
 import axios from 'axios';
 import Adaptive_Stream from './stream.js';
@@ -85,7 +85,7 @@ const Downloader = new YtDlp({
     shell: false,
     windowsHide: true,
     detached: false,
-    binaryPath: '/opt/homebrew/bin/yt-dlp' // Specify the correct path to yt-dlp
+    binaryPath: '/Users/norbertzych/Desktop/Projects/study_sinc/venv/bin/yt-dlp' // Specify the correct path to yt-dlp
 });
 
 const youtube = google.youtube({

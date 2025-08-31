@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # Changed from INFO to WARNING to reduce output
     format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),

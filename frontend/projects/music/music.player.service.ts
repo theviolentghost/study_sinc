@@ -74,11 +74,11 @@ export class MusicPlayerService {
 
         if (Hls.isSupported()) {
             this.hls = new Hls({
-                startLevel: -1, // Start with auto quality selection   
-                autoStartLoad: true,             // Start loading immediately
-                enableWorker: true,              // Disable worker for immediate processing
-                maxBufferLength: 120,        // Increase from 5 to 10 seconds
-                maxMaxBufferLength: 150,     // Max buffer size
+                startLevel: -1, // Start with auto quality selection
+                autoStartLoad: true, // Start loading immediately
+                enableWorker: true, // Disable worker for immediate processing
+                maxBufferLength: 120, // Increase from 5 to 10 seconds
+                maxMaxBufferLength: 150, // Max buffer size
                 maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
                 
                 // ✅ Segment loading optimization
@@ -442,7 +442,6 @@ export class MusicPlayerService {
                 const array_buffer = await blob.arrayBuffer();
                 if( array_buffer.byteLength > 0) {
                     // fresh url with fresh blob
-                    this.unload_audio();
                     source_url = URL.createObjectURL(new Blob([array_buffer]));
                     is_local_content = true; // Local content, safe to use audio context
 
@@ -472,6 +471,7 @@ export class MusicPlayerService {
             if (!source_url) {
                 console.error(`No audio source found for track key: ${track_key}`);
                 this.song_error.emit(Player_Error.COULD_NOT_LOAD);
+                // this.unload_audio();
                 this.loading = false;
                 return;
             }

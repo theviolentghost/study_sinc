@@ -218,7 +218,7 @@
     justify-content: center;
     width: 100%;
     padding: 0 var(--space-2);
-    gap: var(--space-1);
+    gap: var(--space-0);
 }
 .info .title {
     font-size: var(--space-6);
@@ -230,6 +230,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    line-height: 1;
 }
 .info .artist {
     font-size: var(--space-4);
@@ -241,6 +242,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    margin-bottom: var(--space-1);
 }
 .liked {
     position: absolute;

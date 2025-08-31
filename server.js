@@ -9,11 +9,11 @@ import youtubeChannelSearch from './youtube-channel-search.js';
 import youtubePlaylist from './youtube-playlist.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import Music from './music.js'; 
+import Music from './music/music.js'; 
 import os from 'os';
 import 'dotenv/config';
 import progress_emitter from './progress.emitter.js';
-import playlist_importer from './import.js';
+import playlist_importer from './music/import.js';
 import multer from 'multer';
 const upload = multer();
 

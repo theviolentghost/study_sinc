@@ -77,18 +77,18 @@ class Adaptive_Stream {
         // Get all profiles from ultra-low to the target profile
         return Adaptive_Stream.profile_progression.slice(0, target_index + 1);
     }
-    static hls_root = path.join(__dirname, 'hls');
+    static hls_root = path.join(__dirname, 'storage', 'musik', 'hls');
     static stream_buffer_size = '16K'; // Buffer size for streaming
 
     static hls_playlist_max_timeout = 30000; // Max wait time for playlist in ms
     static hls_playlist_refresh_interval = 100; // Interval to check for playlist in ms
-    static hls_playlist_segment_wait_timeout = 15000; // Max wait time for first segment in ms
+    static hls_playlist_segment_wait_timeout = 30000; // Max wait time for first segment in ms
     static hls_playlist_segment_interval = 50; // Interval to check for first segment in ms
 
     static hls_playlist_max_uphold_time = 15 * 60 * 1000; // 15 min (can be kept alive to last longer)
     static hls_playlist_cleanup_interval = 5 * 60 * 1000; // 5 min
 
-    static hls_playlist_generation_timeout = 26000; // 26 seconds
+    static hls_playlist_generation_timeout = 60000; // 60 seconds to handle YouTube rate limiting
 
     setup_endpoints(app) {
         // Configure static middleware with proper MIME types for HLS
@@ -125,7 +125,7 @@ class Adaptive_Stream {
                 const response = await this.stream(video_id, target_quality);
                 res.json(response);
             } catch (error) {
-                console.error(`Streaming error for ${video_id}:`, error.message);
+                console.log(`Streaming error for ${video_id}:`, error.message);
                 
                 // Return appropriate error based on the type
                 if (error.message.includes('Video not available') || 
@@ -324,6 +324,9 @@ class Adaptive_Stream {
 
     async stream(video_id, target_quality = 'medium', fast_startup = true) {
         // console.time('dir check');
+        console.log(`Starting stream for video ${video_id} with quality ${target_quality}`);
+        fs.appendFileSync('/tmp/stream-debug.log', `\n${new Date().toISOString()} - Starting stream for ${video_id}\n`);
+
         const session_id = video_id;
         const url = `https://www.youtube.com/watch?v=${video_id}`;
         const session_directory = path.join(Adaptive_Stream.hls_root, session_id);
@@ -388,18 +391,38 @@ class Adaptive_Stream {
         // console.log('yt-dlp')
         // console.log('yt-dlp process started');
 
-        // Create and start FFmpeg immediately after yt-dlp is ready
-        let yt_dlp_process;
+        // Create and start FFmpeg immediately after getting stream source
+        let yt_dlp_process = null;
         let ffmpeg_process;
-        // In your stream method, update the error handling:
+        let input_source = null;
+        let using_direct_url = false;
+
         try {
-            [yt_dlp_process] = await Promise.all([
-                this.create_yt_dlp_process(url),
-                this.create_master_playlist(session_directory, target_quality)
-            ]);
+            // First, try to get the direct stream URL
+            try {
+                console.log(`Attempting to get direct stream URL for ${video_id}...`);
+                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Attempting direct URL for ${video_id}\n`);
+                // throw Error('skip url')
+                const stream_url = await this.get_stream_url(url);
+                input_source = stream_url;
+                using_direct_url = true;
+                console.log(`Got direct stream URL for ${video_id}`);
+                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Got direct URL for ${video_id}\n`);
+            } catch (direct_url_error) {
+                console.log(`Direct stream URL failed for ${video_id}, falling back to yt-dlp process: ${direct_url_error.message}`);
+                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Direct URL failed for ${video_id}: ${direct_url_error.message}\n`);
+                
+                // If getting direct URL fails, fall back to yt-dlp process
+                yt_dlp_process = await this.create_yt_dlp_process(url);
+                input_source = yt_dlp_process;
+                using_direct_url = false;
+            }
+
+            // Create master playlist in parallel if we haven't done it yet
+            await this.create_master_playlist(session_directory, target_quality);
 
             ffmpeg_process = await this.create_hls_stream(
-                yt_dlp_process, 
+                input_source, 
                 session_directory, 
                 target_quality,
                 fast_startup,
@@ -412,6 +435,7 @@ class Adaptive_Stream {
                 
                 ffmpeg_process.on('start', (commandLine) => {
                     ffmpeg_started = true;
+                    // console.log(`FFmpeg started for ${video_id} using ${using_direct_url ? 'direct URL' : 'yt-dlp process'}`);
                     resolve(); // Resolve when FFmpeg starts, not when it ends
                 });
 
@@ -434,46 +458,135 @@ class Adaptive_Stream {
                     if (!ffmpeg_started) {
                         reject(new Error('FFmpeg process failed to start within timeout'));
                     }
-                }, 5000);
+                }, 8000);
             });
         } catch (error) {
             console.error(`Failed to create HLS stream for ${video_id}:`, error.message);
+            console.error(`Error details:`, error);
+            fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Failed to create HLS stream for ${video_id}: ${error.message}\n`);
             
-            // Clean up processes
-            if (yt_dlp_process && !yt_dlp_process.killed) {
+            // If we used direct URL and it failed, try falling back to yt-dlp process
+            if (using_direct_url && !yt_dlp_process) {
+                console.log(`Direct URL method failed for ${video_id}, attempting fallback to yt-dlp process...`);
                 try {
-                    yt_dlp_process.kill('SIGTERM');
-                } catch (e) {
-                    console.error('Error killing yt-dlp process:', e.message);
+                    // Clean up the failed FFmpeg process first
+                    if (ffmpeg_process) {
+                        try {
+                            ffmpeg_process.kill('SIGTERM');
+                        } catch (e) {
+                            console.error('Error killing failed ffmpeg process:', e.message);
+                        }
+                    }
+                    
+                    // Try with yt-dlp process
+                    yt_dlp_process = await this.create_yt_dlp_process(url);
+                    input_source = yt_dlp_process;
+                    using_direct_url = false;
+                    
+                    ffmpeg_process = await this.create_hls_stream(
+                        input_source, 
+                        session_directory, 
+                        target_quality,
+                        fast_startup,
+                        requested_profiles,
+                    );
+
+                    // Start FFmpeg with yt-dlp process
+                    await new Promise((resolve, reject) => {
+                        let ffmpeg_started = false;
+                        
+                        ffmpeg_process.on('start', (commandLine) => {
+                            ffmpeg_started = true;
+                            console.log(`FFmpeg started for ${video_id} using fallback yt-dlp process`);
+                            resolve();
+                        });
+
+                        ffmpeg_process.on('error', (err) => {
+                            console.error('FFmpeg process error (fallback):', err.message);
+                            if (!ffmpeg_started) {
+                                reject(new Error(`FFmpeg failed to start (fallback): ${err.message}`));
+                            }
+                        });
+
+                        ffmpeg_process.run();
+                        
+                        setTimeout(() => {
+                            if (!ffmpeg_started) {
+                                reject(new Error('FFmpeg process failed to start within timeout (fallback)'));
+                            }
+                        }, 5000);
+                    });
+                } catch (fallback_error) {
+                    console.error(`Fallback also failed for ${video_id}:`, fallback_error.message);
+                    
+                    // Clean up fallback attempt
+                    if (yt_dlp_process && !yt_dlp_process.killed) {
+                        try {
+                            yt_dlp_process.kill('SIGTERM');
+                        } catch (e) {
+                            console.error('Error killing fallback yt-dlp process:', e.message);
+                        }
+                    }
+                    if (ffmpeg_process) {
+                        try {
+                            ffmpeg_process.kill('SIGTERM');
+                        } catch (e) {
+                            console.error('Error killing fallback ffmpeg process:', e.message);
+                        }
+                    }
+                    
+                    // Clean up directory and throw original error
+                    try {
+                        if (fs.existsSync(session_directory)) {
+                            fs.removeSync(session_directory);
+                        }
+                    } catch (e) {
+                        console.error('Error cleaning up session directory:', e.message);
+                    }
+                    
+                    if (this.active_processes.has(session_id)) {
+                        this.active_processes.delete(session_id);
+                    }
+                    
+                    throw error; // Throw the original error, not the fallback error
                 }
-            }
-            if (ffmpeg_process) {
-                try {
-                    ffmpeg_process.kill('SIGTERM');
-                } catch (e) {
-                    console.error('Error killing ffmpeg process:', e.message);
-                }
-            }
-            
-            // Clean up directory
-            try {
-                if (fs.existsSync(session_directory)) {
-                    fs.removeSync(session_directory);
-                }
-            } catch (e) {
-                console.error('Error cleaning up session directory:', e.message);
-            }
-            
-            // Remove from active processes if it was added
-            if (this.active_processes.has(session_id)) {
-                this.active_processes.delete(session_id);
-            }
-            
-            // Re-throw with more specific error message
-            if (error.message.includes('Video not found or unavailable')) {
-                throw new Error(`Video not available: ${video_id}. The requested song/video could not be found or is not accessible.`);
             } else {
-                throw new Error(`Failed to initialize stream for ${video_id}: ${error.message}`);
+                // Original cleanup logic for non-fallback cases
+                if (yt_dlp_process && !yt_dlp_process.killed) {
+                    try {
+                        yt_dlp_process.kill('SIGTERM');
+                    } catch (e) {
+                        console.error('Error killing yt-dlp process:', e.message);
+                    }
+                }
+                if (ffmpeg_process) {
+                    try {
+                        ffmpeg_process.kill('SIGTERM');
+                    } catch (e) {
+                        console.error('Error killing ffmpeg process:', e.message);
+                    }
+                }
+                
+                // Clean up directory
+                try {
+                    if (fs.existsSync(session_directory)) {
+                        fs.removeSync(session_directory);
+                    }
+                } catch (e) {
+                    console.error('Error cleaning up session directory:', e.message);
+                }
+                
+                // Remove from active processes if it was added
+                if (this.active_processes.has(session_id)) {
+                    this.active_processes.delete(session_id);
+                }
+                
+                // Re-throw with more specific error message
+                if (error.message.includes('Video not found or unavailable')) {
+                    throw new Error(`Video not available: ${video_id}. The requested song/video could not be found or is not accessible.`);
+                } else {
+                    throw new Error(`Failed to initialize stream for ${video_id}: ${error.message}`);
+                }
             }
         }
         // console.log('FFmpeg process started');
@@ -487,7 +600,8 @@ class Adaptive_Stream {
             session_directory: session_directory,
             qualities: this.get_requested_profiles(target_quality),
             target_quality: target_quality,
-            start_time: Date.now()
+            start_time: Date.now(),
+            stream_method: using_direct_url ? 'direct_url' : 'yt_dlp_process'
         });
 
         // Wait for both the playlist and first segment to be ready
@@ -501,6 +615,7 @@ class Adaptive_Stream {
             ]);
         } catch (error) {
             console.error('Failed to wait for low quality stream:', error);
+            fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Failed to wait for low quality stream for ${video_id}: ${error.message}\n`);
             throw new Error('Failed to initialize low quality stream: ' + error.message);
         }
 
@@ -560,13 +675,21 @@ class Adaptive_Stream {
         return master_path;
     }
 
-    async create_hls_stream(yt_dlp_process, session_directory, target_quality = 'medium', fast_startup = false, requested_profiles) {
+    async create_hls_stream(input_source, session_directory, target_quality = 'medium', fast_startup = false, requested_profiles) {
         const profiles = requested_profiles || this.get_requested_profiles(target_quality);
         if (profiles.length === 0) {
             throw new Error('No valid profiles found for target quality: ' + target_quality);
         }
         
-        const ffmpeg_process = ffmpeg(yt_dlp_process.stdout);
+        // Handle different input types: yt-dlp process stdout or direct stream URL
+        let ffmpeg_process;
+        if (typeof input_source === 'string') {
+            // input_source is a stream URL
+            ffmpeg_process = ffmpeg(input_source);
+        } else {
+            // input_source is a yt-dlp process with stdout
+            ffmpeg_process = ffmpeg(input_source.stdout);
+        }
         
         // Add error handling for FFmpeg process
         ffmpeg_process.on('error', (err) => {
@@ -612,7 +735,7 @@ class Adaptive_Stream {
                     // '-avoid_negative_ts', 'make_zero',
                     // '-fflags', '+genpts',
                     '-map_metadata', '-1',
-                    '-preset', this.get_ffmpeg_tune(fast_startup, profile),
+                    '-preset', this.get_ffmpeg_preset(fast_startup, profile),
                     '-tune', this.get_ffmpeg_tune(fast_startup, profile),
                     // '-hls_flags', 'delete_segments',
                     '-hls_segment_filename', path.join(session_directory, `${profile_data.bitrate}_%d.ts`)
@@ -622,14 +745,84 @@ class Adaptive_Stream {
         return ffmpeg_process;
     }
 
+    get_ffmpeg_preset(fast_startup, profile = 'ultra-low') {
+        if(fast_startup) return 'ultrafast';
+        return Adaptive_Stream.profiles[profile].hls_preset || 'fast';
+    }
+
     get_ffmpeg_tune(fast_startup, profile = 'ultra-low') {
         if(fast_startup) return 'zerolatency';
         return 'fastdecode'; // Default for other profiles
     }
 
-    get_ffmpeg_tune(fast_startup, profile = 'ultra-low') {
-        if(fast_startup) return 'ultrafast';
-        return Adaptive_Stream.profiles[profile].hls_preset || 'fast';
+    async get_stream_url(url) {
+        return new Promise((resolve, reject) => {
+            // Validate URL first
+            if (!url || typeof url !== 'string') {
+                reject(new Error('Invalid URL provided to get stream URL'));
+                return;
+            }
+
+            const timeout = setTimeout(() => {
+                if (!yt_dlp.killed) {
+                    yt_dlp.kill('SIGTERM');
+                }
+                reject(new Error('Timeout waiting for stream URL'));
+            }, 15000); // 15 second timeout
+
+            const yt_dlp = spawn('yt-dlp', [
+                '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+                '--get-url',
+                // '--no-playlist',
+                '--quiet',
+                // '--socket-timeout', '10',
+                // '--retries', '1',
+                url
+            ]);
+            
+            let stream_url = '';
+            let stderr_output = '';
+
+            yt_dlp.stdout.on('data', (data) => {
+                stream_url += data.toString();
+            });
+
+            yt_dlp.stderr.on('data', (data) => {
+                stderr_output += data.toString();
+            });
+
+            yt_dlp.on('error', (err) => {
+                clearTimeout(timeout);
+                reject(new Error(`Failed to start yt-dlp for stream URL: ${err.message}`));
+            });
+            
+            yt_dlp.on('close', (code) => {
+                clearTimeout(timeout);
+                if (code === 0) {
+                    const trimmed_url = stream_url.trim();
+                    if (trimmed_url) {
+                        resolve(trimmed_url);
+                    } else {
+                        reject(new Error('No stream URL returned from yt-dlp'));
+                    }
+                } else {
+                    const error_msg = stderr_output || `Process exited with code ${code}`;
+                    console.error(`yt-dlp get-url failed for URL ${url}:`, error_msg);
+                    
+                    // Check for specific error types
+                    if (stderr_output.includes('Video unavailable') || 
+                        stderr_output.includes('Private video') ||
+                        stderr_output.includes('This video is not available') ||
+                        stderr_output.includes('does not exist') ||
+                        stderr_output.includes('not found') ||
+                        code === 1) {
+                        reject(new Error(`Video not found or unavailable: ${url}`));
+                    } else {
+                        reject(new Error(`Failed to get stream URL: ${error_msg}`));
+                    }
+                }
+            });
+        });
     }
 
     async create_yt_dlp_process(url) {
@@ -649,17 +842,17 @@ class Adaptive_Stream {
                     resolved = true;
                     reject(new Error('Timeout waiting for yt-dlp process to start'));
                 }
-            }, 30000); // 30 second timeout
+            }, 60000); // 60 second timeout for rate limiting
 
             const process = spawn('yt-dlp', [
                 '-f', 'bestaudio[ext=m4a]/bestaudio/best',
                 '--no-playlist',
-                '--no-warnings',
-                '--buffer-size', Adaptive_Stream.stream_buffer_size,
-                '--no-part',
-                '--socket-timeout', '10',
-                '--fragment-retries', '3',
-                '--retries', '2',
+                // '--no-warnings',
+                // '--buffer-size', Adaptive_Stream.stream_buffer_size,
+                // '--no-part',
+                // '--socket-timeout', '10',
+                // '--fragment-retries', '3',
+                // '--retries', '2',
                 '-o', '-',
                 url
             ]);
@@ -840,11 +1033,21 @@ class Adaptive_Stream {
         // Wait for at least the first segment to be created
     wait_for_first_segment(session_directory, quality = 'low') {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Timeout waiting for first segment')), Adaptive_Stream.hls_playlist_segment_wait_timeout);
+            console.log(`Waiting for first segment: ${quality}_0.ts in directory ${session_directory}`);
+            const timeout = setTimeout(() => {
+                const segment_path = path.join(session_directory, `${quality}_0.ts`);
+                console.log(`Timeout waiting for first segment. Expected file: ${segment_path}`);
+                console.log(`Directory exists: ${fs.existsSync(session_directory)}`);
+                if (fs.existsSync(session_directory)) {
+                    console.log(`Directory contents:`, fs.readdirSync(session_directory).slice(0, 10));
+                }
+                reject(new Error('Timeout waiting for first segment'));
+            }, Adaptive_Stream.hls_playlist_segment_wait_timeout);
             
             const check = () => {
                 const segment_path = path.join(session_directory, `${quality}_0.ts`);
                 if (fs.existsSync(segment_path)) {
+                    console.log(`First segment found: ${segment_path}`);
                     clearTimeout(timeout);
                     resolve();
                 } else {
