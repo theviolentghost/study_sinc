@@ -12,6 +12,11 @@ import { WatchHistoryService } from './watch-history.service';
   providedIn: 'root'
 })
 export class YoutubeService {
+    private loginSessionIdSubject = new BehaviorSubject<string | null>(null);
+    loginSessionId$: Observable<string | null> = this.loginSessionIdSubject.asObservable();
+    private loginImageSubject = new BehaviorSubject<string | null>(null);
+    loginImage$: Observable<string | null> = this.loginImageSubject.asObservable();
+
     private _currentSearchQuery: string;
     private nextSearchPageToken: string;
     private searchList: SearchResultItem[];
@@ -19,9 +24,9 @@ export class YoutubeService {
     searchResults$: Observable<SearchResultItem[] | null> = this.searchResultsSubject.asObservable();
     private searchSuggestionsSubject = new BehaviorSubject<string[] | null>(null);
     searchSuggestions$: Observable<string[] | null> = this.searchSuggestionsSubject.asObservable();
+
     private fullPlayingVideoDataSubject = new BehaviorSubject<FullVideoData | null>(null);
     fullPlayingVideoData$: Observable<FullVideoData | null> = this.fullPlayingVideoDataSubject.asObservable();
-
     private videoIdSubject = new BehaviorSubject<string | null>(null);
     videoId$: Observable<string | null> = this.videoIdSubject.asObservable();
     private minimizedSubject = new BehaviorSubject<boolean | null>(null);
@@ -80,6 +85,26 @@ export class YoutubeService {
         return this.http.get<FullVideoData>(`/youtube_get_video_data`, { params });
     }
 
+    youtubeInitializeLogin(): Observable<any>{
+        let params = new HttpParams();
+        console.log('logging');
+
+        return this.http.get<any>(`/start_youtube_login`, { params });
+    }
+
+    startLoginStream(id: string): Observable<any>{
+        let params = new HttpParams();
+        console.log('streaming');
+
+        return this.http.get<Blob>(`/stream_youtube_login/${id}`, { params, responseType: 'blob' as 'json' });
+    }
+
+    isLoginSessionActive(id: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.get<any>(`/is_session_active/${id}`, { params });
+    }
+
     get isDisplayingVideo(): boolean{
         return this.videoIdSubject.value ? true : false;
     }
@@ -102,6 +127,40 @@ export class YoutubeService {
 
     set channel(channel: YouTubeChannel){
         this.channelSubject.next(channel);
+    }
+
+    youtubeFullLogin(): void{
+        let id;
+        this.youtubeInitializeLogin()
+        .pipe(take(1))
+        .subscribe(data => {
+            id = data.id
+            console.log(data);
+            this.loginSessionIdSubject.next(id);
+
+            this.makeLoginStream(id);
+        });
+    }
+
+    makeLoginStream(id: string): void{
+        
+        let sessionChecker = setInterval(() => {
+            this.isLoginSessionActive(id)
+                .pipe(take(1))
+                .subscribe(isReady => {
+                    if(!isReady) return;
+
+                    clearInterval(sessionChecker);
+                    this.startLoginStream(id)
+                        .pipe(take(1))
+                        .subscribe(data => {
+                            const objectUrl = URL.createObjectURL(data);
+                            this.loginImageSubject.next(objectUrl);
+                });
+            });
+        }, 500);
+
+        
     }
 
     public minimizePlayer(){
@@ -131,7 +190,7 @@ export class YoutubeService {
             .pipe(take(1))
             .subscribe(data => {
                 this.fullPlayingVideoDataSubject.next(data);
-            });
+        });
     }
 
     public removeVideoPlaying(): void{

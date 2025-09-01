@@ -15,9 +15,14 @@ import 'dotenv/config';
 import progress_emitter from './progress.emitter.js';
 import playlist_importer from './import.js';
 import multer from 'multer';
+import youtubeAccount from './youtube-account.js';
+import fetch from 'node-fetch';
+import crypto from 'crypto';
 const upload = multer();
 
 const app = Express();
+
+const youtubeLoginSessions = {};
 
 //
 //
@@ -569,6 +574,46 @@ app.get('/youtube_get_video_data', async (req, res) => {
     }
 });
 
+app.get('/start_youtube_login', async (req, res) => {
+    const id = crypto.randomUUID();
+    res.status(200).json({id: id});
+    console.log(id);
+
+    const browserInfo = await youtubeAccount.initializeLogin();
+
+    youtubeLoginSessions[id] = { browser: browserInfo.browser, page: browserInfo.page, interval: null };
+    youtubeAccount.awaitLogin(page);
+});
+
+app.get('/is_session_active/:id', async (req, res) => {
+    const { id } = req.params;
+    const session = youtubeLoginSessions[id];
+    res.send(session ? true : false);
+});
+
+app.get('/stream_youtube_login/:id', async (req, res) => {
+    const { id } = req.params;
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    const page = session.page;
+
+    try {
+        console.log('screenshotting');
+        const buffer = await page.screenshot({ type: 'jpeg', quality: 80 });
+        res.writeHead(200, {
+            'Content-Type': 'image/jpeg',
+            'Content-Length': buffer.length,
+            'Cache-Control': 'no-cache',
+        });
+        res.end(buffer);
+    } catch (err) {
+        console.log(err);
+    }
+
+});
+
+
 
 // app.post('/newton/chat',
 //     Authentication.newton.validateChatAuthorization,
@@ -882,5 +927,6 @@ app.get(/.*/, (req, res) => {
 });
 
 app.listen(port, host, () => {
-    console.log(`Server is running on http://${host}:${port}`);
+    // console.log(`Server is running on http://${host}:${port}`);
+    console.log(`Server is running on http://localhost:${port}`);
 });

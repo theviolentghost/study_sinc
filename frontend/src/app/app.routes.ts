@@ -26,8 +26,7 @@ import { VideoSearchResultsComponent } from './youtube-page/video-search-results
 import { VideoChannelComponent } from './youtube-page/video-channel/video-channel.component';
 import { SubcriptionPageComponent } from './youtube-page/subcription-page/subcription-page.component';
 import { LibraryPageComponent } from './youtube-page/library-page/library-page.component';
-
-
+import { YoutubeLoginComponent } from './youtube-page/login/login.component';
 
 export const routes: Routes = [
     {
@@ -92,11 +91,15 @@ export const routes: Routes = [
                 path: "library-page",
                 component: LibraryPageComponent,
                 outlet: 'youtube'
-            }
-
+            },
+            {
+                path: "youtube-login-page",
+                component: YoutubeLoginComponent,
+                outlet: 'youtube'
+            },
+            
         ]
     },
-
     {
         path: 'user',
         component: UserSpaceComponent,

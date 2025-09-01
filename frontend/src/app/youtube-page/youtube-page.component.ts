@@ -99,6 +99,14 @@ export class YoutubePageComponent {
     }], { skipLocationChange: true });
   }
 
+  public navigateToLoginPage(): void{
+    this.router.navigate(['/youtube', { 
+        outlets: { 
+            youtube: ['youtube-login-page'] 
+        } 
+    }], { skipLocationChange: true });
+  }
+
   public updateSearchInput(): void{
 
     clearTimeout(this.search);
@@ -131,5 +139,10 @@ export class YoutubePageComponent {
   public searchWithSuggestion(searchQuery: string): void{
     this.searchInput = searchQuery;
     this.submitSearch();
+  }
+
+  public attempLogin(): void{
+    this.youtubeService.youtubeFullLogin();
+    this.navigateToLoginPage();
   }
 }
