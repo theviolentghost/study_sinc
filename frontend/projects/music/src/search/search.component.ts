@@ -1,10 +1,12 @@
-import { Component, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewInit, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Search_Result, Song_Source} from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
+import { query } from 'express';
 
 @Component({
   selector: 'media-search',
@@ -12,17 +14,22 @@ import { HotActionService } from '../../hot.action.service';
   templateUrl: './search.component.html',
   styleUrl: './search.component.css'
 })
-export class SearchComponent implements AfterViewInit {
+export class SearchComponent implements AfterViewInit, OnInit {
+    ngOnInit(): void {
+        this.load_search_history();
+    }
     @ViewChild('searchInput', { static: false }) searchInput!: ElementRef<HTMLInputElement>;
 
     search_source: Song_Source = 'spotify'; // default search source
     search_query: string = '';
     searched: boolean = false; // whether the user has performed a search
-    search_history: string[] = []; //list of previous queries
+    search_history: Map<string, any> = new Map(); //list of previous queries to their results
+    max_history: number = 5; // maximum number of previous searches to store
     search_results: Song_Search_Result = {
         artists: { total: 0, results: [] },
         videos: { total: 0, results: [] }
     };
+    catalog: any[] = [];
     song_data_cache: Map<string, Song_Data | null> = new Map(); // bare_song_key to Song_Data mapping for quick playback
     search_recommendations: any[] = []; 
 
@@ -37,6 +44,33 @@ export class SearchComponent implements AfterViewInit {
         if(this.search_source === source) return;
         this.search_source = source;
         this.search_results = {};
+    }
+    store_search_history(): void {
+        const history = Array.from(this.search_history.entries()).slice(-this.max_history); // keep last 5 searches
+        localStorage.setItem('search_history', JSON.stringify(history));
+    }
+    get search_history_length(): number {
+        return this.search_history.size;
+    }
+    load_search_history(): void {
+        const history = localStorage.getItem('search_history');
+        if(history) {
+            const log = JSON.parse(history);
+            // convert back to Map
+            this.search_history = new Map(log);
+            // console.log("Search history loaded:", this.search_history);
+                // load most recent search
+            const lastEntry = Array.from(this.search_history.entries()).pop();
+            // console.log("Most recent search entry:", lastEntry);
+            if (lastEntry) {
+                this.search_query = lastEntry[0];
+                this.search_results = lastEntry[1];
+                this.set_catalog();
+                this.searched = true;
+                // remove most recent entry
+                // this.search_history.delete(this.search_query);
+            }
+        }
     }
 
     get artist_results(): any[] {
@@ -89,13 +123,16 @@ export class SearchComponent implements AfterViewInit {
         }
     }
 
-    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService) {}
+    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router) {}
 
     ngAfterViewInit(): void {
         // Auto-focus the search input when component loads
         if (this.searchInput) {
             this.searchInput.nativeElement.focus();
         }
+        
+        // clear local storage search history
+        // localStorage.removeItem('search_history');
     }
 
     clear_input(): void {
@@ -108,20 +145,27 @@ export class SearchComponent implements AfterViewInit {
     }
 
     left_quick_action_click(): void {
-        if(this.search_history.length === 0) {
+        if(this.search_history.size === 0) {
             // Perform search action
             this.search(this.search_query);
         }
         else {
             // Go back to previous search
-            if (this.search_history.length > 0) {
-                this.search_query = this.search_history.pop() || '';
+            if (this.search_history.size > 0) {
+                const list = Array.from(this.search_history.keys());
+                const current_entry = list.pop();
+                this.search_query = list.pop() || '';
+                this.search_results = this.search_history.get(this.search_query) || {};
+                // remove most recent entry
+                this.search_history.delete(current_entry);
+                this.set_catalog();
+                this.searched = true;   
             }
         }
     }
 
     async search(query: string = this.search_query): Promise<void> {
-        if (query.trim() === '') return; 
+        if (query.trim() === '') return;
 
         this.search_query = query.trim();
         this.search_recommendations = []; // Clear recommendations on new search
@@ -133,10 +177,12 @@ export class SearchComponent implements AfterViewInit {
 
         this.song_data_cache.clear();
         this.search_results = await this.media.search(query, this.search_source);
+        this.set_catalog();
         this.searched = true; 
         console.log('Search results:', this.search_results);
 
-        this.search_history.push(query);
+        this.search_history.set(query, this.search_results);
+        this.store_search_history();
     }
 
     async youtube_play(video: any): Promise<void> {
@@ -310,5 +356,72 @@ export class SearchComponent implements AfterViewInit {
         // const source_color = this.source_options.get(this.search_source);
         const source_color = "";
         return source_color || 'var(--color-primary)'; // Default color if not found
+    }
+
+    format_followrs(num: number | undefined): string {
+        if (num === undefined || num === null) return '';
+        if (num >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return num.toString();
+    }
+
+    is_following_artist(artist_id: string | undefined): boolean {
+        if (!artist_id) return false;
+        return this.media.is_artist_followed(artist_id);
+    }
+
+    async toggle_follow_artist(artist: any): Promise<void> {
+        if (!artist || !artist.id) return;
+        const is_following = this.media.is_artist_followed(artist.id);
+        if (is_following) {
+            await this.media.unfollow_artist(artist.id);
+        } else {
+            await this.media.follow_artist(artist);
+        }
+    }
+
+    search_filter: string = 'all'; // Default filter
+    select_filter(filter: string): void {
+        this.search_filter = filter;
+        this.set_catalog();
+    }
+
+    set_catalog(): void {
+        switch(this.search_filter) {
+            case 'tracks':
+                this.catalog = this.search_results?.tracks?.items || [];
+                this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
+                break;
+            case 'artists':
+                this.catalog = this.search_results?.artists?.items || [];
+                this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
+                break;
+            case 'albums':
+                this.catalog = this.search_results?.albums?.items || [];
+                break;
+            case 'playlists':
+                this.catalog = this.search_results?.playlists?.items || [];
+                break;
+            case 'all':
+            default:
+                // Combine all results into a single catalog array
+                this.catalog = [
+                    ...(this.search_results?.catalog || []),
+                ];
+                break;
+        }
+    }
+
+    spotify_open_artist(artist: any): void {
+        const artist_id = artist.id;
+        if (!artist_id) return;
+
+        // add to media cache
+        this.media.add_artist_to_recents(artist);
+        this.router.navigate(['/artist', artist_id], { 
+            queryParams: {
+                source: 'spotify'
+            }
+        });
     }
 }

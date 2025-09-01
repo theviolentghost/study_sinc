@@ -4,7 +4,7 @@
     <div class="cover" [ngClass]="{'single': playlist_identifier?.images.length === 1}" [style.--primary]="get_playlist_primary_color()">
         <img *ngFor="let image of playlist_identifier?.images" [src]="image" alt="" />
     </div>
-    <h1 class="label">{{playlist_identifier?.name || playlist?.name || '#Playlist Name'}}</h1>
+    <h1 class="label" style="white-space: nowrap;">{{playlist_identifier?.name || playlist?.name || '#Playlist Name'}}</h1>
     <div class="playlist-info">
         <div class="count">{{ playlist_identifier?.track_count || 0 }} tracks</div>
         <div class="playlist-duration">{{ ms_to_time(playlist_identifier?.duration || 0) }}</div>
@@ -26,7 +26,7 @@
         Shuffle Play
     </button>
 </div>
-<div class="result-videos" #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top">
+<div class="result-videos" #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top" [style.padding-bottom]="padding_bottom">
     <button 
         class="result video disable-select" 
         [ngClass]="{selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(video?.id)}" 

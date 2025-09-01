@@ -1,6 +1,6 @@
-<div class="backdrop" [style.--primary]="get_search_primary_color()"></div>
+<!-- <div class="backdrop" [style.--primary]="get_search_primary_color()" [ngClass]="{ 'extra-space': catalog.length > 0 }"></div> -->
 <div class="search-container">
-    <button class="quick-action" [style.--mask]="'url(' + (search_history.length === 0 ? 'search.svg' : 'chevron-left.svg') + ')'" (click)="left_quick_action_click()"></button>
+    <button class="quick-action" [style.--mask]="'url(' + (search_history_length === 0 ? 'search.svg' : 'chevron-left.svg') + ')'" (click)="left_quick_action_click()"></button>
     <input #searchInput id="search" type="text" [(ngModel)]="search_query" placeholder="Search" (keydown.enter)="search()" autocomplete="off" (ngModelChange)="on_search_input_change()"/>
     <button class="quick-action hidden" [style.--mask]="'url(\'x.svg\')'" [ngClass]="{hidden: search_query.length === 0}" (click)="clear_input()"></button>
     <button class="quick-action" [style.--mask]="'url(\'brand-' + search_source + '.svg\')'" style="mask-size: 90%;" (click)="toggle_source_dropdown()">
@@ -22,7 +22,15 @@
 </div>
 
 <div class="search-results">
+    <div class="search-filter" *ngIf="search_source == 'spotify'" [ngClass]="{visible: search_results?.catalog?.length > 0}">
+        <button class="filter clear" [style.--mask]="'url(\'x.svg\')'" [ngClass]="{visible: search_filter !== 'all'}" (click)="select_filter('all')"></button>
+        <button class="filter" (click)="select_filter('tracks')" [ngClass]="{active: search_filter === 'tracks'}">Tracks</button>
+        <button class="filter" (click)="select_filter('artists')" [ngClass]="{active: search_filter === 'artists'}">Artists</button>
+        <button class="filter" (click)="select_filter('albums')" [ngClass]="{active: search_filter === 'albums'}">Albums</button>
+        <button class="filter" (click)="select_filter('playlists')" [ngClass]="{active: search_filter === 'playlists'}">Playlists</button>
+    </div>
     <div class="search-results-main">
+        <div class="backdrop" [style.--primary]="get_search_primary_color()" [ngClass]="{ 'extra-space': catalog.length > 0 }"></div>
         <ng-container [ngSwitch]="search_source">
             <!-- YOUTUBE TEMPLATE -->
             <ng-container *ngSwitchCase="'youtube'">
@@ -61,14 +69,14 @@
             <!-- SPOTIFY TEMPLATE -->
             <ng-container *ngSwitchCase="'spotify'">
                 <!-- Artists -->
-                <div *ngIf="(search_results?.artists?.total || 0) > 0" class="search-results-artists">
+                <!-- <div *ngIf="(search_results?.artists?.total || 0) > 0" class="search-results-artists">
                     <div class="search-result artist disable-select" *ngFor="let artist of artist_results">
                         <div class="thumbnail">
                             <img [src]="artist.images?.[0]?.url || 'users.svg'" alt="" />
                         </div>
                         <a class="name">{{ artist.name }}</a>
                     </div>
-                </div>
+                </div> -->
                 <!-- Albums -->
                 <!-- <div *ngIf="(search_results?.albums?.total || 0) > 0" class="search-results-albums">
                     <div class="search-result album disable-select" *ngFor="let album of search_results?.albums?.items">
@@ -82,30 +90,73 @@
                     </div>
                 </div> -->
                 <!-- Tracks -->
-                 
-                <div *ngIf="(search_results?.tracks?.total || 0) > 0" class="search-results-videos hide-scrollbar">
-                    <button (click)="spotify_play(track)" class="search-result video disable-select" *ngFor="let track of search_results?.tracks?.items" [ngClass]="{saved: is_song_in_collection(track, 'spotify'), selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(track, 'spotify'))}">
+                <!-- <div *ngIf="(catalog?.length || 0) > 0" class="search-results-videos hide-scrollbar"> -->
+                    <!-- <button (click)="spotify_play(track)" class="search-result video disable-select" *ngFor="let track of search_results?.tracks?.items" [ngClass]="{saved: is_song_in_collection(track, 'spotify'), selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(track, 'spotify'))}">
                         <div class="thumbnail">
                             <img [src]="track.album?.images?.[2]?.url || 'music.svg'" alt="" />
-                            <!-- 0-2 (0 highest quality, 2 lowest) -->
                             <div class="duration">{{ ms_to_time(track.duration_ms) }}</div>
                         </div>
                         <div class="info">
                             <div class="title">{{ track.name }}</div>
                             <div class="artist">{{ track.artists?.[0]?.name }}</div>
-                            <!-- <div class="album">{{ track.album?.name }}</div> -->
                         </div>
                         <div class="extra-info-alignment">
-                            <!-- <div class="extra-info" [style.opacity]="is_song_in_collection(track, 'spotify') ? 1 : 0">
-                                <div class="liked" *ngIf="get_song_data_in_collection(track, 'spotify')?.liked" [style.--mask]="'url(' + 'heart-fill.svg' + ')'"></div>
-                                <div class="downloaded" *ngIf="get_song_data_in_collection(track, 'spotify')?.downloaded" [style.--mask]="'url(' + 'cloud-download.svg' + ')'"></div>
-                            </div> -->
-                            <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(track, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(track, 'spotify'); $event.stopPropagation();">
-                                <!-- <div *ngIf="is_song_in_collection(track, 'spotify')" class="saved-indicator" [style.--mask]="'url(\'check.svg\')'"></div> -->
-                            </button>
+                            <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(track, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(track, 'spotify'); $event.stopPropagation();"></button>
                         </div>
-                    </button>
-                </div>
+                    </button> -->
+                    <div class="search-background">
+                        <ng-container *ngFor="let item of catalog">
+                            <ng-container [ngSwitch]="item?.type">
+                                <button
+                                    *ngSwitchCase="'track'"
+                                    (click)="spotify_play(item)"
+                                    class="search-result video disable-select"
+                                    [ngClass]="{
+                                        saved: is_song_in_collection(item, 'spotify'),
+                                        selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(item, 'spotify'))
+                                    }"
+                                >
+                                    <div class="thumbnail">
+                                        <img [src]="item?.album?.images?.[1]?.url || 'music.svg'" alt="Track cover" />
+                                        <div class="duration">{{ ms_to_time(item?.duration_ms) }}</div>
+                                    </div>
+                                    <div class="info">
+                                        <div class="title">{{ item?.name }}</div>
+                                        <div class="artist">{{ item?.artists?.[0]?.name }}</div>
+                                    </div>
+                                    <div class="extra-info-alignment">
+                                        <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(item, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(item, 'spotify'); $event.stopPropagation();"></button>
+                                    </div>
+                                </button>
+
+                                <button
+                                    *ngSwitchCase="'artist'"
+                                    (click)="spotify_open_artist(item)"
+                                    class="search-result artist disable-select"
+                                    [ngClass]="{
+                                        following: false,
+                                    }"
+                                >
+                                    <div class="thumbnail">
+                                        <img [src]="item?.images?.[1]?.url || 'music.svg'" alt="Artist image" />
+                                    </div>
+                                    <div class="info">
+                                        <div class="title">{{ item?.name }}</div>
+                                        <div class="followers">{{ format_followrs(item?.followers?.total) }} <span style="filter: brightness(.8);">Followers</span></div>
+                                    </div>
+                                    <div class="extra-info-alignment">
+                                        <button class="following" [style.--mask]="'url(\'' + (is_following_artist(item?.id) ? 'bookmark-fill.svg' : 'bookmark.svg') + '\')'" (click)="toggle_follow_artist(item); $event.stopPropagation();"></button>
+                                    </div>
+                                </button>
+
+                                <!-- Debug fallback for unknown types -->
+                                <div *ngSwitchDefault class="debug-item">
+                                    <p>Unknown type: {{ item?.type }} - {{ item?.name }}</p>
+                                </div>
+                            </ng-container>
+                        </ng-container>
+                    </div>
+                <!-- </div> -->
             </ng-container>
 
             <!-- FUTURE SOURCES TEMPLATE -->

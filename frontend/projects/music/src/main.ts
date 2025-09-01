@@ -32,7 +32,7 @@ let CURRENT_CACHE_NAME = `${CACHE_NAME_PREFIX}_v1`;
 
 
 // Register service worker
-if ('serviceWorker' in navigator && !isDevMode()) {
+if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
         const { version_service, app_reference } = await initialize_app();
         window.version_service = version_service;

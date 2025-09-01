@@ -28,6 +28,8 @@ class File_Manager {
         '/music/arrows-shuffle.svg',
         '/music/badge-cc-fill.svg',
         '/music/badge-cc.svg',
+        '/music/bookmark.svg',
+        '/music/bookmark-fill.svg',
         '/music/brand-musi.svg',
         '/music/brand-musix.svg',
         '/music/brand-spotify.svg',

@@ -78,9 +78,10 @@ export interface Song_Playlist {
 }
 
 export interface Song_Search_Result {
+    catalog?: any[], // combined and sorted list of tracks and artists by popularity
     artists?: 
         { total: number, results: any[], next_page_token?: string } |
-        { href: string, items: any[], limit: number, next: string | null, previous: string | null,  offset: number, total: number },
+        { href: string, items: any[], limit: number, next: string | null, previous: string | null,  offset: number, total: number } | any,
     videos?: { total: number, results: any[], next_page_token?: string },
     albums?: { href: string, items: any[], limit: number, next: string | null, previous: string | null,  offset: number, total: number },
     tracks?: { href: string, items: any[], limit: number, next: string | null, previous: string | null,  offset: number, total: number },
@@ -100,6 +101,7 @@ export type Song_Source = 'youtube' | 'spotify' | 'musi' | 'musix' | 'other';
 })
 export class MusicMediaService {
     @Output() song_data_updated: EventEmitter<Song_Data> = new EventEmitter<Song_Data>();
+    @Output() artists_loaded: EventEmitter<void> = new EventEmitter<void>();
 
     private player?: MusicPlayerService;
     private playlist_service?: PlaylistsService;
@@ -128,6 +130,8 @@ export class MusicMediaService {
     private all_songs_cache: Set<string> = new Set(); // song key
     private all_songs_cache_initialized: boolean = false;
 
+    private artists_cache: Map<string, any> = new Map(); // artist id -> artist data
+
     private _preload_duration: number = 15; // seconds (3-20)
 
     async initialize_all_songs_cache(playlist_identifiers: Song_Playlist_Identifier[]): Promise<void> {
@@ -151,6 +155,10 @@ export class MusicMediaService {
         this.all_songs_cache_initialized = true;
         console.log('All songs cache initialized with', this.all_songs_cache.size, 'songs.');
         console.log(this.playlist_songs_cache);
+
+        //  also initialize artists cache
+        await this.load_all_artists_from_indexDB();
+        this.artists_loaded.emit();
     }
 
     public is_song_in_collection(bare_song_key: string, exclude_defaults: boolean = false): boolean {
@@ -682,8 +690,9 @@ export class MusicMediaService {
     async search(query: string, source: string = 'spotify'): Promise<Song_Search_Result> {
         try {
             const response = await lastValueFrom(
-                this.http.get(`${this.Auth.backendURL}/music/search`, { params: { q: query, source } })
+                this.http.get(`/music/search`, { params: { q: query, source } })
             );
+            console.log('Search response:', response);
             return response as Song_Search_Result; 
         } catch (error) {
             console.error('Error during search:', error);
@@ -1115,5 +1124,147 @@ export class MusicMediaService {
             console.error('Error fetching watch playlist:', error);
             return null;
         }
+    }
+
+    is_artist_followed(artist_id: string): boolean {
+        return this.followed_artists_cache?.has(artist_id) || false;
+    }
+
+    async add_artist_to_recents(artist_data: any): Promise<void> {
+        if (!artist_data || !artist_data.id) return;
+        this.artists_cache?.set(artist_data.id, artist_data);
+        this.recent_artists_cache?.set(artist_data.id, artist_data);
+
+        // Maintain max recent artists limit
+        if (this.recent_artists_cache.size > this.max_recent_artists) {
+            const firstKey = this.recent_artists_cache.keys().next().value;
+            this.recent_artists_cache.delete(firstKey);
+        }
+
+        this.save_recent_artists_to_indexDB();
+    }
+
+    async follow_artist(artist_data: any): Promise<void> {
+        if (!artist_data || !artist_data.id) return;
+        this.followed_artists_cache?.set(artist_data.id, artist_data);
+        this.artists_cache?.set(artist_data.id, artist_data);
+        this.save_followed_artists_to_indexDB();
+    }
+
+    async unfollow_artist(artist_id: string): Promise<void> {
+        if (!artist_id) return;
+        this.artists_cache?.delete(artist_id);
+        this.followed_artists_cache?.delete(artist_id);
+        this.save_followed_artists_to_indexDB();
+    }
+
+    async save_followed_artists_to_indexDB(): Promise<void> {
+        try {
+            const artists_array = Array.from(this.followed_artists_cache?.values() || []);
+            await set('#followed_artists', artists_array);
+            console.log('Followed artists saved to IndexedDB:', artists_array);
+        } catch (error) {
+            console.error('Error saving followed artists to IndexedDB:', error);
+        }
+    }
+
+    async save_all_artists_to_indexDB(): Promise<void> {
+        await this.save_followed_artists_to_indexDB();
+        await this.save_recent_artists_to_indexDB();
+    }
+
+    async load_all_artists_from_indexDB(): Promise<void> {
+        await this.load_followed_artists_from_indexDB();
+        await this.load_recent_artists_from_indexDB();
+    }
+
+
+
+    private followed_artists_cache: Map<string, any> = new Map();
+    private recent_artists_cache: Map<string, any> = new Map();
+    private max_recent_artists: number = 20;
+    async save_recent_artists_to_indexDB(): Promise<void> {
+        try {
+            const artists_array = Array.from(this.recent_artists_cache?.values() || []);
+            await set('#recent_artists', artists_array);
+            console.log('Recent artists saved to IndexedDB:', artists_array);
+        } catch (error) {
+            console.error('Error saving recent artists to IndexedDB:', error);
+        }
+    }
+
+    async load_followed_artists_from_indexDB(): Promise<void> {
+        try {
+            this.followed_artists_cache = new Map(); // reset
+            const artists_array: any[] = await get('#followed_artists') || [];
+            this.followed_artists_cache = new Map(artists_array.map(artist => [artist.id, artist]));
+            // also add to main cache
+            this.artists_cache = this.artists_cache || new Map();
+            for(const artist of artists_array) {
+                this.artists_cache?.set(artist.id, artist);
+            }
+            console.log('Followed artists loaded from IndexedDB:', artists_array);
+        } catch (error) {
+            console.error('Error loading followed artists from IndexedDB:', error);
+            this.followed_artists_cache = new Map();
+        }
+    }
+
+    async load_recent_artists_from_indexDB(): Promise<void> {
+        try {
+            this.recent_artists_cache = new Map(); // reset
+            const artists_array: any[] = await get('#recent_artists') || [];
+            this.recent_artists_cache = new Map(artists_array.map(artist => [artist.id, artist]));
+            for(const artist of artists_array) {
+                this.artists_cache?.set(artist.id, artist); // also add to main cache
+            }
+            console.log('Recent artists loaded from IndexedDB:', artists_array);
+        } catch (error) {
+            console.error('Error loading recent artists from IndexedDB:', error);
+            this.recent_artists_cache = new Map();
+        }   
+    }
+
+    public async get_artist_details(artist_id: string): Promise<any | null> {
+        const result = this.artists_cache?.get(artist_id) || null;
+        if(!result) {
+            const response = await lastValueFrom(
+                this.http.get(`/spotify/artist/${artist_id}`)
+            );
+            return (response as any) || null;
+        }
+        return result;
+    }
+
+    public async get_artist_top_tracks(artist_id: string): Promise<any[]> {
+        try {
+            const response = await lastValueFrom(
+                this.http.get(`/spotify/artist/${artist_id}/top_tracks`)
+            );
+            return (response as any[]) || [];
+        } catch (error) {
+            console.error('Error fetching artist top tracks:', error);
+            return [];
+        }
+    }
+
+    public async get_artist_albums(artist_id: string): Promise<any[]> {
+        try {
+            const response = await lastValueFrom(
+                this.http.get(`/spotify/artist/${artist_id}/albums`)
+            );
+            return (response as any[]) || [];
+        } catch (error) {
+            console.error('Error fetching artist albums:', error);
+            return [];
+        }
+    }
+
+    public get_followed_artists(): any[] {
+        return Array.from(this.followed_artists_cache?.values() || []);
+    }
+
+    public get_recent_artists(): any[] {
+        return Array.from(this.recent_artists_cache?.values() || []);
     }
 }

@@ -35,7 +35,7 @@ export class HotActionComponent {
         switch (this.action) {
             case 'add_to_playlist': return '';
             case 'create_playlist': return 'Create Playlist';
-            case 'import_playlist': return 'Import';
+            case 'import_playlist': return 'Import Playlist';
             default: return 'Hot Action';
         }
     }
@@ -202,9 +202,27 @@ export class HotActionComponent {
     select_playlist(playlist_selector: any): void {
         playlist_selector.select();
     }
+    async import_playlist(): Promise<void> {
+        switch (this.import_type) {
+            case 'spotify':
+            case 'youtube':
+            case 'musi':
+                this.import_playlist_done();
+                break;
+            case 'musix':
+                // should already be handled by file input change
+                // this.import_playlist_from_file_done();
+                break;
+        }
+    }
     async import_playlist_done(): Promise<void> {
         this.import_status = 'loading';
-        this.media.import_playlist(this.import_url).then(async (response) => {
+        let url = this.import_url.trim();
+        if(!url.includes('http://') && !url.includes('https://')) {
+            // asume it's a musi url
+            url = 'https://feelthemusi.com/playlist/' + url;
+        }
+        this.media.import_playlist(url).then(async (response) => {
             console.log('Playlist import response:', response);
             if (response.name.trim().length > 0 && response.tracks.length > 0) {
                 const playlist_indentifier = await this.playlists.create_playlist(response.name);
@@ -246,7 +264,7 @@ export class HotActionComponent {
             const response = await this.media.import_playlist_from_file(this.import_file);
             console.log('Playlist import response:', response);
             if (response.name.trim().length > 0 && response.tracks.length > 0) {
-                const playlist_identifier = await this.playlists.create_playlist(response.name);
+                const playlist_identifier = await this.playlists.create_playlist(response?.name || 'Imported Playlist');
                 console.log('Created playlist identifier:', playlist_identifier);
                 if (!playlist_identifier) return;
                 const playlist = await this.playlists.get_playlist(playlist_identifier);
@@ -281,5 +299,14 @@ export class HotActionComponent {
         } else {
             this.import_file = null;
         }
+    }
+
+    import_type: 'spotify' | 'youtube' | 'musi' | 'musix' = 'musi';
+
+    set_import_type(type: 'spotify' | 'youtube' | 'musi' | 'musix'): void {
+        this.import_type = type;
+        this.import_url = '';
+        this.import_file = null;
+        this.import_status = 'idle';
     }
 }

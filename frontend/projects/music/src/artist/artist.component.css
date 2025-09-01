@@ -1,8 +1,8 @@
 :host {
     display: grid;
     grid-template-areas:
-        "side-panel media"
-        "side-panel media";
+        "media media"
+        "media media";
     grid-template-rows: 1fr 1fr;
     grid-template-columns: 1fr 3fr;
     height: 100%;
@@ -22,7 +22,6 @@
 .side-panel {
     grid-area: side-panel;
     max-width: 400px;
-    padding: var(--space-2);
 }
 @keyframes spin {
     from { transform: rotate(0deg); }
@@ -370,90 +369,4 @@
             filter: brightness(0.75);
         }
     }
-}  
-
-.artist {
-    display: flex;
-    flex-direction: row;
-    gap: var(--space-2);
-    padding: var(--space-1);
-    cursor: pointer;
-    align-items: center;
-    border-radius: var(--space-2);
-    transition: background-color 0.15s ease-in-out;
-
-    &:hover {
-        background-color: var(--color-background-200);
-    }
-
-    .thumbnail {
-        width: 32px;
-        height: 32px;
-        border-radius: 99999px;
-        background-color: var(--color-background-300);
-        overflow: hidden;
-        flex-shrink: 0;
-
-        img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-    }
-
-    .info {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 2px;
-        width: 100%;
-        overflow: hidden;
-
-        .name {
-            font-size: calc(var(--font-size-base) * 1);
-            font-weight: 500;
-            color: var(--color-text);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .followers {
-            font-size: calc(var(--font-size-base) * .75);
-            color: var(--color-text-600);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            filter: brightness(0.75);
-        }
-    }
-
-    .more-info {
-        margin-left: auto;
-        width: var(--space-5);
-        height: var(--space-5);
-        background-color: transparent;
-        cursor: pointer;
-        border: none;
-        transition: background-color 0.15s ease-in-out;
-
-        &::after {
-            content: '';
-            display: block;
-            width: 100%;
-            height: 100%;
-            mask-size: cover;
-            mask-repeat: no-repeat;
-            mask-position: center;
-            mask-image: var(--mask);
-            background-color: var(--color-text);
-            transition: background-color 0.15s ease-in-out, transform 0.15s ease-in-out;
-            transform: rotate(135deg);
-        }
-    }
-
-    &:hover .more-info::after {
-        background-color: var(--color-primary);
-        transform: rotate(180deg);
-    }
-}
+}   

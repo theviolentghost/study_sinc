@@ -1,7 +1,7 @@
 
 
 <div class="playlists-container hide-scrollbar">
-    <div class="playlists-header">
+    <!-- <div class="playlists-header">
         <div class="actions">
             <button class="action-playlist" (click)="import_playlist()">
                 <h5>Import</h5>
@@ -12,9 +12,32 @@
                 <div class="plus" [style.--mask]="'url(\'plus.svg\')'"></div>
             </button>
         </div>
-    </div>
+    </div> -->
 
     <div class="playlists-list">
+        <!-- actions -->
+        <button 
+            class="playlist no-background" 
+            (click)="import_playlist()" 
+            [style.--primary]="'var(--color-primary)'"
+        >
+            <div class="thumbnail single" >
+                <div class="image" [style.--mask]="'url(\'cloud-down.svg\')'"></div>
+            </div>
+            <div class="name">Import Playlist</div>
+        </button>
+        <button 
+            class="playlist no-background" 
+            (click)="create_playlist()" 
+            [style.--primary]="'var(--color-primary)'"
+            [style.border-bottom]="'solid 1px transparent'"
+        >
+            <div class="thumbnail single" >
+                <div class="image" [style.--mask]="'url(\'plus.svg\')'"></div>
+            </div>
+            <div class="name">Create Playlist</div>
+        </button>
+        <h1 *ngIf="default_playlist_identifiers.length > 0">Default Playlists</h1>        
         <button 
             class="playlist" 
             *ngFor="let playlist of default_playlist_identifiers; last as isLast" 

@@ -720,7 +720,7 @@ app.post('/import/musix', upload.single('playlist_file'), async (req, res) => {
         }
         res.json(playlist);
     } catch (error) {
-        console.error('Error fetching MusiX playlist:', error);
+        console.error('Error fetching MusiX playlist:', error.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -784,6 +784,57 @@ app.get('/music/watch_playlist/:track_id', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
+app.get('/spotify/artist/:artist_id', async (req, res) => {
+    const artist_id = req.params.artist_id;
+    if (!artist_id) {
+        return res.status(400).json({ error: 'Artist ID is required' });
+    }
+    try {
+        const artist = await Music.spotify.get_artist(artist_id);
+        if (!artist) {
+            return res.status(404).json({ error: 'Artist not found' });
+        }
+        res.json(artist);
+    } catch (error) {
+        console.error('Error fetching artist:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// /music/artist/${artist_id}/top_tracks
+app.get('/spotify/artist/:artist_id/top_tracks', async (req, res) => {
+    const artist_id = req.params.artist_id;
+    if (!artist_id) {
+        return res.status(400).json({ error: 'Artist ID is required' });
+    }
+    try {
+        const top_tracks = await Music.spotify.get_artist_top_tracks(artist_id);
+        if (!top_tracks || top_tracks.length === 0) {
+            return res.status(404).json({ error: 'No top tracks found for the given artist' });
+        }
+        res.json(top_tracks);
+    } catch (error) {
+        console.error('Error fetching artist top tracks:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// /spotify/artist/${artist_id}/albums
+app.get('/spotify/artist/:artist_id/albums', async (req, res) => {
+    const artist_id = req.params.artist_id;
+    if (!artist_id) {
+        return res.status(400).json({ error: 'Artist ID is required' });
+    }
+    try {
+        const albums = await Music.spotify.get_artist_albums(artist_id);
+        if (!albums || albums.length === 0) {
+            return res.status(404).json({ error: 'No albums found for the given artist' });
+        }
+        res.json(albums);
+    } catch (error) {
+        console.error('Error fetching artist albums:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 
 

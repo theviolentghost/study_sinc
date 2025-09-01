@@ -316,13 +316,25 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
     }
 
     try {
-        const data = await spotify_api.search(query, ['track', 'album', 'artist'], { limit: total_results });
+        const data = await spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results });
 
-        return data.body;
+        // return data.body;
+        // return a sorted cobined list of tracks and artists as well called catelog soprted by popularity
+        return {
+            ...data.body,
+            catalog: spotify_generate_catalog(data.body)
+        }
     } catch (error) {
         console.error('Error searching Spotify:', error);
         return {};
     }
+}
+
+function spotify_generate_catalog(spotify_data) {
+    const { tracks, artists} = spotify_data;
+    let catalog = [...tracks.items, ...artists.items];
+    catalog.sort((a, b) => b.popularity - a.popularity);
+    return catalog;
 }
 
 async function search(query = 'NoCopyrightSounds', source = 'spotify') {
@@ -363,14 +375,38 @@ async function spotify_uri_to_video_id(uri) {
     } catch (error) {
         console.error('Error fetching spotify video id:', error);
         return {};
-        console.error('Error fetching spotify video id:', error);
-        return {};
     }
 }
 
+async function spotify_get_artist_top_tracks(artist_id) {
+    try {
+        const data = await spotify_api.getArtistTopTracks(artist_id, 'US');
+        return data.body.tracks;
+    } catch (error) {
+        console.error('Error fetching artist top tracks:', error);
+        return [];
+    }
+}
 
+async function spotify_get_artist(artist_id) {
+    try {
+        const data = await spotify_api.getArtist(artist_id);
+        return data.body;
+    } catch (error) {
+        console.error('Error fetching artist details:', error);
+        return null;
+    }
+}
 
-
+async function spotify_get_artist_albums(artist_id, total_results = 50) {
+    try {
+        const data = await spotify_api.getArtistAlbums(artist_id, { limit: total_results });
+        return data.body.items;
+    } catch (error) {
+        console.error('Error fetching artist albums:', error);
+        return [];
+    }
+}
 
 
 
@@ -939,6 +975,9 @@ export default {
         search_albums: spotify_search_for_albums,
         search_playlists: spotify_search_for_playlists,
         uri_to_video_id: spotify_uri_to_video_id,
+        get_artist_top_tracks: spotify_get_artist_top_tracks,
+        get_artist: spotify_get_artist,
+        get_artist_albums: spotify_get_artist_albums,
     },
     search,
     get_search_recommendations: get_search_recommendations,

@@ -12,6 +12,9 @@
     height: 100%;
     overflow: hidden;
 }
+.content-container.music-idle {
+    height: calc(100% - var(--space-7));
+}
 
 router-outlet {
     display: contents;

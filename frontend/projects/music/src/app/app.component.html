@@ -1,5 +1,5 @@
 <!-- <div class="loader"></div> -->
-<div class="content-container">
+<div class="content-container" [ngClass]="{'music-idle': !is_music_idle}">
     <router-outlet></router-outlet>
 </div>
 <media-player></media-player>

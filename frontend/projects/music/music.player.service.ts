@@ -230,9 +230,9 @@ export class MusicPlayerService {
         });
     }
 
-    public async load_playlist(playlist: Song_Playlist | null, keep_hsitroy?: boolean, play_imediately: boolean = true, load_track: boolean = false, playlist_identifier?: Song_Playlist_Identifier | null | undefined ): Promise<void> {
+    public async load_playlist(playlist: Song_Playlist | null, keep_hsitroy?: boolean, play_imediately: boolean = true, load_track: boolean = false, playlist_identifier?: Song_Playlist_Identifier | null | undefined, use_old_data: boolean = false): Promise<void> {
         if (!playlist) {
-            console.warn("No playlist provided to load.");
+            console.warn("No playlist provided to load.");  
             return;
         }
 
@@ -242,11 +242,11 @@ export class MusicPlayerService {
         this.current_playlist = playlist;
         const all_songs_in_playlist = Array.from(playlist.songs.values());
         this.playlist_queue.queue = [...all_songs_in_playlist]
-        this.playlist_song_data_map.clear(); // Clear previous song data cache
+        if(!use_old_data) this.playlist_song_data_map.clear(); // Clear previous song data cache
         
         const song_data_promises = this.playlist_queue.queue.map(async (song) => {
             try {
-                const data = await this.media.get_song_data(this.media.song_key(song));
+                const data = this.playlist_song_data_map.get(this.media.song_key(song)) || await this.media.get_song_data(this.media.song_key(song));
                 if (data) {
                     this.playlist_song_data_map.set(this.media.song_key(song), data);
                 }
@@ -264,6 +264,7 @@ export class MusicPlayerService {
         const successful_loads = results.filter(result => 
             result.status === 'fulfilled' && result.value.success
         ).length;
+        console.log(song_data_promises)
         console.log(`Loaded song data for ${successful_loads}/${this.playlist_queue.queue.length} songs`);
 
         if(this.playlist_queue.queue.length > 1) this.remove_current_song_from_queue(); // Ensure current song is not in the queue
@@ -470,7 +471,8 @@ export class MusicPlayerService {
 
             if (!source_url) {
                 console.error(`No audio source found for track key: ${track_key}`);
-                this.song_error.emit(Player_Error.COULD_NOT_LOAD);
+                // only emit error if it's the current song
+                if(track_data.id.video_id === this.current_song_data.id.video_id) this.song_error.emit(Player_Error.COULD_NOT_LOAD);
                 // this.unload_audio();
                 this.loading = false;
                 return;

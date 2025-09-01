@@ -16,11 +16,12 @@
     flex-direction: row;
     justify-content: center;
     align-items: center;
-    background-color: var(--color-background);
+    background-color: var(--color-background-300);
     border-radius: 99999px;
     margin: var(--space-5);
     gap: var(--space-0);
-    box-shadow: 0 0 10px 10px var(--color-background);
+    z-index: 5;
+    box-shadow: 0 0 2px 2px var(--color-background-300);
 }
 
 .search-container input {
@@ -35,7 +36,7 @@
     border-radius: inherit;
     transition: background-color 0.15s ease-in-out;
 }
-/* is tocuh screen */
+/* is touch screen */
 @media (pointer: coarse) {
     .search-container:has(input:focus) .search-recommendations {
         display: flex;
@@ -82,9 +83,9 @@
     left: 60%;
     width: 40%;
     height: 40%;
-    background-color: var(--color-background);
+    background-color: var(--color-background-300);
     overflow: visible;
-    border-top-left-radius: var(--space-1);
+    border-radius: var(--space-2);
 }
 .search-container .quick-action .drop-down-indicator:before {
     content: '';
@@ -104,7 +105,7 @@
     top: 0;
     left: 0;
     width: 100%;
-    background-color: var(--color-background-200);
+    background-color: var(--color-background-300);
     border-radius: var(--space-2);
     z-index: 1000;
     display: flex;
@@ -114,18 +115,19 @@
     box-sizing: content-box;
 }
 .search-container .drop-down-options::after {
-    --size: var(--space-2);
-    content: '';
+    --size: var(--space-1);
+    content: "";
     position: absolute;
-    top: 0;
-    left: 0;
+    top: 2px;
+    left: 1px;
     transform: translate(calc(-1 * var(--size)), calc(-1 * var(--size)));
     width: calc(100% + 2 * var(--size));
     height: calc(100% + 2 * var(--size));
-    background-color: var(--color-background-200);
+    background-color: var(--color-background-300);
     border-radius: 999999px;
     z-index: -1;
     pointer-events: none;
+    box-shadow: 0 0 2px 2px var(--color-background-300);
 }
 .search-container .drop-down-options.hidden {
     display: none;
@@ -154,7 +156,7 @@
     width: calc(100% - var(--offset));
     max-height: 300px;
     overflow-y: auto;
-    background-color: var(--color-background-200);
+    background-color: var(--color-background-300);
     border-radius: 0 0 var(--space-2) var(--space-2);
     z-index: 1000;
     display: none;
@@ -187,8 +189,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    overflow-y: auto;
+    /* overflow-y: auto; */
     gap: var(--space-4);
+    margin-top: var(--space-3);
 }
 .search-results-artists {
     position: relative;
@@ -211,7 +214,18 @@
     flex-direction: column;
     overflow-y: auto;
     align-items: center;
-    padding: 20px;
+    padding: 6px;
+    position: relative;
+    margin-top: 12px;
+}
+.search-background {
+    width: clamp(0px, 80vw, 550px);
+    display: flex;
+    flex-direction: column;
+    height: fit-content;
+    background-color: var(--color-background);
+    box-shadow: 0 0 10px 10px var(--color-background);
+    padding: 0 var(--space-2);
 }
 .search-results-videos {
     /* width: 100%; */
@@ -238,7 +252,7 @@
     flex-shrink: 0;
     color: var(--color-text);
 }
-.search-result.video {
+.search-result.video, .search-result.artist {
     flex-direction: row;
     padding: var(--space-2) 0;
     border-bottom: solid 1px var(--color-background-200);
@@ -252,16 +266,21 @@
 .search-result.video:last-child {
     border-bottom: solid 1px transparent;
 }
-.search-result.video .thumbnail {
+.search-result.video .thumbnail, .search-result.artist .thumbnail {
     position: relative;
     height: var(--space-7);
     background-color: var(--color-background-200);
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1 / 1;
     flex-shrink: 0;
     border-radius: 2px;
     background-color: var(--color-background-200);
+    overflow: hidden;
 }
-.search-result.video .thumbnail img {
+.search-result.artist .thumbnail {
+    border-radius: 99999px;
+    aspect-ratio: 1 / 1;
+}
+.search-result.video .thumbnail img, .search-result.artist .thumbnail img {
     height: 100%;
     background-size: cover;
     background-position: center;
@@ -278,7 +297,7 @@
     padding: 1px;
     border-radius: 1px;
 }
-.search-result.video .info {
+.search-result.video .info, .search-result.artist .info {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -294,7 +313,7 @@
     --text: var(--color-primary);
     --text-subtle: var(--color-primary);
 }
-.search-result.video .info .title {
+.search-result.video .info .title, .search-result.artist .info .title {
     font-size: calc(.8 * var(--font-size-base));
     font-weight: 500;
     color: var(--text);
@@ -307,13 +326,13 @@
     white-space: normal;
     text-align: left;
 }
-.search-result.video .info .artist {
+.search-result.video .info .artist, .search-result.artist .info .followers {
     font-size: calc(var(--font-size-base) * .7);
     color: var(--text-subtle);
     text-overflow: ellipsis;
     text-align: left;
 }
-.search-result.video .hot-action {
+.search-result.video .hot-action, .search-result.artist .following {
     position: relative;
     flex-shrink: 0;
     width: var(--space-6);
@@ -322,7 +341,7 @@
     cursor: pointer;
     transition: background-color 0.15s ease-in-out;
 }
-.search-result.video .hot-action::after {
+.search-result.video .hot-action::after, .search-result.artist .following::after {
     content: '';
     position: absolute;
     top: 0;
@@ -362,29 +381,6 @@
 } */
 .search-result.video.saved .hot-action .saved-indicator {
     display: flex;
-}
-.search-result.artist {
-    flex-direction: column;
-    min-width: var(--space-9);
-    width: fit-content;
-    max-width: var(--space-10);
-    height: var(--space-9);
-    align-items: center;
-}
-.search-result.artist .thumbnail {
-    height: var(--space-8);
-    width: var(--space-8);
-    flex-shrink: 0;
-    border-radius: var(--space-2);
-    background-color: var(--color-background-200);
-}
-.search-result.artist .thumbnail img {
-    height: 100%;
-    width: 100%;
-    background-size: contain;
-    background-position: center;
-    background-repeat: no-repeat;
-    flex-shrink: 0;
 }
 .search-result.artist .name {
     font-size: var(--font-size-base);
@@ -443,12 +439,89 @@
 }
 .backdrop {
     position: absolute;
-    top: 0;
+    top: -20px;
     left: 0;
     width: 100%;
-    height: 90%;
+    height: 00%;
     flex-shrink: 0;
-    background: linear-gradient(180deg, var(--primary), transparent);
+    background: linear-gradient(180deg, transparent 20px, var(--primary) 40px, transparent);
     opacity: .45;
     z-index: -1;
+    transition: top .15s ease-in-out;
+}
+.backdrop.extra-space {
+    top: -20px;
+    height: 90%;
+}
+.search-filter {
+    position: absolute;
+    top: 0;
+    background-color: transparent;
+    width: 100%;
+    max-width: clamp(0px, 80vw, 550px);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    z-index: 1;
+    transform: translateY(-150%);
+    overflow: hidden;
+    height: var(--space-8);
+    transition: transform .15s ease-in-out, padding .15s ease-in-out;
+}
+.search-filter.visible {
+    transform: translateY(-65%);
+    padding: var(--space-2);
+}
+.search-filter .filter {
+    position: relative;
+    padding: var(--space-2) var(--space-4);
+    border: none;
+    outline: none;
+    color: var(--color-text);
+    font-size: calc(var(--font-size-base) * .8);
+    font-weight: 500;
+    border-radius: 99999px;
+    cursor: pointer;
+    transition: background-color .15s ease-in-out, color .15s ease-in-out;
+    background: var(--color-background-300);
+    flex-shrink: 0;
+    flex-grow: 0;
+}
+.search-filter .filter:hover {
+    background-color: var(--color-background-200);
+}
+.search-filter .filter.active {
+    background-color: var(--color-primary);
+    color: var(--color-background);
+}
+.search-filter .filter.clear {
+    width: 0;
+    height: 30.5px;
+    padding: 0;
+    overflow: hidden;
+    transition: width .15s ease-in-out, opacity .15s ease-in-out;
+    opacity: 0;
+}
+.search-filter .filter.clear.visible {
+    width: 30.5px !important;
+    height: 30.5px !important;
+    opacity: 1 !important;
+}
+.search-filter .filter.clear::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    mask-size: cover;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    aspect-ratio: 1 / 1;
+    mask-image: var(--mask);
+    background-color: var(--color-text);
+    scale: .4;
 }

@@ -393,6 +393,10 @@ export class PlaylistComponent {
     get padding_top(): string {
         return `${this.visible_start_index * this.item_height}px`;
     }
+    get padding_bottom(): string {
+        const remaining_items = this.videos.length - this.visible_end_index;
+        return `${remaining_items * this.item_height}px`;
+    }
 
     async load_videos_in_range(start: number, end: number) {
         const promises = [];

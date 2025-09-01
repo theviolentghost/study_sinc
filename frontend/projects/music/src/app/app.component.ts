@@ -60,6 +60,7 @@ export class AppComponent implements OnInit, OnDestroy {
         this.player.open_player.subscribe(() => {
             this.is_music_idle = false;
         });
+        localStorage.removeItem('search_history');
     }
 
     ngOnInit() {

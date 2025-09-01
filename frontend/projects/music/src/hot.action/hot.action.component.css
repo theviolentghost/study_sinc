@@ -302,11 +302,142 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-3);
+    justify-content: flex-start;
     margin-bottom: var(--space-5);
-    width: 50%;
-    max-width: 500px;
+    width: 80%;
+    max-width: 550px;
+
+    .options {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        width: 100%;
+
+        .option {
+            position: relative;
+            --color-to-display: var(--color-neutral);
+            width: var(--space-9);
+            height: var(--space-9);
+            flex-shrink: 0;
+            border-radius: 50%;
+            /* background-color: var(--color-background-200); */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+
+            &::after {
+                content: '';
+                width: 100%;
+                height: 100%;
+                mask-size: cover;
+                mask-position: center;
+                mask-repeat: no-repeat;
+                mask-image: var(--mask);
+                background-color: var(--color-to-display);
+                transition: background-color 0.15s ease-in-out;
+                scale: .75;
+            }
+
+            &::before {
+                content: '';
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                background-color: var(--color-background);
+                border-top-left-radius: var(--space-5);
+                border-top-right-radius: var(--space-5);
+                top: calc(100% - var(--space-4));
+                transition: top 0.15s ease-in-out;  
+            }
+        }
+        .option.select {
+            --color-to-display: var(--color);
+
+            &::before {
+                top: 0;
+            }
+        }
+    }
+
+    .input {
+        display: flex;
+        flex-direction: column;
+        /* align-items: center; */
+        justify-content: flex-start;
+        /* gap: var(--space-2); */
+        width: 100%;
+        min-height: var(--space-10);
+        background-color: var(--color-background);
+        border-bottom-left-radius: var(--space-2);
+        border-bottom-right-radius: var(--space-2);
+        z-index: 5;
+        padding: var(--space-3);
+
+        .examples {
+            display: flex;
+            flex-direction: column;
+            /* gap: var(--space-1); */
+            width: 100%;
+            overflow-y: auto;
+            line-height: 1.2;
+
+            span {
+                font-size: calc(var(--font-size-base) * 0.95);
+                color: var(--color-primary);
+                font-weight: 500;
+            }  
+        }
+        .example {
+            margin-left: var(--space-2);
+            font-size: calc(var(--font-size-base) * 0.75);
+            color: var(--color-neutral);
+        }
+
+        input, label {
+            /* appearance: none; */
+            position: relative;
+            margin-top: auto;
+            width: 100%;
+            max-width: 500px;
+            padding: var(--space-2);
+            border-radius: var(--space-2);
+            border: solid 1px var(--color-background);
+            background-color: var(--color-background-200);
+            outline: none;
+            color: var(--color-text);
+            font-size: calc(var(--font-size-base) * 1.1);
+        }
+
+        input[type="file"] {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            cursor: pointer;
+            z-index: 10;
+            opacity: 0;
+        }
+
+    }
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 .import-input {
     width: 100%;
     max-width: 500px;

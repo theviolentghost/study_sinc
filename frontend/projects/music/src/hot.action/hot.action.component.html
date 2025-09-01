@@ -58,9 +58,32 @@
             <div class="backdrop" [style.--primary]="'var(--color-primary)'"></div>
             
             <div class="import-container">
-                <input type="text" class="import-input" placeholder="https://feelthemusi.com/playlist/..." [(ngModel)]="import_url" />
-                <!-- <button class="import-button" (click)="import_playlist_done()" [ngClass]="{loading: import_status === 'loading'}">{{ import_status === 'loading' ? '' : 'Import'}} <div class="import-status" [ngClass]="{loading: import_status === 'loading', error: import_status === 'error'}" [style.--mask]="'url(\'loader.svg\')'"></div></button> -->
-                <input type="file" accept=".mplt" class="import-input" (change)="on_file_import_change($event)" />
+                <div class="options">
+                    <div class="option" [ngClass]="{'select': import_type === 'musi'}" [style.--mask]="'url(\'brand-musi.svg\')'" [style.--color]="'#ff8843'" (click)="set_import_type('musi')"></div>
+                    <div class="option" [ngClass]="{'select': import_type === 'musix'}" [style.--mask]="'url(\'brand-musix.svg\')'" [style.--color]="'#ff8843'" (click)="set_import_type('musix')"></div>
+                    <div class="option" [ngClass]="{'select': import_type === 'spotify'}" [style.--mask]="'url(\'brand-spotify.svg\')'" [style.--color]="'#1cd760'" (click)="set_import_type('spotify')"></div>
+                </div>
+                <div class="input" [ngSwitch]="import_type">
+                    <ng-container *ngSwitchCase="'musi'">
+                        <div class="examples">
+                            <h3 style="margin-bottom: 4px;">Examples</h3>
+                            <div class="example"><span>"</span>https://feelthemusi.com/playlist/...<span>"</span></div>
+                            <div class="example"><span>"</span>abcdef<span>"</span></div>
+                        </div>
+                        <input type="text" placeholder="Playlist ID..." [(ngModel)]="import_url" />
+                    </ng-container>
+                    <ng-container *ngSwitchCase="'musix'">
+                        <div class="examples">
+                            <h3>Add a .mplt file</h3>
+                        </div>
+                        <label for="file-input" class="custom-file-button">
+                            <span>Choose File</span>
+                            <input id="file-input" type="file" accept=".mplt" (change)="on_file_import_change($event)" />
+                        </label>
+                    </ng-container>
+                </div>
+                <!-- <input type="text" class="import-input" placeholder="https://feelthemusi.com/playlist/..." [(ngModel)]="import_url" />
+                <input type="file" accept=".mplt" class="import-input" (change)="on_file_import_change($event)" /> -->
 
 
 
@@ -68,7 +91,7 @@
             </div>
             <div class="finish-container" [ngClass]="{'hide': import_url.length === 0 && !import_file}">
                 <!-- <button class="finish" (click)="create_playlist_done()">Create</button> -->
-                <button class="import-button" (click)="import_playlist_done()" [ngClass]="{loading: import_status === 'loading'}">{{ import_status === 'loading' ? '' : 'Import'}} <div class="import-status" [ngClass]="{loading: import_status === 'loading', error: import_status === 'error'}" [style.--mask]="'url(\'loader.svg\')'"></div></button>
+                <button class="import-button" (click)="import_playlist()" [ngClass]="{loading: import_status === 'loading'}">{{ import_status === 'loading' ? '' : 'Import'}} <div class="import-status" [ngClass]="{loading: import_status === 'loading', error: import_status === 'error'}" [style.--mask]="'url(\'loader.svg\')'"></div></button>
             </div>
         </div>
     </ng-container>

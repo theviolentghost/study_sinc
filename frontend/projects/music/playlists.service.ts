@@ -159,7 +159,15 @@ export class PlaylistsService {
         const existing_playlist = this.all_playlist_identifiers.find(p => p.name === name);
         if (existing_playlist) {
             console.warn(`Playlist with name "${name}" already exists.`);
-            return null;
+            // return null;
+            // generate a unique name
+            let suffix = 1;
+            let new_name = `${name} (${suffix})`;
+            while (this.all_playlist_identifiers.find(p => p.name === new_name)) {
+                suffix++;
+                new_name = `${name} (${suffix})`;
+            }
+            name = new_name;
         }
 
         const new_playlist: Song_Playlist = {

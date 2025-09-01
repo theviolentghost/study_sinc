@@ -7,33 +7,12 @@ import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
 
 @Component({
-  selector: 'app-artists',
+  selector: 'app-artist',
   imports: [CommonModule],
-  templateUrl: './artists.component.html',
-  styleUrl: './artists.component.css'
+  templateUrl: './artist.component.html',
+  styleUrl: './artist.component.css'
 })
-export class ArtistsComponent implements OnInit {
-    followed_artists: any[] = [];
-    recent_artists: any[] = [];
-
-    ngOnInit(): void {
-        this.media.artists_loaded.subscribe(() => {
-            this.followed_artists = this.media.get_followed_artists();
-            this.recent_artists = this.media.get_recent_artists();
-        });
-        // load followed and recent artists
-        this.followed_artists = this.media.get_followed_artists();
-        this.recent_artists = this.media.get_recent_artists();
-    }
-
-    constructor(
-        private route: ActivatedRoute,
-        private router: Router,
-        private media: MusicMediaService,
-        private player: MusicPlayerService,
-        private hot_action: HotActionService
-    ) { }
-
+export class ArtistComponent implements OnInit {
     source: string | null = null;
     artist_id: string | null = null;
     artist_details: any | null = null;
@@ -46,27 +25,27 @@ export class ArtistsComponent implements OnInit {
     private song_data_cache: Map<string, Song_Data | null> = new Map(); // bare_song_key -> Song_Data | null
     /*
     {
-    "external_urls": {
+  "external_urls": {
     "spotify": "string"
-    },
-    "followers": {
+  },
+  "followers": {
     "href": "string",
     "total": 0
-    },
-    "genres": ["Prog rock", "Grunge"],
-    "href": "string",
-    "id": "string",
-    "images": [
+  },
+  "genres": ["Prog rock", "Grunge"],
+  "href": "string",
+  "id": "string",
+  "images": [
     {
-        "url": "https://i.scdn.co/image/ab67616d00001e02ff9ca10b55ce82ae553c8228",
-        "height": 300,
-        "width": 300
+      "url": "https://i.scdn.co/image/ab67616d00001e02ff9ca10b55ce82ae553c8228",
+      "height": 300,
+      "width": 300
     }
-    ],
-    "name": "string",
-    "popularity": 0,
-    "type": "artist",
-    "uri": "string"
+  ],
+  "name": "string",
+  "popularity": 0,
+  "type": "artist",
+  "uri": "string"
 }
     */ 
 
@@ -98,29 +77,33 @@ export class ArtistsComponent implements OnInit {
         return this.player.song_data ? this.player.song_data.id : null;
     }
 
-    // constructor(private route: ActivatedRoute, private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router) { }
+    constructor(private route: ActivatedRoute, private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router) { }
 
-    // ngOnInit(): void {
-    //     this.route.params.subscribe(params => {
-    //         this.artist_id = params['artist_id'] || null;
-    //         this.get_artist_details();
-    //         this.get_artist_top_tracks();
-    //         this.get_artist_albums();
-    //         this.following = this.media.is_artist_followed(this.artist_id || '');
-    //         // this.this_artist_playing = false;
-    //         console.log('Artist ID:', this.artist_id);
-    //     });
+    ngOnInit(): void {
+        this.media.artists_loaded.subscribe(() => {
+            this.get_artist_details();
+            this.following = this.media.is_artist_followed(this.artist_id || '');
+        });
+        this.route.params.subscribe(params => {
+            this.artist_id = params['artist_id'] || null;
+            this.get_artist_details();
+            this.get_artist_top_tracks();
+            this.get_artist_albums();
+            this.following = this.media.is_artist_followed(this.artist_id || '');
+            // this.this_artist_playing = false;
+            console.log('Artist ID:', this.artist_id);
+        });
 
-    //     this.route.queryParams.subscribe(params => {
-    //         this.source = params['source'] || null; 
-    //         console.log('Source:', this.source);
-    //     });
+        this.route.queryParams.subscribe(params => {
+            this.source = params['source'] || null; 
+            console.log('Source:', this.source);
+        });
 
-    //     // this.player.song_changed.subscribe(() => {
-    //     //     const current_id = this.current_song_identifier;
-    //     //     this.media.is_song_in_playlist()
-    //     // });
-    // }
+        // this.player.song_changed.subscribe(() => {
+        //     const current_id = this.current_song_identifier;
+        //     this.media.is_song_in_playlist()
+        // });
+    }
 
     async get_artist_details(): Promise<void> {
         if (this.artist_id) {
@@ -314,12 +297,7 @@ export class ArtistsComponent implements OnInit {
     }
 
     open_artist(artist_id: string): void {
-        // this.router.navigate(['/artist', artist_id], { queryParams: { source: 'spotify' } });
-        this.artist_id = artist_id;
-        this.get_artist_details();
-        this.get_artist_top_tracks();
-        this.get_artist_albums();
-        this.following = this.media.is_artist_followed(this.artist_id || '');
+        this.router.navigate(['/artist', artist_id], { queryParams: { source: 'spotify' } });
     }
     open_album(album_id: string): void {
         this.router.navigate(['/album', album_id], { queryParams: { source: 'spotify' } });
@@ -334,6 +312,4 @@ export class ArtistsComponent implements OnInit {
         }
         return date.getFullYear().toString();
     }
-
-
 }
