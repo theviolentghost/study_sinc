@@ -104,9 +104,45 @@ async function setup_spotify_auth(retry_depth = 0) {
         const creds = await spotify_api.clientCredentialsGrant();
         spotify_api.setAccessToken(creds.body.access_token);
         console.log('Spotify authentication set up successfully');
+        return true;
     } catch (error) {
         console.error('Error setting up Spotify authentication');
         await setup_spotify_auth(retry_depth + 1);
+        return false;
+    }
+}
+
+// Wrapper function to handle token refresh and retry logic for Spotify API calls
+async function spotify_api_with_retry(apiFunction, ...args) {
+    try {
+        return await apiFunction(...args);
+    } catch (error) {
+        // Check if it's a 401 error (token expired) or similar auth error
+        if (error.statusCode === 401 || error.body?.error?.status === 401 || 
+            (error.message && error.message.includes('token')) ||
+            (error.body && error.body.error && error.body.error.message && 
+             error.body.error.message.toLowerCase().includes('token'))) {
+            
+            console.log('Spotify token expired, refreshing and retrying...');
+            
+            // Refresh the token
+            const refreshed = await setup_spotify_auth();
+            if (refreshed) {
+                // Retry the API call once with new token
+                try {
+                    return await apiFunction(...args);
+                } catch (retryError) {
+                    console.error('Spotify API call failed even after token refresh:', retryError);
+                    throw retryError;
+                }
+            } else {
+                console.error('Failed to refresh Spotify token');
+                throw error;
+            }
+        } else {
+            // Not a token error, rethrow original error
+            throw error;
+        }
     }
 }
 setup_spotify_auth();
@@ -252,8 +288,9 @@ async function spotify_search_for_videos(query = 'NoCopyrightSounds', total_resu
     }
 
     try {
-        const data = await spotify_api.search(query, ['track'], { limit: total_results });
-
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.search(query, ['track'], { limit: total_results })
+        );
         return data.body.tracks;
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -268,8 +305,9 @@ async function spotify_search_for_artists(query = 'NoCopyrightSounds', total_res
     }
 
     try {
-        const data = await spotify_api.search(query, ['artist'], { limit: total_results });
-
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.search(query, ['artist'], { limit: total_results })
+        );
         return data.body.tracks;
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -284,8 +322,9 @@ async function spotify_search_for_albums(query = 'NoCopyrightSounds', total_resu
     }
 
     try {
-        const data = await spotify_api.search(query, ['album'], { limit: total_results });
-
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.search(query, ['album'], { limit: total_results })
+        );
         return data.body.albums;
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -300,8 +339,9 @@ async function spotify_search_for_playlists(query = 'NoCopyrightSounds', total_r
     }
 
     try {
-        const data = await spotify_api.search(query, ['playlist'], { limit: total_results });
-
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.search(query, ['playlist'], { limit: total_results })
+        );
         return data.body.playlists;
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -316,7 +356,9 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
     }
 
     try {
-        const data = await spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results });
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results })
+        );
 
         // return data.body;
         // return a sorted cobined list of tracks and artists as well called catelog soprted by popularity
@@ -380,7 +422,9 @@ async function spotify_uri_to_video_id(uri) {
 
 async function spotify_get_artist_top_tracks(artist_id) {
     try {
-        const data = await spotify_api.getArtistTopTracks(artist_id, 'US');
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getArtistTopTracks(artist_id, 'US')
+        );
         return data.body.tracks;
     } catch (error) {
         console.error('Error fetching artist top tracks:', error);
@@ -390,7 +434,9 @@ async function spotify_get_artist_top_tracks(artist_id) {
 
 async function spotify_get_artist(artist_id) {
     try {
-        const data = await spotify_api.getArtist(artist_id);
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getArtist(artist_id)
+        );
         return data.body;
     } catch (error) {
         console.error('Error fetching artist details:', error);
@@ -400,7 +446,9 @@ async function spotify_get_artist(artist_id) {
 
 async function spotify_get_artist_albums(artist_id, total_results = 50) {
     try {
-        const data = await spotify_api.getArtistAlbums(artist_id, { limit: total_results });
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getArtistAlbums(artist_id, { limit: total_results })
+        );
         return data.body.items;
     } catch (error) {
         console.error('Error fetching artist albums:', error);
