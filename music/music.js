@@ -85,7 +85,8 @@ const Downloader = new YtDlp({
     shell: false,
     windowsHide: true,
     detached: false,
-    binaryPath: '/Users/norbertzych/Desktop/Projects/study_sinc/venv/bin/yt-dlp' // Specify the correct path to yt-dlp
+    // binaryPath: '/Users/norbertzych/Desktop/Projects/study_sinc/venv/bin/yt-dlp' // Specify the correct path to yt-dlp
+    binaryPath: path.join(process.cwd(), 'venv', 'bin', 'yt-dlp')
 });
 
 const youtube = google.youtube({

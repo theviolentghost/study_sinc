@@ -422,6 +422,16 @@ export class MusicPlayerService {
             this.loadAudioController.abort();
         }
 
+        // Clean up previous audio source before loading new track
+        if (this.audio_source) {
+            try {
+                this.audio_source.disconnect();
+            } catch (error) {
+                console.warn('Error disconnecting previous audio source:', error);
+            }
+            this.audio_source = null;
+        }
+
         // Create new controller for this operation
         this.loadAudioController = new AbortController();
         const signal = this.loadAudioController.signal;
@@ -505,6 +515,16 @@ export class MusicPlayerService {
         // this.audio_element.pause();
         if(this.audio_element.src === '') return; // No source to unload
         
+        // Disconnect audio source before changing src
+        if (this.audio_source) {
+            try {
+                this.audio_source.disconnect();
+            } catch (error) {
+                console.warn('Error disconnecting audio source during unload:', error);
+            }
+            this.audio_source = null;
+        }
+        
         // Only revoke blob URLs, not regular HTTP/HTTPS URLs
         if (this.audio_element.src.startsWith('blob:')) {
             URL.revokeObjectURL(this.audio_element.src);
@@ -557,6 +577,7 @@ export class MusicPlayerService {
 
         this.setup_audio_listeners();
         this.setup_media_session();
+        this.setup_background_handling();
 
         if(!this.audio_context) {
             this.audio_context = new AudioContext({
@@ -575,27 +596,86 @@ export class MusicPlayerService {
         // setTimeout(()=>{this.setup_media_session();},3000); //temp
     }
 
+    private setup_background_handling(): void {
+        // Handle visibility change for better background playback on iOS
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // App went to background
+                console.log('App went to background');
+                
+                // Try to resume audio context if it gets suspended
+                if (this.audio_context && this.audio_context.state === 'suspended') {
+                    this.audio_context.resume().catch(error => {
+                        console.warn('Failed to resume audio context in background:', error);
+                    });
+                }
+            } else {
+                // App came to foreground
+                console.log('App came to foreground');
+                
+                // Ensure audio context is active
+                if (this.audio_context && this.audio_context.state === 'suspended') {
+                    this.audio_context.resume().catch(error => {
+                        console.warn('Failed to resume audio context in foreground:', error);
+                    });
+                }
+            }
+        });
+
+        // Handle iOS-specific audio interruptions
+        if ('ontouchstart' in window) { // iOS detection
+            this.audio_element?.addEventListener('pause', () => {
+                // On iOS, if audio pauses unexpectedly, try to resume after a short delay
+                if (!this.want_to_play) return; // User initiated pause
+                
+                setTimeout(() => {
+                    if (this.want_to_play && this.audio_element?.paused) {
+                        console.log('Attempting to resume after unexpected pause');
+                        this.audio_element.play().catch(error => {
+                            console.warn('Failed to resume after pause:', error);
+                        });
+                    }
+                }, 100);
+            });
+        }
+    }
+
     private connect_audio_context(is_local_content: boolean): void {
         if (!this.audio_context || !this.audio_element) return;
 
-        // Disconnect existing connections
-        // if (this.audio_source) {
-        //     this.audio_source.disconnect();
-        //     this.audio_source = null;
-        // }
+        // Always disconnect existing connections before creating new ones
+        if (this.audio_source) {
+            try {
+                this.audio_source.disconnect();
+            } catch (error) {
+                console.warn('Error disconnecting audio source:', error);
+            }
+            this.audio_source = null;
+        }
 
         if (is_local_content) {
             try {
-                if (!this.audio_source) {
-                    this.audio_source = this.audio_context.createMediaElementSource(this.audio_element);
-                    this.audio_source.connect(this.audio_analyser!);
-                    this.audio_source.connect(this.audio_context.destination);
-                }
+                // Always create a new audio source for each track
+                this.audio_source = this.audio_context.createMediaElementSource(this.audio_element);
+                this.audio_source.connect(this.audio_analyser!);
+                this.audio_source.connect(this.audio_context.destination);
+                
                 console.log('Audio context connected for local content');
 
                 if(this.disco_mode) this.start_visualization(); 
-            } catch (error) {
+            } catch (error: any) {
                 console.warn('Failed to connect audio context:', error);
+                
+                // Handle specific iOS errors
+                if (error.name === 'InvalidStateError') {
+                    console.warn('AudioContext in invalid state, attempting to resume...');
+                    if (this.audio_context.state === 'suspended') {
+                        this.audio_context.resume().catch(resumeError => {
+                            console.error('Failed to resume audio context:', resumeError);
+                        });
+                    }
+                }
+                
                 // Fallback: audio will play normally without analysis
             }
         } else {
@@ -824,10 +904,28 @@ export class MusicPlayerService {
     }
     async _play(): Promise<void> {
         if (!this.audio_element) throw new Error("Audio element is not set.");
-        await this.audio_element.play();
+        
+        // Ensure audio context is ready before playing
         if (this.audio_context && this.audio_context.state === 'suspended') {
-            await this.audio_context.resume();
+            try {
+                await this.audio_context.resume();
+                console.log('Audio context resumed');
+            } catch (error) {
+                console.warn('Failed to resume audio context:', error);
+            }
         }
+        
+        try {
+            await this.audio_element.play();
+        } catch (error) {
+            console.error('Failed to play audio:', error);
+            // Try to handle common play failures
+            if (error.name === 'NotAllowedError') {
+                console.warn('Play was prevented by browser policy');
+            }
+            throw error;
+        }
+        
         this.update_playback_state();
         if(!this.current_song_data) return console.warn("No current song data available to put into recently played.");
         this.playlist_service.add_to_recently_played(this.current_song_data);
