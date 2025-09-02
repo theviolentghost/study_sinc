@@ -8,6 +8,7 @@ import signal
 import traceback
 from functools import wraps
 from dotenv import load_dotenv
+# from query_2 import Audio_Search
 
 # Configure logging
 logging.basicConfig(
@@ -178,6 +179,34 @@ def get_video_id():
     logger.info(f"Getting video ID for query: {query}")
     result = spotdl.get_video_id(query)
     return jsonify({"id": result})
+
+# @app.route('/create_embedding', methods=['POST'])
+# @handle_errors
+# def create_embedding():
+#     data = request.get_json()
+#     if not data:
+#         return jsonify({"error": "Invalid JSON body"}), 400
+    
+#     audio_path = data.get('audio_path')
+#     song_id = data.get('song_id')
+    
+#     if not audio_path or not song_id:
+#         return jsonify({"error": "Missing required parameters 'audio_path' or 'song_id'"}), 400
+    
+#     if not audio_path.strip() or not song_id.strip():
+#         return jsonify({"error": "Parameters 'audio_path' and 'song_id' cannot be empty"}), 400
+    
+#     logger.info(f"Creating embedding for song ID: {song_id} from path: {audio_path}")
+    
+#     try:
+#         audio_search = Audio_Search()
+#         audio_search.request_audio_to_be_processed(audio_path, song_id)
+#         return jsonify({"status": "Embedding creation requested", "song_id": song_id})
+#     except Exception as e:
+#         logger.error(f"Error creating embedding: {str(e)}")
+#         return jsonify({"error": "Failed to create embedding", "message": str(e)}), 500
+
+
 
 # Application entry point with proper error handling
 if __name__ == '__main__':

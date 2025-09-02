@@ -1,1 +1,15 @@
-<p>discover works!</p>
+<div class="stack">
+    <div 
+        class="card"
+        *ngFor="let item of discover_cards; let i = index"
+        [style.margin-top.px]="i * 4"
+    >
+        <div class="thumbnail">
+            <img [src]="item?.image || 'music.svg'" alt="Card image" />
+        </div>
+        <div class="info">
+            <div class="title">{{ item?.title }}</div>
+            <div class="description">{{ item?.description }}</div>
+        </div>
+    </div>
+</div>

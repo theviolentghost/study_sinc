@@ -165,6 +165,10 @@ class Audio_Search:
             })
 
         return recommendations
+    
+    def request_audio_to_be_processed(self, audio_path: str, song_id: str):
+        # Placeholder for queuing logic
+        print(f"Request to process {audio_path} for song ID {song_id} has been queued.")
 
 # test
 if __name__ == "__main__":

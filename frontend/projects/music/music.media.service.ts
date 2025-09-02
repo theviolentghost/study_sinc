@@ -185,7 +185,7 @@ export class MusicMediaService {
 
     public get_playlists_containing_song(bare_song_key: string): string[] {
         if (!this.playlist_songs_cache.has(bare_song_key)) {
-            console.warn(`No playlists found for song key: ${bare_song_key}`);
+            // console.warn(`No playlists found for song key: ${bare_song_key}`);
             return [];
         }
         return Array.from(this.playlist_songs_cache.get(bare_song_key) || []);
@@ -193,7 +193,7 @@ export class MusicMediaService {
 
     public is_song_in_playlist(bare_song_key: string, playlist_id: string): boolean {
         if (!this.playlist_songs_cache.has(bare_song_key)) {
-            console.warn(`No playlists found for song key: ${bare_song_key}`);
+            // console.warn(`No playlists found for song key: ${bare_song_key}`);
             return false;
         }
         return this.playlist_songs_cache.get(bare_song_key)?.has(playlist_id) || false;
@@ -1149,6 +1149,7 @@ export class MusicMediaService {
         this.followed_artists_cache?.set(artist_data.id, artist_data);
         this.artists_cache?.set(artist_data.id, artist_data);
         this.save_followed_artists_to_indexDB();
+        this.artists_loaded.emit();
     }
 
     async unfollow_artist(artist_id: string): Promise<void> {
@@ -1156,6 +1157,7 @@ export class MusicMediaService {
         this.artists_cache?.delete(artist_id);
         this.followed_artists_cache?.delete(artist_id);
         this.save_followed_artists_to_indexDB();
+        this.artists_loaded.emit();
     }
 
     async save_followed_artists_to_indexDB(): Promise<void> {

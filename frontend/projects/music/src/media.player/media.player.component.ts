@@ -104,7 +104,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private get window_height(): number {
         return window.innerHeight;
     }
-    private velocityThreshold = 8;
+    private velocityThreshold = 4;
     private lastTouchTime = 0;
     private lastTouchY = 0;
 

@@ -334,7 +334,7 @@
     background-color: transparent;
     z-index: 6;
 }
-.control-button::after, .modifiers .modifier-button::after {
+.control-button::after, .modifiers .modifier-button::after, .player-status.like::after {
     position: absolute;
     content: '';
     top: 0;
@@ -350,6 +350,7 @@
     background-color: var(--color);
     transition: background-color 0.15s ease-in-out, transform 0.15s ease-in-out;
 }
+
 .control-button.active, .modifiers .modifier-button.active {
     --color: var(--color-primary);
 }

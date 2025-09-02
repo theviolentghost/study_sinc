@@ -63,6 +63,7 @@ export class MusicPlayerService {
     private audio_analyser: AnalyserNode | null = null; // For audio visualizations
     private audio_source: MediaElementAudioSourceNode | null = null; // For connecting audio element to context
     private audio_data_array: Uint8Array | null = null; // For frequency data analysis
+    private audio_element_connected: boolean = false; // Track if audio element is already connected to a source
 
     private hls: Hls | null = null; // For HLS streaming support
 
@@ -211,6 +212,9 @@ export class MusicPlayerService {
     set audio_source_element(element: HTMLAudioElement) {
         this.audio_element = element;
         this.source_element = element.querySelector('source');
+        // Reset connection tracking when new audio element is set
+        this.audio_element_connected = false;
+        this.audio_source = null;
         console.log("Audio element set:", element);
         console.log("Source element set:", this.source_element);
         this.intialize_audio_enviroment();
@@ -422,16 +426,6 @@ export class MusicPlayerService {
             this.loadAudioController.abort();
         }
 
-        // Clean up previous audio source before loading new track
-        if (this.audio_source) {
-            try {
-                this.audio_source.disconnect();
-            } catch (error) {
-                console.warn('Error disconnecting previous audio source:', error);
-            }
-            this.audio_source = null;
-        }
-
         // Create new controller for this operation
         this.loadAudioController = new AbortController();
         const signal = this.loadAudioController.signal;
@@ -515,15 +509,8 @@ export class MusicPlayerService {
         // this.audio_element.pause();
         if(this.audio_element.src === '') return; // No source to unload
         
-        // Disconnect audio source before changing src
-        if (this.audio_source) {
-            try {
-                this.audio_source.disconnect();
-            } catch (error) {
-                console.warn('Error disconnecting audio source during unload:', error);
-            }
-            this.audio_source = null;
-        }
+        // Note: We don't disconnect the audio source anymore since we reuse it
+        // The MediaElementSourceNode will automatically handle the new audio source
         
         // Only revoke blob URLs, not regular HTTP/HTTPS URLs
         if (this.audio_element.src.startsWith('blob:')) {
@@ -643,37 +630,49 @@ export class MusicPlayerService {
     private connect_audio_context(is_local_content: boolean): void {
         if (!this.audio_context || !this.audio_element) return;
 
-        // Always disconnect existing connections before creating new ones
-        if (this.audio_source) {
-            try {
-                this.audio_source.disconnect();
-            } catch (error) {
-                console.warn('Error disconnecting audio source:', error);
-            }
-            this.audio_source = null;
-        }
-
         if (is_local_content) {
             try {
-                // Always create a new audio source for each track
-                this.audio_source = this.audio_context.createMediaElementSource(this.audio_element);
-                this.audio_source.connect(this.audio_analyser!);
-                this.audio_source.connect(this.audio_context.destination);
-                
-                console.log('Audio context connected for local content');
+                // Only create a new audio source if one hasn't been created for this audio element
+                if (!this.audio_source || !this.audio_element_connected) {
+                    // Disconnect any existing source first
+                    if (this.audio_source) {
+                        try {
+                            this.audio_source.disconnect();
+                        } catch (error) {
+                            console.warn('Error disconnecting previous audio source:', error);
+                        }
+                    }
+                    
+                    // Create new audio source
+                    this.audio_source = this.audio_context.createMediaElementSource(this.audio_element);
+                    this.audio_element_connected = true;
+                    
+                    // Connect to analyser and destination
+                    this.audio_source.connect(this.audio_analyser!);
+                    this.audio_source.connect(this.audio_context.destination);
+                    
+                    console.log('Audio context connected for local content');
+                } else {
+                    // Reuse existing connection
+                    console.log('Reusing existing audio context connection');
+                }
 
                 if(this.disco_mode) this.start_visualization(); 
             } catch (error: any) {
                 console.warn('Failed to connect audio context:', error);
                 
-                // Handle specific iOS errors
+                // Handle specific errors
                 if (error.name === 'InvalidStateError') {
-                    console.warn('AudioContext in invalid state, attempting to resume...');
-                    if (this.audio_context.state === 'suspended') {
-                        this.audio_context.resume().catch(resumeError => {
-                            console.error('Failed to resume audio context:', resumeError);
-                        });
+                    console.warn('Audio element already connected to another source, reusing existing connection');
+                    // The audio element is already connected, which is fine for playback
+                    // Just ensure we have a reference to continue using it
+                    if (!this.audio_source) {
+                        console.warn('No audio source reference available, audio analysis may not work');
                     }
+                } else if (error.name === 'NotSupportedError') {
+                    console.warn('AudioContext not supported, audio will play without analysis');
+                } else {
+                    console.error('Unexpected audio context error:', error);
                 }
                 
                 // Fallback: audio will play normally without analysis
@@ -746,7 +745,7 @@ export class MusicPlayerService {
     }
 
     // Update media session metadata
-    async update_media_session(song: Song_Data | null, track_key: string): Promise<void> {
+    public async update_media_session(song: Song_Data | null, track_key: string): Promise<void> {
         // Cancel any existing update_media_session operation
         if (this.updateMediaSessionController) {
             this.updateMediaSessionController.abort();
@@ -1128,9 +1127,11 @@ export class MusicPlayerService {
     add_song_to_play_next(song: Song_Data | Song_Identifier): void {
         if (typeof song === 'object' && 'id' in song) {
             // song_data
+            console.log("Adding song to play next queue:", song);
             this.play_next_queue.queue.push(song.id);
         } else if (typeof song === 'object' && 'video_id' in song) {
             // song_identifier
+            console.log("Adding song identifier to play next queue:", song);
             this.play_next_queue.queue.push(song);
         } else {
             console.error("Invalid song type provided to add to play next queue.");

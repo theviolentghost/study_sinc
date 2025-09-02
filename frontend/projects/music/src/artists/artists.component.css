@@ -11,6 +11,61 @@
     padding: var(--space-3);
 }
 
+@media (max-width: 500px) {  
+    :host {
+        grid-template-areas:
+            "side-panel";
+        grid-template-columns: 1fr !important;  
+        grid-template-rows: 1fr !important;  
+        grid-gap: 0;
+    }
+
+    .side-panel {
+        grid-area: side-panel;  
+        max-width: none;  
+    }
+
+    .media {
+        display: none;
+    }
+
+    .media.full {
+        display: block;
+        grid-area: side-panel;  
+        max-width: none;  
+
+        .return {
+            display: block !important;
+            position: absolute;
+            top: var(--space-2);
+            left: var(--space-2);
+            width: var(--space-7);
+            height: var(--space-7);
+            background-color: var(--color-background);
+            cursor: pointer;
+            border-bottom-right-radius: var(--space-6);
+            padding: var(--space-1);
+            z-index: 10;
+        }
+        .return::after {
+            content: '';
+            display: block;
+            width: 100%;
+            height: 100%;
+            mask-size: cover;
+            mask-repeat: no-repeat;
+            mask-position: center;
+            mask-image: var(--mask);
+            background-color: var(--color-text);
+            transition: background-color 0.15s ease-in-out, transform 0.15s ease-in-out;
+            transform: translate(-2px, -2px);
+        }
+    }
+    .side-panel.full {
+        display: none;
+    }
+}
+
 .media, .side-panel {
     box-shadow: 0 0 2px 2px var(--color-background-300);
     grid-area: media;
@@ -21,12 +76,15 @@
 }
 .side-panel {
     grid-area: side-panel;
-    max-width: 400px;
+    max-width: 450px;
     padding: var(--space-2);
 }
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+.return {
+    display: none;
 }
 .header {
     position: relative;
@@ -372,10 +430,9 @@
     }
 }  
 
-.artist {
+.side-panel .artist {
     display: flex;
     flex-direction: row;
-    gap: var(--space-2);
     padding: var(--space-1);
     cursor: pointer;
     align-items: center;
@@ -416,6 +473,7 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            margin-left: var(--space-1);
         }
 
         .followers {

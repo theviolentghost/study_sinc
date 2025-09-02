@@ -154,7 +154,7 @@ export class ArtistsComponent implements OnInit {
     toggle_follow(): void {
         this.following = !this.following;
         if(this.following) {
-            this.media.follow_artist(this.artist_id!);
+            this.media.follow_artist(this.artist_details!);
         } else {
             this.media.unfollow_artist(this.artist_id!);
         }

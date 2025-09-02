@@ -124,7 +124,10 @@ export class HotActionComponent {
                 if(!this.song_data) return;
                 this.song_data.liked = true;
                 this.playlists.add_to_favorites(this.song_data);
-                this.player.song_data = this.song_data; // Update player song data to reflect changes
+
+                if(this.media.song_key(this.player.song_data.id) === this.media.song_key(this.song_data.id)) {
+                    this.player.song_data = this.song_data; // Update player song data to reflect changes
+                }
             },
             is_selectable: () => !!this.song_data && !this.is_favorite
         },
@@ -150,6 +153,13 @@ export class HotActionComponent {
             },
             action: () => {
                 console.log('Up next');
+                if(!this.song_data) return;
+                // console.log('Adding to play next:', this.song_data);
+                const run = async () => {
+                    this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id),this.song_data);
+                    this.player.add_song_to_play_next(this.song_data);
+                };
+                run();
             },
             is_selectable: () => !!this.song_data
         }

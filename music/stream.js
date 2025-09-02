@@ -85,8 +85,8 @@ class Adaptive_Stream {
     static hls_playlist_segment_wait_timeout = 30000; // Max wait time for first segment in ms
     static hls_playlist_segment_interval = 50; // Interval to check for first segment in ms
 
-    static hls_playlist_max_uphold_time = 15 * 60 * 1000; // 15 min (can be kept alive to last longer)
-    static hls_playlist_cleanup_interval = 5 * 60 * 1000; // 5 min
+    static hls_playlist_max_uphold_time = 24 * 60 * 60 * 1000; // 24 hours (can be kept alive to last longer)
+    static hls_playlist_cleanup_interval = 15 * 60 * 1000; // 15 min
 
     static hls_playlist_generation_timeout = 60000; // 60 seconds to handle YouTube rate limiting
 
@@ -322,6 +322,33 @@ class Adaptive_Stream {
         );
     }
 
+    async ensure_directory_with_retry(session_directory, max_retries = 5, delay_ms = 100) {
+        for (let attempt = 1; attempt <= max_retries; attempt++) {
+            try {
+                // Attempt to create the directory
+                fs.ensureDirSync(session_directory);
+                
+                // Verify the directory was created
+                if (fs.existsSync(session_directory) && fs.statSync(session_directory).isDirectory()) {
+                    console.log(`Session directory created successfully: ${session_directory}`);
+                    return; // Success, exit the function
+                } else {
+                    throw new Error(`Directory creation succeeded but verification failed`);
+                }
+            } catch (error) {
+                console.warn(`Attempt ${attempt}/${maxRetries} failed to create session directory ${session_directory}: ${error.message}`);
+                
+                if (attempt === max_retries) {
+                    // All retries exhausted, throw the final error
+                    throw new Error(`Failed to create session directory after ${max_retries} attempts: ${session_directory}. Last error: ${error.message}`);
+                }
+                
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, delay_ms));
+            }
+        }
+    }
+
     async stream(video_id, target_quality = 'medium', fast_startup = true) {
         // console.time('dir check');
         console.log(`Starting stream for video ${video_id} with quality ${target_quality}`);
@@ -386,7 +413,7 @@ class Adaptive_Stream {
             requested_profiles = missing_profiles; // Update requested profiles to only include missing ones
         }
         // Ensure directory exists synchronously for immediate use
-        else if(!fs.ensureDirSync(session_directory)) throw new Error(`Failed to create session directory: ${session_directory}`);
+        else if(!this.ensure_directory_with_retry(session_directory)) throw new Error(`Failed to create session directory: ${session_directory}`);
 
         // console.log('yt-dlp')
         // console.log('yt-dlp process started');

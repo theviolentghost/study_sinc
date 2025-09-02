@@ -548,7 +548,7 @@
 } */
 
 .result.video.cdk-drag {
-    transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+    /* transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); */
     /* cursor: grab; */
     border: none;
     opacity: 0.9;
@@ -569,7 +569,7 @@
 }
 
 .result.video.cdk-drag-animating {
-    transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+    /* transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1); */
 }
 
 .moveable {

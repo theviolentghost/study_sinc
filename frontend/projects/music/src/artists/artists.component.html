@@ -1,4 +1,4 @@
-<div class="side-panel">
+<div class="side-panel" [ngClass]="{'full': artist_details}">
     <h2 *ngIf="followed_artists.length > 0">Followed</h2>
     <div class="artist" *ngFor="let artist of followed_artists" (click)="open_artist(artist.id)">
         <div class="thumbnail">
@@ -23,9 +23,10 @@
         <button class="more-info" [style.--mask]="'url(\'chevron-left.svg\')'"></button>
     </div>
 </div>
-<div class="media hide-scrollbar">
+<div class="media hide-scrollbar" [ngClass]="{'full': artist_details}">
+    <div class="return" [style.--mask]="'url(\'chevron-left.svg\')'" (click)="artist_details = null"></div>
     <ng-container *ngIf="!artist_details">
-        <!-- <p>nothin</p> -->
+        nothin
     </ng-container>
     <ng-container *ngIf="artist_details">
         <div class="header">
@@ -62,7 +63,6 @@
                     </div>
                     <div class="info">
                         <div class="title">{{ item?.name }}</div>
-                        <!-- <div class="artist">{{ item?.artists?.[0]?.name }}</div>x -->
                         <div style="display: flex; flex-direction: row;">
                             <div 
                                 class="artist"

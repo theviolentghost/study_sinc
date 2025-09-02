@@ -13,6 +13,9 @@
         "build": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
+            "optimization": {
+                "fonts": false
+            },
             "outputPath": "dist/study",
             "index": "src/index.html",
             "browser": "src/main.ts",
@@ -100,6 +103,9 @@
         "build": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
+            "optimization": {
+                "fonts": false
+            },
             "baseHref": "/music/",
             "deployUrl": "/music/",
             "outputPath": "dist/music",

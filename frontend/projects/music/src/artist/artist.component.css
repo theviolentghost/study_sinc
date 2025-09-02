@@ -1,10 +1,9 @@
 :host {
     display: grid;
     grid-template-areas:
-        "media media"
-        "media media";
-    grid-template-rows: 1fr 1fr;
-    grid-template-columns: 1fr 3fr;
+        "media";
+    grid-template-rows: 1fr;
+    grid-template-columns: 1fr;
     height: 100%;
     grid-gap: 1rem;
     width: 100%;
@@ -21,7 +20,7 @@
 }
 .side-panel {
     grid-area: side-panel;
-    max-width: 400px;
+    max-width: 450px;
 }
 @keyframes spin {
     from { transform: rotate(0deg); }

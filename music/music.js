@@ -12,6 +12,7 @@ import axios from 'axios';
 import Adaptive_Stream from './stream.js';
 const stream = new Adaptive_Stream();
 import { promisify } from 'util';
+import { request_embedding } from './recommendation/reuqest.embedding.js';
 
 const exec_async = promisify(exec);
 async function kill_processes_on_port(port) {
