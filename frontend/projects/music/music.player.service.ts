@@ -65,6 +65,10 @@ export class MusicPlayerService {
     private audio_data_array: Uint8Array | null = null; // For frequency data analysis
     private audio_element_connected: boolean = false; // Track if audio element is already connected to a source
 
+    // iOS PWA background handling properties
+    private was_playing_before_background: boolean = false;
+    private background_position: number = 0;
+
     private hls: Hls | null = null; // For HLS streaming support
 
     private setup_hls(): void {
@@ -232,6 +236,11 @@ export class MusicPlayerService {
         this.track_loaded.subscribe(() => {
             this.loading = false;
         });
+
+        // Start connection health check for iOS PWA
+        if (this.is_ios_pwa()) {
+            this.start_connection_health_check();
+        }
     }
 
     public async load_playlist(playlist: Song_Playlist | null, keep_hsitroy?: boolean, play_imediately: boolean = true, load_track: boolean = false, playlist_identifier?: Song_Playlist_Identifier | null | undefined, use_old_data: boolean = false): Promise<void> {
@@ -308,6 +317,8 @@ export class MusicPlayerService {
         this.song_changed.emit();
         this.loading = true;
         this.started_playing = false;
+
+        this.unload_audio();
 
         // console.log("Loading track:", track_key, "with preloaded key:", this.media.song_key(this.next_song_data?.id), 'and next song data:', this.next_song_data);
         if(this.preloaded_next_song) {
@@ -513,9 +524,9 @@ export class MusicPlayerService {
         // The MediaElementSourceNode will automatically handle the new audio source
         
         // Only revoke blob URLs, not regular HTTP/HTTPS URLs
-        if (this.audio_element.src.startsWith('blob:')) {
-            URL.revokeObjectURL(this.audio_element.src);
-        }
+        // if (this.audio_element.src.startsWith('blob:')) {
+        //     URL.revokeObjectURL(this.audio_element.src);
+        // }
         
         this.audio_element.src = '';
         this.audio_element.load();
@@ -523,8 +534,8 @@ export class MusicPlayerService {
         // Reset HLS if it exists
         if (this.hls) {
             // this.hls.loadSource('');
-            // console.log("Unloading HLS stream...");
-            this.hls.stopLoad();
+            console.log("Unloading HLS stream...");
+            // this.hls.stopLoad();
             // this.hls.detachMedia();
         }
     }
@@ -590,6 +601,12 @@ export class MusicPlayerService {
                 // App went to background
                 console.log('App went to background');
                 
+                // Store current playback state for restoration
+                if (this.audio_element && !this.audio_element.paused) {
+                    this.was_playing_before_background = true;
+                    this.background_position = this.audio_element.currentTime;
+                }
+                
                 // Try to resume audio context if it gets suspended
                 if (this.audio_context && this.audio_context.state === 'suspended') {
                     this.audio_context.resume().catch(error => {
@@ -599,6 +616,11 @@ export class MusicPlayerService {
             } else {
                 // App came to foreground
                 console.log('App came to foreground');
+                
+                // Handle stream restoration for iOS PWA
+                if (this.was_playing_before_background && this.current_song_data && !this.current_song_data.downloaded) {
+                    this.handle_stream_restoration();
+                }
                 
                 // Ensure audio context is active
                 if (this.audio_context && this.audio_context.state === 'suspended') {
@@ -624,6 +646,72 @@ export class MusicPlayerService {
                     }
                 }, 100);
             });
+
+            // Handle audio element errors (common with broken streams)
+            this.audio_element?.addEventListener('error', (e) => {
+                console.warn('Audio element error detected:', e);
+                if (this.want_to_play && this.current_song_data && !this.current_song_data.downloaded) {
+                    this.handle_stream_restoration();
+                }
+            });
+
+            // Handle HLS errors specifically
+            if (this.hls) {
+                this.hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal && this.want_to_play) {
+                        console.warn('Fatal HLS error, attempting stream restoration');
+                        setTimeout(() => this.handle_stream_restoration(), 1000);
+                    }
+                });
+            }
+        }
+    }
+
+    private async handle_stream_restoration(): Promise<void> {
+        if (!this.current_song_data || this.current_song_data.downloaded) return;
+        
+        console.log('Attempting to restore stream after background/error');
+        
+        try {
+            // Store current state
+            const currentPosition = this.background_position || (this.audio_element?.currentTime || 0);
+            const wasPlaying = this.was_playing_before_background;
+            
+            // Reset background state
+            this.was_playing_before_background = false;
+            this.background_position = 0;
+            
+            // Reload the current track with the same position
+            if (this.current_song) {
+                console.log(`Reloading stream for ${this.media.song_key(this.current_song)} at position ${currentPosition}`);
+                
+                // Reload the audio source
+                await this.load_audio(this.media.song_key(this.current_song), this.current_song_data);
+                
+                // Wait a bit for the audio to be ready
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Restore position
+                if (this.audio_element && currentPosition > 0) {
+                    this.audio_element.currentTime = currentPosition;
+                }
+                
+                // Resume playback if it was playing before
+                if (wasPlaying && this.want_to_play) {
+                    console.log('Resuming playback after stream restoration');
+                    await this.play();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to restore stream:', error);
+            // Fallback: try to reload the current track from the beginning
+            if (this.current_song && this.want_to_play) {
+                try {
+                    await this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
+                } catch (fallbackError) {
+                    console.error('Fallback stream restoration also failed:', fallbackError);
+                }
+            }
         }
     }
 
@@ -704,7 +792,7 @@ export class MusicPlayerService {
             });
 
             navigator.mediaSession.setActionHandler('seekto', (details) => {
-                if (details.seekTime && this.audio_element) {
+                if (details.seekTime >= 0 && this.audio_element) {
                     this.audio_element.currentTime = details.seekTime;
                 }
             });
@@ -916,11 +1004,17 @@ export class MusicPlayerService {
         
         try {
             await this.audio_element.play();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to play audio:', error);
-            // Try to handle common play failures
+            
+            // Handle common play failures
             if (error.name === 'NotAllowedError') {
                 console.warn('Play was prevented by browser policy');
+            } else if (error.name === 'AbortError' && this.current_song_data && !this.current_song_data.downloaded) {
+                // Common with broken HLS streams on iOS PWA
+                console.warn('Play aborted, likely due to broken stream. Attempting restoration...');
+                await this.handle_stream_restoration();
+                return; // Exit early as restoration will handle playback
             }
             throw error;
         }
@@ -1138,102 +1232,33 @@ export class MusicPlayerService {
         }
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    private is_ios_pwa(): boolean {
+        // Check if running as PWA on iOS
+        return 'ontouchstart' in window && 
+               (window.navigator as any).standalone === true &&
+               /iPad|iPhone|iPod/.test(navigator.userAgent);
+    }
+
+    private start_connection_health_check(): void {
+        // Periodic health check for streaming connections on iOS PWA
+        setInterval(() => {
+            if (this.want_to_play && 
+                this.current_song_data && 
+                !this.current_song_data.downloaded && 
+                this.audio_element) {
+                
+                // Check if audio is stalled or has connection issues
+                const isStalled = this.audio_element.readyState < 2 && 
+                                 !this.loading && 
+                                 this.audio_element.networkState === HTMLMediaElement.NETWORK_LOADING;
+                
+                if (isStalled) {
+                    console.warn('Audio connection appears stalled, attempting restoration');
+                    this.handle_stream_restoration();
+                }
+            }
+        }, 5000); // Check every 5 seconds
+    }
 
     update_audio_data_array(): void {
         if (this.audio_analyser && this.audio_data_array) {

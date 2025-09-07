@@ -5,9 +5,11 @@ import os
 import pickle
 import threading
 import concurrent.futures
+import tempfile
 
 import essentia
 import essentia.standard as es
+import subprocess
 # from sklearn.decomposition import PCA
 
 essentia.log.warningActive = False
@@ -16,6 +18,8 @@ essentia.log.debugActive = False
 essentia.log.errorActive = True
 
 class Audio_Analyzer:
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
     def __init__(self):
         self.music_extractor = es.MusicExtractor(
             lowlevelStats=['mean', 'stdev'],
@@ -104,9 +108,95 @@ class Audio_Analyzer:
             'perceptual': perceptual_features,
             'bands': band_features
         }
+
+    def decode_to_numpy(self, source: str, sample_rate: int = 44100, channels: int = 1, duration: float | None = None):
+        """
+        Decode any ffmpeg-readable source (file or URL like m3u8) to a mono float32 numpy array.
+        """
+        cmd = [
+            "ffmpeg", "-i", source, "-f", "f32le",
+            "-acodec", "pcm_f32le", "-ar", str(sample_rate), "-ac", str(channels), "-loglevel", "error", "-"
+        ]
+        if duration:
+            # simple insertion of -t before output
+            cmd.insert(3, "-t")
+            cmd.insert(4, str(duration))
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        raw = p.stdout.read()
+        p.stdout.close()
+        p.wait()
+        if p.returncode != 0:
+            err = p.stderr.read().decode(errors='ignore')
+            p.stderr.close()
+            raise RuntimeError(f"ffmpeg failed: {err}")
+        audio = np.frombuffer(raw, dtype=np.float32)
+        if channels > 1:
+            audio = audio.reshape(-1, channels).mean(axis=1)  # convert to mono
+        return audio, sample_rate
     
+    def extract_raw_features_from_array(self, audio_array: np.ndarray, sample_rate: int = 44100):
+        """
+        Extract raw features from a numpy audio array.
+        Falls back to writing a temporary WAV if MusicExtractor can't be called
+        with an in-memory essentia.array.
+        """
+        try:
+            ess_audio = essentia.array(audio_array.astype(np.float32))
+            
+            # MusicExtractor expects a filename, not an audio array.
+            # Use fallback: write to temp WAV and extract from file.
+            try:
+                import soundfile as sf
+            except ImportError as e:
+                raise RuntimeError("soundfile not available for WAV fallback; install via 'pip install soundfile'") from e
+            
+            tmpf = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp_path = tmpf.name
+            tmpf.close()
+            sf.write(tmp_path, audio_array, sample_rate, subtype='PCM_16')
+            try:
+                features, _ = self.music_extractor(tmp_path)
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            
+            embedding_parts = []
+            
+            for group_name, feature_list in self.feature_groups.items():
+                for feature_name in feature_list:
+                    try:
+                        value = features[feature_name]
+                        if isinstance(value, (list, np.ndarray)):
+                            embedding_parts.extend(np.array(value).flatten())
+                        else:
+                            embedding_parts.append(float(value))
+                    except KeyError:
+                        # Use zeros for missing features (matching analysis.py)
+                        if 'mfcc' in feature_name:
+                            embedding_parts.extend([0.0] * 13)
+                        elif 'melbands' in feature_name:
+                            embedding_parts.extend([0.0] * 40)
+                        elif 'hpcp' in feature_name:
+                            embedding_parts.extend([0.0] * 36)
+                        else:
+                            embedding_parts.append(0.0)
+                        continue
+            
+            if len(embedding_parts) != self.embedding_dimensions:
+                raise ValueError(f"Expected {self.embedding_dimensions} features, got {len(embedding_parts)}")
+            
+            return np.array(embedding_parts, dtype=np.float32)
+        except Exception as e:
+            print(f"Error processing audio array: {e}")
+            return None
+
     def extract_raw_features(self, audio_path):
         try:
+            # ess_audio = essentia.array(audio_array.astype(np.float32))
+            # features, _ = self.music_extractor(ess_audio)
+            
             features, _ = self.music_extractor(audio_path)
 
             embedding_parts = []
@@ -138,10 +228,13 @@ class Audio_Analyzer:
         except Exception as e:
             print(f"Error processing {audio_path}: {e}")
             return None
-    
-    def process(self, audio_path, max_duration=50, update_running_stats: bool = True, normalize: bool = True):
+
+    def process(self, song_id: str, max_duration=50, update_running_stats: bool = True, normalize: bool = True):
         try:
-            raw_features = self.extract_raw_features(audio_path)
+            file_path = os.path.join(self.project_root, 'storage', 'musik', 'hls', song_id, '32k.m3u8')
+            audio_array, sample_rate = self.decode_to_numpy(file_path, duration=max_duration)
+            raw_features = self.extract_raw_features_from_array(audio_array, sample_rate=sample_rate)
+
             if raw_features is None:
                 return None
             
@@ -155,11 +248,12 @@ class Audio_Analyzer:
             else:
                 return raw_features
         except Exception as e:
-            print(f"Error in processing {audio_path}: {e}")
+            print(f"Error in processing {song_id}: {e}")
             return None
     
     def process_batch(self, audio_paths, max_duration=50, update_running_stats: bool = True, max_workers: int = 4):
         try:
+            print(f"Processing batch of {len(audio_paths)} audio files with {max_workers} workers...")
             features_list = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(self.process, path, max_duration, False): path for path in audio_paths}
@@ -226,7 +320,9 @@ class Audio_Analyzer:
 
 class Running_Stats:
     percentiles_to_track = [25, 50, 75]
-    storage_path = 'running_stats.pkl'
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    storage_path = os.path.join(project_root, 'storage', 'musik', 'recommendation')
+    stats_path = os.path.join(storage_path, 'running_stats.pkl')
 
     def __init__(self, file_path=None):
         self.is_fitted = False
@@ -240,10 +336,11 @@ class Running_Stats:
         self.percentiles = {p: None for p in self.percentiles_to_track}
 
         if file_path:
-            self.storage_path = file_path
+            self.stats_path = file_path
+
         self.load()
     
-    def initialize_stats(self, values: np.ndarray):
+    def initialize_stats(self, values: np.ndarray, skip_save=False):
         if isinstance(values, list):
             values = np.vstack(values)
         else:
@@ -257,9 +354,11 @@ class Running_Stats:
         for p in self.percentiles_to_track:
             self.percentiles[p] = np.percentile(values, p, axis=0)  # Fix: ensure axis=0 for vector percentiles
         self.is_fitted = True
-        # self.save()
 
-    def update(self, values: np.ndarray):
+        if not skip_save:
+            self.save()
+
+    def update(self, values: np.ndarray, skip_save=False):
         with self.stats_lock:
             # Ensure values is 2D
             if isinstance(values, list):
@@ -268,7 +367,7 @@ class Running_Stats:
                 values = values.reshape(1, -1) if values.ndim == 1 else values
             
             if not self.is_fitted:
-                self.initialize_stats(values)
+                self.initialize_stats(values, skip_save=skip_save)
                 return
             
             n_new = values.shape[0]
@@ -298,7 +397,8 @@ class Running_Stats:
             self.is_fitted = True
 
             # save state for persistence
-            # self.save()
+            if not skip_save:
+                self.save()
     
     def get_normalization_params(self):
         if not self.is_fitted:
@@ -350,6 +450,7 @@ class Running_Stats:
         return np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=-1.0)
 
     def save(self):
+        print(f"Saving running stats to {self.stats_path}")
         # Create a copy of the state without the lock (which can't be pickled)
         state_to_save = {
             'is_fitted': self.is_fitted,
@@ -360,84 +461,51 @@ class Running_Stats:
             'max': self.max,
             'percentiles': self.percentiles
         }
-        
-        with open(self.storage_path, 'wb') as f:
-            pickle.dump(state_to_save, f)
-    
-    def load(self):
-        if os.path.exists(self.storage_path):
+
+        # Ensure parent directory exists (self.stats_path is a file path)
+        parent_dir = os.path.dirname(self.stats_path)
+        os.makedirs(parent_dir, exist_ok=True)
+
+        # Write atomically to avoid corruption from concurrent writes
+        tmp_path = self.stats_path + ".tmp"
+        try:
+            with open(tmp_path, 'wb') as f:
+                pickle.dump(state_to_save, f)
+            os.replace(tmp_path, self.stats_path)
+        except Exception as e:
+            # Clean up tmp file if something went wrong
             try:
-                with open(self.storage_path, 'rb') as f:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+            print(f"Failed to save running stats to {self.stats_path}: {e}")
+
+    def load(self):
+        # Ensure parent dir exists
+        parent_dir = os.path.dirname(self.stats_path)
+        if not os.path.exists(parent_dir):
+            # nothing to load
+            print(f"No existing running stats directory at {parent_dir}. Starting fresh.")
+            os.makedirs(parent_dir, exist_ok=True)
+            return
+
+        # Guard against the case where someone accidentally created a directory named like the file
+        if os.path.isdir(self.stats_path):
+            print(f"Expected file but found directory at {self.stats_path}. Please remove/rename it.")
+            return
+
+        if os.path.exists(self.stats_path):
+            try:
+                with open(self.stats_path, 'rb') as f:
                     data = pickle.load(f)
                     # Load only attributes that exist in the current class
                     if isinstance(data, dict):
                         for key in data:
                             if hasattr(self, key):
                                 setattr(self, key, data[key])
+                print(f"Loaded running stats from {self.stats_path} (count={getattr(self, 'count', None)})")
             except Exception as e:
-                print(f"Failed to load running stats from {self.storage_path}: {e}. Using defaults.")
-
-# class Embedding:
-#     staticmethod
-#     def normalize(embedding: np.ndarray):
-#         norm = np.linalg.norm(embedding)
-#         if norm > 0:
-#             return embedding / norm
-#         return embedding
-    
-
-#     def __init__(self, embedding: np.ndarray = None):
-#         self.embedding = embedding
-#         # self.is_negative = False
-    
-#     def get_embedding(self):
-#         if self.embedding is None:
-#             raise ValueError("No embedding available. Add embeddings first.")
-#         return self.embedding
-    
-#     def add_to_embedding(self, embedding: np.ndarray, weight: float = 1.0):
-#         if self.embedding is None:
-#             self.embedding = embedding * weight
-#         else:
-#             self.embedding += embedding * weight
-    
-#     def calculate_weight(self, entry: dict) -> float:
-#         return 1.0  # Placeholder for actual weight calculation logic
-
-#     def normalize(self):
-#         if self.embedding is None:
-#             raise ValueError("No embedding to normalize.")
-#         norm = np.linalg.norm(self.embedding)
-#         if norm > 0:
-#             self.embedding = self.embedding / norm
-#         return self.embedding
-
-# class Normalized_Embedding(Embedding):
-#     def __init__(self, embedding: np.ndarray = None):
-#         super().__init__(embedding)
-#         self.normalize() # Ensure normalization on init
-    
-#     def add_to_embedding(self, embedding, weight = 1):
-#         super().add_to_embedding(embedding, weight)
-#         self.normalize() # Keep normalized after each addition
-#         return self.embedding
-
-#     def normalize(self):
-#         if self.embedding is None:
-#             raise ValueError("No embedding to normalize.")
-#         norm = np.linalg.norm(self.embedding)
-#         if norm > 0:
-#             self.embedding = self.embedding / norm
-#         return self.embedding
-
-# test
-# if __name__ == "__main__":
-#     analyzer = Audio_Analyzer()
-#     audio_files = glob.glob('storage/musik/temp.music/*.wav')[:5]  # Update with your path
-
-#     for audio_file in audio_files:
-#         features = analyzer.process(audio_file)
-#         if features is not None:
-#             print(f"Processed {audio_file}: {features[:5]}...")  # Print first 5 features as a sample
-#         else:
-#             print(f"Failed to process {audio_file}")
+                print(f"Failed to load running stats from {self.stats_path}: {e}. Using defaults.")
+        else:
+            print(f"No existing running stats found at {self.stats_path}. Starting fresh.")

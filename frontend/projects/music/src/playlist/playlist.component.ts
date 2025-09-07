@@ -1,4 +1,4 @@
-import { Component, HostListener } from '@angular/core';
+import { Component, HostListener, ViewChild, ElementRef, OnInit, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
@@ -16,7 +16,66 @@ import { QuickActionService } from '../../quick.action.service';
     styleUrl: './playlist.component.css',
     standalone: true
 })
-export class PlaylistComponent {
+export class PlaylistComponent implements OnInit, AfterViewInit {
+    @ViewChild('resultVideos', { static: false }) result_videos_ref!: ElementRef<HTMLElement>;
+    @ViewChild('searchInput', { static: false }) search_input_ref!: ElementRef<HTMLInputElement>;
+
+    loaded: boolean = true;
+    search_query: string = '';
+    filtered_videos: (Song_Data | null)[] = [];
+    
+    ngOnInit(): void {
+        // Component initialization
+        this.loaded = false;
+    }
+
+    ngAfterViewInit(): void {
+        // Auto-scroll to hide search-filter when component loads
+        this.auto_scroll_past_search_filter();
+        this.loaded = true;
+    }
+
+    private auto_scroll_past_search_filter(smooth: boolean = false): void {
+        // Wait for next tick to ensure DOM is fully rendered
+        setTimeout(() => {
+            if (this.result_videos_ref?.nativeElement) {
+                // Find the search-filter element to get its height
+                const host_element = this.result_videos_ref.nativeElement.closest('app-playlist');
+                const search_filter = host_element?.querySelector('.search-filter') as HTMLElement;
+                
+                if (search_filter) {
+                    // Get the height of the search-filter including margins
+                    const search_filter_height = search_filter.offsetHeight;
+                    const computed_style = getComputedStyle(search_filter);
+                    const margin_top = parseInt(computed_style.marginTop) || 0;
+                    const margin_bottom = parseInt(computed_style.marginBottom) || 0;
+                    const total_height = search_filter_height + margin_top + margin_bottom;
+                    
+                    // Scroll the host element (component container) to hide the search-filter
+                    const scroll_container = host_element as HTMLElement;
+                    if (scroll_container && scroll_container.scrollTo) {
+                        scroll_container.scrollTo({
+                            top: total_height + 15, // for box shadow
+                            behavior: smooth ? 'smooth' : 'instant' // Change to 'smooth' if you want a smooth scroll
+                        });
+                    }
+                } else {
+                    // Fallback: scroll a fixed amount if search-filter not found
+                    const scroll_container = host_element as HTMLElement;
+                    if (scroll_container && scroll_container.scrollTo) {
+                        scroll_container.scrollTo({
+                            top: 60, // Approximate height
+                            behavior: smooth ? 'smooth' : 'instant' // Change to 'smooth' if you want a smooth scroll
+                        });
+                    }
+                }
+            }
+        }, 100); // Small delay to ensure DOM is ready
+    }
+
+    // Sticky header state
+    is_header_visible = true;
+
     videos: (Song_Data | null)[] = [];
     loaded_videos: Map<number, Song_Data | null> = new Map();
     
@@ -121,6 +180,7 @@ export class PlaylistComponent {
             clientX = event.clientX;
             clientY = event.clientY;
         }
+        this.queued_to_next = false;
 
         this.gesture_current_x = clientX;
         this.gesture_current_y = clientY;
@@ -214,7 +274,8 @@ export class PlaylistComponent {
         } else if (this.gesture_type === 'none' && totalDistance < this.gesture_threshold && gestureDuration < this.tap_timeout) {
             // This is a tap - play the song
             this.gesture_type = 'tap';
-            if (this.swiping_video_data) {
+            if (this.swiping_video_data && !this.queued_to_next) {
+                // prevents playing if we just queued to next
                 setTimeout(() => this.play(this.swiping_video_data), 50);
             }
         }
@@ -227,6 +288,7 @@ export class PlaylistComponent {
         event.stopPropagation();
     }
 
+    private queued_to_next: boolean = false;
     private start_hold_timer(video: Song_Data | null): void {
         const startTime = Date.now();
         
@@ -245,6 +307,7 @@ export class PlaylistComponent {
                 this.gesture_type = 'hold';
                 this.swipe_x = 0;
                 this.trigger_add_to_next(video);
+                this.queued_to_next = true;
                 this.hold_progress = 100;
             } else {
                 this.hold_animation_frame = requestAnimationFrame(updateProgress);
@@ -368,6 +431,102 @@ export class PlaylistComponent {
         });
     }
 
+    // Fuzzy Search Implementation
+    on_search_input(event: Event): void {
+        const target = event.target as HTMLInputElement;
+        this.search_query = target.value.toLowerCase().trim();
+        this.apply_search_filter();
+    }
+
+    private apply_search_filter(): void {
+        if (!this.search_query) {
+            // If no search query, show all videos
+            this.filtered_videos = [...this.videos];
+        } else {
+            // Apply fuzzy search filter
+            this.filtered_videos = this.videos.filter(video => {
+                if (!video) return false;
+                return this.fuzzy_match(video, this.search_query);
+            });
+        }
+    }
+
+    private fuzzy_match(video: Song_Data, query: string): boolean {
+        if (!video || !query) return false;
+
+        const searchFields = [
+            video.song_name?.toLowerCase() || '',
+            video.original_artists?.[0]?.name?.toLowerCase() || '',
+            // Add more fields as needed
+            ...(video.original_artists?.map(artist => artist.name?.toLowerCase() || '') || [])
+        ].filter(field => field.length > 0);
+
+        // Check for exact substring matches first (highest priority)
+        for (const field of searchFields) {
+            if (field.includes(query)) {
+                return true;
+            }
+        }
+
+        // Check for fuzzy matching (allows for typos/partial matches)
+        for (const field of searchFields) {
+            if (this.calculate_similarity(field, query) >= 0.6) { // 60% similarity threshold
+                return true;
+            }
+        }
+
+        // Check for word-based matching (any word starts with query)
+        for (const field of searchFields) {
+            const words = field.split(/\s+/);
+            for (const word of words) {
+                if (word.startsWith(query) || this.calculate_similarity(word, query) >= 0.7) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private calculate_similarity(str1: string, str2: string): number {
+        // Levenshtein distance-based similarity
+        const longer = str1.length > str2.length ? str1 : str2;
+        const shorter = str1.length > str2.length ? str2 : str1;
+
+        if (longer.length === 0) return 1.0;
+
+        const distance = this.levenshtein_distance(longer, shorter);
+        return (longer.length - distance) / longer.length;
+    }
+
+    private levenshtein_distance(str1: string, str2: string): number {
+        const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+
+        for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+        for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+
+        for (let j = 1; j <= str2.length; j++) {
+            for (let i = 1; i <= str1.length; i++) {
+                const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+                matrix[j][i] = Math.min(
+                    matrix[j][i - 1] + 1,     // deletion
+                    matrix[j - 1][i] + 1,     // insertion
+                    matrix[j - 1][i - 1] + cost // substitution
+                );
+            }
+        }
+
+        return matrix[str2.length][str1.length];
+    }
+
+    clear_search(): void {
+        this.search_query = '';
+        if (this.search_input_ref?.nativeElement) {
+            this.search_input_ref.nativeElement.value = '';
+        }
+        this.apply_search_filter();
+    }
+
     get current_song_identifier(): Song_Identifier | null {
         return this.player.song_data ? this.player.song_data.id : null;
     }
@@ -384,10 +543,15 @@ export class PlaylistComponent {
         
         // Load initial batch
         await this.load_videos_in_range(0, Math.min(this.visible_end_index + this.buffer_size, this.videos.length));
+        
+        // Initialize filtered videos
+        this.filtered_videos = [...this.videos];
     }
 
     get visible_videos(): (Song_Data | null)[] {
-        return this.videos.slice(this.visible_start_index, this.visible_end_index);
+        // Use filtered videos if search is active, otherwise use regular videos
+        const source_videos = this.search_query ? this.filtered_videos : this.videos;
+        return source_videos.slice(this.visible_start_index, this.visible_end_index);
     }
 
     get padding_top(): string {
@@ -415,6 +579,9 @@ export class PlaylistComponent {
         }
         
         await Promise.all(promises);
+        
+        // Update filtered videos after loading new data
+        this.apply_search_filter();
     }
 
     update_video(video: Song_Data | null) {
@@ -428,6 +595,19 @@ export class PlaylistComponent {
     on_scroll(event: Event) {
         const target = event.target as HTMLElement;
         const scrollTop = target.scrollTop;
+        
+        // Check header visibility - header has height: 50vh + padding + margins
+        // Approximate total height considering 50vh + space-7 padding + space-6 margin
+        const viewport_height = window.innerHeight;
+        const header_height = Math.max(400, viewport_height * 0.5 + 120); // 50vh + ~120px for padding/margins
+        const was_header_visible = this.is_header_visible;
+        this.is_header_visible = scrollTop < header_height;
+        
+        // If visibility changed, trigger change detection
+        if (was_header_visible !== this.is_header_visible) {
+            // Optional: Add any additional logic when visibility changes
+            console.log('Header visibility changed:', this.is_header_visible);
+        }
         
         // Calculate visible range based on scroll position
         const new_start = Math.floor(scrollTop / this.item_height);
@@ -492,7 +672,18 @@ export class PlaylistComponent {
         this.player.open_player.emit();
     }
 
-    close(): void {
+    close(to_top: boolean): void {
+        if(to_top) {
+            // const host_element = this.result_videos_ref.nativeElement.closest('app-playlist') as HTMLElement;
+            // if (host_element && host_element.scrollTo) {
+            //     host_element.scrollTo({
+            //         top: 0,
+            //         behavior: 'smooth'
+            //     });
+            // }
+            this.auto_scroll_past_search_filter(true);
+            return;
+        }
         this.router.navigate(['/playlists'], { replaceUrl: true });
     }
 

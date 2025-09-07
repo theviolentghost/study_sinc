@@ -1269,4 +1269,10 @@ export class MusicMediaService {
     public get_recent_artists(): any[] {
         return Array.from(this.recent_artists_cache?.values() || []);
     }
+
+    public get_mood_categories(): Promise<{params: string, title: string}[]> {
+        return lastValueFrom(
+            this.http.get(`/music/mood_categories`)
+        ) as Promise<{params: string, title: string}[]>;
+    }
 }

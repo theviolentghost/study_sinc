@@ -112,8 +112,8 @@
                             <div class="progress" [style.width.%]="video_progress(video?.id?.video_id || '')"></div>
                         </div>
                         <div class="quick-actions" [style.width.px]="swiping_video === video_key(video, i) ? swipe_width : 0">
-                            <button [ngClass]="{hidden: swipe_x < -delete_swipe_open_size}" [style.background-color]="'var(--color-neutral)'" class="action" [style.--mask]="'url(' + 'dots.svg' + ')'"></button>
-                            <button [style.background-color]="'var(--color-deny)'" class="action" [style.--mask]="'url(' + 'trash.svg' + ')'"></button>
+                            <button [ngClass]="{hidden: swipe_x < -delete_swipe_open_size}" [style.background-color]="'var(--color-neutral)'" class="action" [style.--mask]="'url(' + 'dots.svg' + ')'" (click)="open_more_options(video)"></button>
+                            <button [style.background-color]="'var(--color-deny)'" class="action" [style.--mask]="'url(' + 'trash.svg' + ')'" (click)="remove_from_play_next(video, i)"></button>
                         </div>
                         <div 
                             class="moveable" 

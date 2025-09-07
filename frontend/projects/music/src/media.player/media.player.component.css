@@ -40,7 +40,7 @@
 }
 .media-info {
     display: flex;
-    width: 85%;
+    width: calc(100% - var(--space-8) * 2 - var(--space-1));
 }
 .title {
     font-size: var(--space-4);

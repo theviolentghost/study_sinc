@@ -8,7 +8,6 @@ import signal
 import traceback
 from functools import wraps
 from dotenv import load_dotenv
-# from query_2 import Audio_Search
 
 # Configure logging
 logging.basicConfig(
@@ -20,6 +19,21 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Conditional import for Audio_Search to prevent startup failures
+try:
+    global Audio_Search, AUDIO_SEARCH_AVAILABLE
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'music', 'recommendation'))
+    from query_2 import Audio_Search
+    AUDIO_SEARCH_AVAILABLE = True
+    print("Audio_Search module imported successfully")
+
+    audio_search = Audio_Search()
+except ImportError as e:
+    print(f"Audio_Search module not available: {e}")
+    Audio_Search = None
+    AUDIO_SEARCH_AVAILABLE = False
 
 load_dotenv()
 client_id = os.getenv("SPOTIFY_CLIENT_ID")
@@ -180,32 +194,62 @@ def get_video_id():
     result = spotdl.get_video_id(query)
     return jsonify({"id": result})
 
-# @app.route('/create_embedding', methods=['POST'])
-# @handle_errors
-# def create_embedding():
-#     data = request.get_json()
-#     if not data:
-#         return jsonify({"error": "Invalid JSON body"}), 400
+@app.route('/request_embedding', methods=['POST'])
+@handle_errors
+def request_embedding():
+    if not AUDIO_SEARCH_AVAILABLE:
+        return jsonify({"error": "Audio search functionality not available"}), 503
     
-#     audio_path = data.get('audio_path')
-#     song_id = data.get('song_id')
-    
-#     if not audio_path or not song_id:
-#         return jsonify({"error": "Missing required parameters 'audio_path' or 'song_id'"}), 400
-    
-#     if not audio_path.strip() or not song_id.strip():
-#         return jsonify({"error": "Parameters 'audio_path' and 'song_id' cannot be empty"}), 400
-    
-#     logger.info(f"Creating embedding for song ID: {song_id} from path: {audio_path}")
-    
-#     try:
-#         audio_search = Audio_Search()
-#         audio_search.request_audio_to_be_processed(audio_path, song_id)
-#         return jsonify({"status": "Embedding creation requested", "song_id": song_id})
-#     except Exception as e:
-#         logger.error(f"Error creating embedding: {str(e)}")
-#         return jsonify({"error": "Failed to create embedding", "message": str(e)}), 500
+    # logger.info("Audio_Search is running")
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON body"}), 400
+    song_id = data.get('song_id')
 
+    if not song_id:
+        return jsonify({"error": "Missing required parameter 'song_id'"}), 400
+    
+    try:
+        print(f"requesting embedding for song ID: {song_id}...")
+        audio_search.request_audio_to_be_processed(song_id)
+        return jsonify({"status": "Embedding creation requested", "song_id": song_id})
+    except Exception as e:
+        logger.error(f"Error creating embedding: {str(e)}")
+        return jsonify({"error": "Failed to create embedding", "message": str(e)}), 500
+
+@app.route('/is_song_in_process_queue', methods=['GET'])
+@handle_errors
+def is_song_in_process_queue():
+    if not AUDIO_SEARCH_AVAILABLE:
+        return jsonify({"error": "Audio search functionality not available"}), 503
+    
+    song_id = request.args.get('song_id')
+    if not song_id:
+        return jsonify({"error": "Missing required parameter 'song_id'"}), 400
+
+    try:
+        in_queue = audio_search.is_song_in_process_queue(song_id)
+        return jsonify({"song_id": song_id, "in_process_queue": in_queue})
+    except Exception as e:
+        logger.error(f"Error checking process queue: {str(e)}")
+        return jsonify({"error": "Failed to check process queue", "message": str(e)}), 500
+    
+@app.route('/search_similar_songs', methods=['GET'])
+@handle_errors
+def search_similar_songs():
+    if not AUDIO_SEARCH_AVAILABLE:
+        return jsonify({"error": "Audio search functionality not available"}), 503
+    
+    song_id = request.args.get('song_id')
+    if not song_id:
+        return jsonify({"error": "Missing required parameter 'song_id'"}), 400
+
+    try:
+        similar_songs = audio_search.recommend_similar_songs_with_song_id(song_id, top_k=10, exclude_ids=[song_id])
+        return jsonify({"song_id": song_id, "similar_songs": similar_songs})
+    except Exception as e:
+        logger.error(f"Error searching similar songs: {str(e)}")
+        return jsonify({"error": "Failed to search similar songs", "message": str(e)}), 500
 
 
 # Application entry point with proper error handling

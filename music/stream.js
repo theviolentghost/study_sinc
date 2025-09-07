@@ -4,6 +4,8 @@ import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs-extra';
 import path from 'path';
 
+import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+
 const __dirname = path.resolve();
 
 class Adaptive_Stream {
@@ -213,7 +215,26 @@ class Adaptive_Stream {
             }
         });
 
-        app.get('stream/keepalive', async (req, res) => {
+        app.post('/stream/embedding_generated', async (req, res) => {
+            // sent from python server, telling us the embedding has been generated
+            const song_id = req.body.song_id;
+            if (!song_id) {
+                return res.status(400).json({
+                    error: 'Missing song_id parameter',
+                    success: false
+                });
+            }
+            const session = this.active_processes.get(song_id);
+            if (session) {
+                session.queued_for_embedding_generation = false;
+                console.log(`Embedding generation completed for song ID ${song_id}, session updated.`);
+                return res.json({ success: true, message: 'Session updated' });
+            } else {
+                return res.status(404).json({ error: 'Session not found', success: false });
+            }
+        });
+
+        app.get('/stream/keepalive', async (req, res) => {
             const video_id = req.query.video_id;
             const target_quality = req.query.quality || 'medium';
             // to implement
@@ -349,10 +370,17 @@ class Adaptive_Stream {
         }
     }
 
+    async request_embedding(song_id) {
+        await request_embedding(song_id);
+        const is_in_queue = await is_song_in_process_queue(song_id);
+        console.log(`Song ID ${song_id} in processing queue: ${is_in_queue}`);
+
+        return is_in_queue;
+    }
+
     async stream(video_id, target_quality = 'medium', fast_startup = true) {
         // console.time('dir check');
         console.log(`Starting stream for video ${video_id} with quality ${target_quality}`);
-        fs.appendFileSync('/tmp/stream-debug.log', `\n${new Date().toISOString()} - Starting stream for ${video_id}\n`);
 
         const session_id = video_id;
         const url = `https://www.youtube.com/watch?v=${video_id}`;
@@ -377,7 +405,7 @@ class Adaptive_Stream {
             };
         }
 
-        // if session with required quakity does not exist
+        // if session with required quality does not exist
         // check to see if a session with the same ID exists
         // if so, add the desired quality to the existing session
         if( this.active_processes.has(session_id) ) {
@@ -414,6 +442,10 @@ class Adaptive_Stream {
         }
         // Ensure directory exists synchronously for immediate use
         else if(!this.ensure_directory_with_retry(session_directory)) throw new Error(`Failed to create session directory: ${session_directory}`);
+
+        // new stream
+        this.request_embedding(video_id);
+        let queued_for_embedding_generation = true; // usume true for now,
 
         // console.log('yt-dlp')
         // console.log('yt-dlp process started');
@@ -627,9 +659,12 @@ class Adaptive_Stream {
             session_directory: session_directory,
             qualities: this.get_requested_profiles(target_quality),
             target_quality: target_quality,
-            start_time: Date.now(),
+            expire: Date.now() + Adaptive_Stream.hls_playlist_max_uphold_time,
+            queued_for_embedding_generation: queued_for_embedding_generation ?? false, // prevent auto deletion while embedding is being generated/requested
             stream_method: using_direct_url ? 'direct_url' : 'yt_dlp_process'
         });
+
+        // console.log('session:', this.active_processes.get(session_id));
 
         // Wait for both the playlist and first segment to be ready
         try {
@@ -1154,8 +1189,9 @@ class Adaptive_Stream {
         for (const session_id of sessions) {
             const session = this.active_processes.get(session_id);
             if (session) {
-                const age = now - session.start_time;
-                if (age > Adaptive_Stream.hls_playlist_max_uphold_time) { // 1 hour
+                const age = now - session.expire;
+                if (age > 0 && session.queued_for_embedding_generation === false) {
+                    // Session expired, clean it up
                     await this.clean(session_id);
                     this.active_processes.delete(session_id);
                     console.log(`Cleaned up old session: ${session_id}`);

@@ -377,7 +377,7 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
 function spotify_generate_catalog(spotify_data) {
     const { tracks, artists} = spotify_data;
     let catalog = [...tracks.items, ...artists.items];
-    catalog.sort((a, b) => b.popularity - a.popularity);
+    // catalog.sort((a, b) => b.popularity - a.popularity);
     return catalog;
 }
 

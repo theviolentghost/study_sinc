@@ -686,4 +686,17 @@ export class QuickActionComponent {
     stop_dragging() {
         this.dragging = false;
     }
+
+    remove_from_play_next(video: Song_Data | null, index: number) {
+        if (!video) return;
+
+        // Remove from play next queue
+        this.player.play_next_queue.queue.splice(index, 1);
+        this.player.play_next_queue.queue = [...this.player.play_next_queue.queue];
+    }
+
+    open_more_options(video: Song_Data | null) {
+        if (!video) return;
+        // this.quick_action.open_song_options(video);
+    }
 }

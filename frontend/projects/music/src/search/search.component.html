@@ -68,42 +68,11 @@
 
             <!-- SPOTIFY TEMPLATE -->
             <ng-container *ngSwitchCase="'spotify'">
-                <!-- Artists -->
-                <!-- <div *ngIf="(search_results?.artists?.total || 0) > 0" class="search-results-artists">
-                    <div class="search-result artist disable-select" *ngFor="let artist of artist_results">
-                        <div class="thumbnail">
-                            <img [src]="artist.images?.[0]?.url || 'users.svg'" alt="" />
-                        </div>
-                        <a class="name">{{ artist.name }}</a>
-                    </div>
-                </div> -->
-                <!-- Albums -->
-                <!-- <div *ngIf="(search_results?.albums?.total || 0) > 0" class="search-results-albums">
-                    <div class="search-result album disable-select" *ngFor="let album of search_results?.albums?.items">
-                        <div class="thumbnail">
-                            <img [src]="album.images?.[0]?.url || 'default-album.svg'" alt="" />
-                        </div>
-                        <div class="info">
-                            <div class="title">{{ album.name }}</div>
-                            <div class="artist">{{ album.artists?.[0]?.name }}</div>
-                        </div>
-                    </div>
-                </div> -->
-                <!-- Tracks -->
-                <!-- <div *ngIf="(catalog?.length || 0) > 0" class="search-results-videos hide-scrollbar"> -->
-                    <!-- <button (click)="spotify_play(track)" class="search-result video disable-select" *ngFor="let track of search_results?.tracks?.items" [ngClass]="{saved: is_song_in_collection(track, 'spotify'), selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(track, 'spotify'))}">
-                        <div class="thumbnail">
-                            <img [src]="track.album?.images?.[2]?.url || 'music.svg'" alt="" />
-                            <div class="duration">{{ ms_to_time(track.duration_ms) }}</div>
-                        </div>
-                        <div class="info">
-                            <div class="title">{{ track.name }}</div>
-                            <div class="artist">{{ track.artists?.[0]?.name }}</div>
-                        </div>
-                        <div class="extra-info-alignment">
-                            <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(track, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(track, 'spotify'); $event.stopPropagation();"></button>
-                        </div>
-                    </button> -->
+                    <ng-container *ngTemplateOutlet="searchHome"></ng-container>
+                    <ng-container *ngIf="searching">
+                        <ng-container *ngTemplateOutlet="loadingResults"></ng-container>
+                    </ng-container>
+
                     <div class="search-background">
                         <ng-container *ngFor="let item of catalog">
                             <ng-container [ngSwitch]="item?.type">
@@ -168,6 +137,62 @@
             </ng-container>
         </ng-container>
 
+        <ng-template #loadingResults>
+            <p> loading</p>
+            <div class="loading-results">
+                <div class="spinner" [style.--color]="get_search_primary_color()"></div>
+            </div>
+        </ng-template>
+
+        <ng-template #searchHome>
+            <div class="search-home">
+                
+                <div class="search-categories">
+                    <!-- <h2>Top Music</h2>
+                    <div class="category genres">
+                        <div class="list scroll-x hide-scrollbar">
+                            <div class="song-container">
+                                <button
+                                    *ngFor="let item of catalog"
+                                    (click)="spotify_play(item)"
+                                    class="search-result video disable-select"
+                                    [ngClass]="{
+                                        saved: is_song_in_collection(item, 'spotify'),
+                                        selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(item, 'spotify'))
+                                    }"
+                                >
+                                    <div class="thumbnail">
+                                        <img [src]="item?.album?.images?.[1]?.url || 'music.svg'" alt="Track cover" />
+                                        <div class="duration">{{ ms_to_time(item?.duration_ms) }}</div>
+                                    </div>
+                                    <div class="info">
+                                        <div class="title">{{ item?.name }}</div>
+                                        <div class="artist">{{ item?.artists?.[0]?.name }}</div>
+                                    </div>
+                                    <div class="extra-info-alignment">
+                                        <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(item, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(item, 'spotify'); $event.stopPropagation();"></button>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div> -->
+
+
+                    <h2 *ngIf="mood_categories.length > 0">Genres</h2>
+                    <div class="category genres">
+                        <div class="list">
+                            <div class="item no-thumbnail" *ngFor="let category of mood_categories">
+                                <div class="thumbnail">
+                                    <img/>
+                                </div>
+                                <div class="label">{{ category.title }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </ng-template>
+
         <!-- No Results Template -->
         <ng-template #noResults>
             <div class="no-results" *ngIf="search_query.length > 0 && searched">
@@ -178,6 +203,6 @@
     </div>
 </div>
 
-<div class="search-recommendations">
+<!-- <div class="search-recommendations">
     
-</div>
+</div> -->

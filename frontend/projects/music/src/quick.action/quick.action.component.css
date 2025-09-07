@@ -131,6 +131,7 @@
     min-height: 20vh;
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 .queue-management {
     position: relative;

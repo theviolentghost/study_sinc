@@ -1,45 +1,445 @@
 :host {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
 
+.feedback-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 10000000000;
+}
+
+.feedback-glint {
+    position: absolute;
+    top: 0%;
+    width: 20vw;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* border-radius: 50%; */
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+    z-index: 10000000000;
+}
+
+.left-glint {
+    left: 0%;
+    background: linear-gradient(90deg, rgba(255, 59, 48, 0.55) 0%, rgba(255, 59, 48, 0.0) 100%);
+}
+
+.right-glint {
+    right: 0%;
+    background: linear-gradient(-90deg, rgba(52, 199, 89, 0.35) 0%, rgba(52, 199, 89, 0.0) 100%);
+}
+
+
+.glint-content {
+    text-align: center;
+    color: white;
+}
+
+.glint-icon {
+    width: var(--space-7);
+    height: var(--space-7);
+    mask-image: var(--mask);
+    mask-position: center;
+    mask-repeat: no-repeat;
+    mask-size: contain;
+    background-color: white;
+}
+
+.glint-text {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 2px;
+}
+
+.cards-remaining {
+    position: absolute;
+    top: -40px;
+    font-size: 14px;
+    color: var(--color-text);
+    opacity: 0.6;
 }
 
 .stack {
     position: relative;
     width: 350px;
-    /* height: 550px; */
-    aspect-ratio: 9 / 16;
-    position: relative;
+    height: 550px;
     display: flex;
     align-items: center;
     justify-content: center;
+}
 
+.card {
+    position: absolute;
+    width: 350px;
+    height: 420px;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.card.hidden {
+    display: none;
+}
+
+.card.active-card {
+    cursor: grab;
+    transform-origin: center center;
+}
+
+.card.active-card:active {
+    cursor: grabbing;
+}
+
+.card.active-card.cdk-drag-dragging {
+    transform-origin: center center;
+}
+
+.card.active-card.snap-back {
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+}
+
+.card.active-card.exit-animation {
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+}
+
+.card.background-card {
+    pointer-events: none;
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), 
+                opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.card-content {
+    padding: var(--space-3);
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+    border-radius: var(--space-4);
+    background-color: var(--color-background-300);
+    border: solid 1px var(--color-background-200);
+    overflow: hidden;
+    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transform-origin: center center;
+}
+
+.thumbnail {
+    pointer-events: none;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: var(--color-background-100);
+    border-radius: calc(var(--space-4) - var(--space-3) / 1.5);
+    overflow: hidden;
+}
+
+.thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.info {
+    width: 100%;
+    flex: 1;
+}
+
+.title {
+    font-size: calc(var(--font-size-base) * 1.2);
+    font-weight: 600;
+    margin-top: var(--space-2);
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.artist {
+    font-size: calc(var(--font-size-base) * .85);
+    color: var(--color-text);
+    padding: 0 var(--space-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    filter: brightness(0.75);
+    display: flex;
+    flex-direction: row;
+    margin-right: 4px;
+    flex-shrink: 0;
+}
+
+.artist:hover {
+    text-decoration: underline;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 40px;
+    margin-top: 40px;
+    z-index: 100;
+}
+
+.action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 70px;
+    height: 70px;
+    border: none;
+    border-radius: 50%;
+    background: var(--color-background-300);
+    border: 2px solid var(--color-background-200);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.action-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.action-btn:active {
+    transform: scale(0.95);
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.reject-btn {
+    border-color: rgba(255, 59, 48, 0.3);
+    background: linear-gradient(135deg, rgba(255, 59, 48, 0.1) 0%, rgba(255, 59, 48, 0.05) 100%);
+}
+
+.reject-btn:hover {
+    border-color: rgba(255, 59, 48, 0.6);
+    background: linear-gradient(135deg, rgba(255, 59, 48, 0.2) 0%, rgba(255, 59, 48, 0.1) 100%);
+}
+
+.accept-btn {
+    border-color: rgba(52, 199, 89, 0.3);
+    background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%);
+}
+
+.accept-btn:hover {
+    border-color: rgba(52, 199, 89, 0.6);
+    background: linear-gradient(135deg, rgba(52, 199, 89, 0.2) 0%, rgba(52, 199, 89, 0.1) 100%);
+}
+
+.btn-icon {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.reject-btn .btn-icon {
+    color: rgba(255, 59, 48, 0.8);
+}
+
+.accept-btn .btn-icon {
+    color: rgba(52, 199, 89, 0.8);
+}
+
+.btn-text {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text);
+    opacity: 0.7;
+}
+
+/* CDK Drag animations */
+.cdk-drag-animating {
+    transition: transform 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.cdk-drag-placeholder {
+    opacity: 0;
+}
+
+/* Override CDK's automatic positioning - we handle transforms manually */
+.cdk-drag.card.active-card {
+    transform-origin: center center !important;
+}
+
+.cdk-drag.card.active-card.cdk-drag-dragging {
+    /* Disable CDK's automatic transform application during drag */
+    transform-origin: center center !important;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+    /* .stack {
+        width: 320px;
+        height: 500px;
+    }
+    
     .card {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        border-radius: 8px;
-        background-color: red;
+        width: 320px;
+        height: 380px;
+    }
+    
+    .feedback-glint {
+        width: 120px;
+        height: 120px;
+    }
+    
+    .left-glint {
+        left: 10%;
+    }
+    
+    .right-glint {
+        right: 10%;
+    }
+    
+    .glint-icon {
+        font-size: 36px;
+    }
+    
+    .glint-text {
+        font-size: 14px;
+    }
+    
+    .action-buttons {
+        gap: 30px;
+        margin-top: 30px;
+    }
+    
+    .action-btn {
+        width: 60px;
+        height: 60px;
+    } */
+}
+
+.header {
+    .playlist-dropdown-container {
+        position: relative;
+        cursor: pointer;
         display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        /* align-items: center; */
-        /* justify-content: center; */
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        width: clamp(120px, 60vw, 320px);
+        background-color: var(--color-background-200);
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--space-2);
+        border-bottom-right-radius: 0;
 
-        .thumbnail {
-            position: relative;
+        .playlist-selected {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
             width: 100%;
-            aspect-ratio: 1 / 1;
-            background: blue;
-
-            img {
-                width: 100%;
-                height: 100%;
-                object-fit: contain;
-                border-radius: 8px;
-            }
         }
 
-        .info {
-            width: 100%;
+        .icon {
+            width: var(--space-5);
+            height: var(--space-5);
+            mask-image: var(--mask);
+            mask-position: center;
+            mask-repeat: no-repeat;
+            mask-size: contain;
+            background-color: var(--color-text);
+        }
+        .playlist-name {
+            margin-left: var(--space-2);
+            font-size: var(--space-4);
+            font-weight: 500;
+        }
+
+        .playlist-dropdown {
+            position: absolute;
+            top: 100%;
+            left: calc(var(--space-2) + var(--space-5));
+            /* padding-left: var(--space-2); */
+            right: 0;
+            height: auto;
+            background-color: var(--color-background-200);
+            border-bottom-left-radius: var(--space-2);
+            border-bottom-right-radius: var(--space-2);
+            z-index: 10000;
+            overflow: hidden;
+            max-height: 0;
+            transition: max-height 0.3s ease;
+
+            &.open {
+                max-height: calc(32px * 5);
+                overflow-y: auto;
+            }
+
+            .playlist {
+                --color: white;
+                position: relative;
+                font-size: var(--space-4);
+                height: 32px;
+                font-weight: 500;
+                overflow: hidden;
+                padding: var(--space-1) var(--space-2);
+                transition: background-color 0.35s ease;
+
+                &.selected {
+                    background-color: var(--color-background-200);
+                    font-weight: 600;
+                    cursor: default;
+
+                    &::before {
+                        content: '';
+                        width: 100%;
+                        height: 100%;
+                        position: absolute;
+                        top: 0;
+                        right: 0;
+                        background: linear-gradient(-90deg, var(--color), transparent);
+                        opacity: 0.3;
+                        transition: opacity 0.15s ease, width 0.15s ease;
+                    }
+                    &:hover::before {
+                        width: 100%;
+                    }
+                    &:hover {
+                        background-color: var(--color-background-200);
+                    }
+                }
+
+                &::before {
+                    content: '';
+                    width: 20%;
+                    height: 100%;
+                    position: absolute;
+                    top: 0;
+                    right: 0;
+                    background: linear-gradient(-90deg, var(--color), transparent);
+                    opacity: 0.15;
+                    transition: opacity 0.15s ease, width 0.15s ease;
+                }
+                &:hover::before {
+                    opacity: 0.3;
+                    width: 50%;
+                }
+
+                &:hover {
+                    background-color: var(--color-background-100);
+                }
+            }
         }
     }
 }

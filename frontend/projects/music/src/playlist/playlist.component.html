@@ -1,6 +1,13 @@
+<div class="loading-cover" [ngClass]="{'hidden': loaded}"></div>
+<div class="search-filter">
+    <div class="input">
+        <div class="icon" [style.--mask]="'url(\'search.svg\')'"></div>
+        <input #searchInput type="text" placeholder="Search my Playlist" (input)="on_search_input($event)" />
+    </div>
+</div>
 <div class="backdrop" [style.--primary]="get_playlist_primary_color()"></div>
-<button class="close" (click)="close()" [style.--mask]="'url(\'chevron-left.svg\')'" [style.--primary]="get_playlist_primary_color()"></button>
-<div class="header">
+<button class="close" (click)="close(!is_header_visible)" [style.--mask]="'url(\'chevron-left.svg\')'" [style.--primary]="get_playlist_primary_color()" [ngClass]="{'to-top': !is_header_visible}"></button>
+<div class="header" [ngClass]="{ 'collapsed': search_query}">
     <div class="cover" [ngClass]="{'single': playlist_identifier?.images.length === 1}" [style.--primary]="get_playlist_primary_color()">
         <img *ngFor="let image of playlist_identifier?.images" [src]="image" alt="" />
     </div>
@@ -26,6 +33,12 @@
         Shuffle Play
     </button>
 </div>
+<div class="sticky-actions" [ngClass]="{ 'visible': !is_header_visible }">
+    <button class="shuffle-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()" [style.margin-top.px]="10">
+        <div class="icon" [style.--mask]="'url(\'arrows-shuffle.svg\')'"></div>
+        Shuffle Play
+    </button>
+</div>
 <div class="result-videos" #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top" [style.padding-bottom]="padding_bottom">
     <button 
         class="result video disable-select" 
@@ -42,7 +55,6 @@
             [style.transform]="swiping_video === video_key(video) ? 'translateX(' + swipe_x + 'px)' : ''"
             [style.border-bottom]="is_downloading(video?.id?.video_id || '') ? 'solid 1px transparent' : null"
     >
-    <!-- (click)="play(video)" -->
         <div class="thumbnail" [style.background-color]="video?.colors?.primary || '#1a1c1b'">
             <img [src]="get_artwork_src(video)" alt="" />
             <div class="duration">{{ ms_to_time( video?.video_duration || 0) }}</div>
@@ -65,11 +77,15 @@
             <button [ngClass]="{hidden: swipe_x < -delete_swipe_open_size}" (click)="download_video(video); $event.preventDefault(); $event.stopPropagation();" [style.background-color]="get_playlist_primary_color()" class="action" [style.--mask]="'url(' + 'download.svg' + ')'" [style.filter]="'brightness: 0.9;'"></button>
             <button [ngClass]="{hidden: swipe_x > -delete_swipe_open_size}" [style.background-color]="'var(--color-deny)'" class="action" [style.--mask]="'url(' + 'trash.svg' + ')'"></button>
         </div>
-        <!-- <button class="hot-action" [style.mask-image]="'url(\'plus.svg\')'"></button> -->
     </button>
-    <div *ngIf="visible_videos.length === 0" class="no-results">
+    <div *ngIf="visible_videos.length === 0 && videos.length === 0" class="no-results">
         <h2>It looks... Empty</h2>
         <p>There are no songs in this playlist yet.</p>
+        <button (click)="redirect_to_search()" class="search" [style.background-color]="get_playlist_primary_color()">Look For Some! <div class="icon" [style.--mask]="'url(' + 'search.svg' + ')'"></div></button>
+    </div>
+    <div *ngIf="visible_videos.length === 0 && videos.length > 0" class="no-results">
+        <h2>No Songs Match This Query</h2>
+        <p>Try adjusting your search or search for it.</p>
         <button (click)="redirect_to_search()" class="search" [style.background-color]="get_playlist_primary_color()">Look For Some! <div class="icon" [style.--mask]="'url(' + 'search.svg' + ')'"></div></button>
     </div>
 </div>

@@ -1,15 +1,110 @@
-<div class="stack">
-    <div 
-        class="card"
-        *ngFor="let item of discover_cards; let i = index"
-        [style.margin-top.px]="i * 4"
-    >
-        <div class="thumbnail">
-            <img [src]="item?.image || 'music.svg'" alt="Card image" />
-        </div>
-        <div class="info">
-            <div class="title">{{ item?.title }}</div>
-            <div class="description">{{ item?.description }}</div>
+<!-- Visual feedback containers -->
+<div class="feedback-container">
+    <div class="feedback-glint left-glint" 
+         [class.show]="show_left_glint" 
+         [style.opacity]="glint_opacity">
+        <div class="glint-content">
+            <div class="glint-icon" [style.--mask]="'url(\'' + 'x.svg' + '\')'"></div>
+            <div class="glint-text">REJECT</div>
         </div>
     </div>
+    <div class="feedback-glint right-glint" 
+         [class.show]="show_right_glint" 
+         [style.opacity]="glint_opacity">
+        <div class="glint-content">
+            <div class="glint-icon" [style.--mask]="'url(\'' + 'heart.svg' + '\')'"></div>
+            <div class="glint-text">ADD</div>
+        </div>
+    </div>
+</div>
+
+<div class="header">
+    <div class="playlist-dropdown-container">
+        <div class="playlist-selected" (click)="toggle_playlist_dropdown()">
+            <div class="icon" [style.--mask]="'url(\'' + (is_playlist_dropdown_open ? 'chevron-up.svg' : 'chevron-down.svg') + '\')'"></div>
+            <div class="playlist-name">{{ selected_playlist?.name || 'Playlist To Add Songs To' }}</div>
+        </div>
+        <div class="playlist-dropdown" [class.open]="is_playlist_dropdown_open">
+            <div class="playlist" [ngClass]="{'selected': selected_playlist?.id === playlist.id}" *ngFor="let playlist of playlists" [style.--color]="playlist?.colors?.primary" (click)="select_playlist(playlist)">{{ playlist.name }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="stack">
+    <!-- <div class="cards-remaining">{{ remaining_cards }} cards remaining</div> -->
+    
+    <!-- Background cards for stacking effect -->
+    <div 
+        class="card background-card"
+        *ngFor="let item of background_cards; let i = index"
+        [style.transform]="get_background_card_transform(i)"
+        [style.opacity]="get_background_card_opacity(i)"
+        [style.z-index]="100 - i"
+    >
+        <div class="card-content">
+            <div class="thumbnail">
+                <img [src]="item?.image || 'music.svg'" alt="Card image" />
+            </div>
+            <div class="info">
+                <div class="title">{{ item?.title }}</div>
+                <div style="display: flex; flex-direction: row;">
+                    <div 
+                        class="artist"
+                        *ngFor="let artist of item?.artists; let isLast = last"
+                    >
+                        <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
+                        <span *ngIf="!isLast">, </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active draggable card -->
+    <div 
+        #activeCard
+        class="card"
+        [ngClass]="card_classes"
+        *ngIf="current_card && !is_card_hidden"
+        cdkDrag
+        [cdkDragDisabled]="is_exiting"
+        [cdkDragFreeDragPosition]="drag_position"
+        (cdkDragStarted)="onDragStarted($event)"
+        (cdkDragMoved)="onDragMoved($event)"
+        (cdkDragEnded)="onDragEnded($event)"
+        [style.z-index]="1000"
+    >
+        <div 
+            class="card-content"
+            [style.transform]="get_transform_style()"
+        >
+            <div class="thumbnail">
+                <img [src]="current_card?.image || 'music.svg'" alt="Card image" />
+            </div>
+            <div class="info">
+                <div class="title">{{ current_card?.title }}</div>
+                <div style="display: flex; flex-direction: row;">
+                    <div 
+                        class="artist"
+                        *ngFor="let artist of current_card?.artists; let isLast = last"
+                    >
+                        <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
+                        <span *ngIf="!isLast">, </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Action buttons for accessibility -->
+<div class="action-buttons">
+    <button class="action-btn reject-btn" (click)="reject_card()" [disabled]="is_dragging">
+        <span class="btn-icon">✕</span>
+        <span class="btn-text">Reject</span>
+    </button>
+    <button class="action-btn accept-btn" (click)="accept_card()" [disabled]="is_dragging">
+        <span class="btn-icon">♡</span>
+        <span class="btn-text">Add</span>
+    </button>
 </div>

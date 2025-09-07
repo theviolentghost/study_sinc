@@ -36,6 +36,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
     source_dropdown_open: boolean = false;
     source_dropdown_options: {source: Song_Source, color: string}[] = [{source: 'spotify', color: "#1cd760"}, {source: 'youtube', color: "#ff0033"}];
 
+    mood_categories: {params: string, title: string}[] = [];
+    mood_playlists: any[] = [];
+
     toggle_source_dropdown(): void {
         this.source_dropdown_open = !this.source_dropdown_open;
     }
@@ -133,6 +136,12 @@ export class SearchComponent implements AfterViewInit, OnInit {
         
         // clear local storage search history
         // localStorage.removeItem('search_history');
+        this.media.get_mood_categories().then(categories => {
+            this.mood_categories = categories;
+            console.log('Mood categories:', this.mood_categories);
+        }).catch(error => {
+            console.error('Error fetching mood categories:', error);
+        });
     }
 
     clear_input(): void {
@@ -164,6 +173,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
         }
     }
 
+    searching: boolean = false;
     async search(query: string = this.search_query): Promise<void> {
         if (query.trim() === '') return;
 
@@ -176,7 +186,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
         console.log(`Searching for: ${query}:`, this.search_source);
 
         this.song_data_cache.clear();
+        this.searching = true;
         this.search_results = await this.media.search(query, this.search_source);
+        this.searching = false;
         this.set_catalog();
         this.searched = true; 
         console.log('Search results:', this.search_results);
@@ -390,11 +402,11 @@ export class SearchComponent implements AfterViewInit, OnInit {
         switch(this.search_filter) {
             case 'tracks':
                 this.catalog = this.search_results?.tracks?.items || [];
-                this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
+                // this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
                 break;
             case 'artists':
                 this.catalog = this.search_results?.artists?.items || [];
-                this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
+                // this.catalog.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)); // Sort by popularity descending
                 break;
             case 'albums':
                 this.catalog = this.search_results?.albums?.items || [];
