@@ -1275,4 +1275,10 @@ export class MusicMediaService {
             this.http.get(`/music/mood_categories`)
         ) as Promise<{params: string, title: string}[]>;
     }
+
+    public async get_all_song_data(video_id: string): Promise<any> {
+        return lastValueFrom(
+            this.http.get(`/music/song_data/${video_id}`)
+        ) as Promise<any>;
+    }
 }

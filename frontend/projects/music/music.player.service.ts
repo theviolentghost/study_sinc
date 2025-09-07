@@ -70,6 +70,7 @@ export class MusicPlayerService {
     private background_position: number = 0;
 
     private hls: Hls | null = null; // For HLS streaming support
+    private hls_load_timeout: number | null = null; // Timeout for detecting stuck HLS loads
 
     private setup_hls(): void {
         if(!this.audio_element) return;
@@ -97,36 +98,107 @@ export class MusicPlayerService {
                 manifestLoadingRetryDelay: 500
             });
 
-            // Custom playlist parsing
-            this.hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                // console.log(`🎵 Manifest loaded with ${data.levels.length} quality levels`);
-            });
             this.hls.attachMedia(this.audio_element!);
+            console.log('🎵 HLS attached to audio element:', this.audio_element);
             
+            // Handle manifest parsing - this is equivalent to loadedmetadata for HLS
             this.hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                if(this.audio_element) this.audio_element!.currentTime = 0; // Reset to start
+                console.log(`🎵 HLS Manifest parsed with ${data.levels.length} quality levels`);
+                
+                // Clear timeout when manifest is successfully parsed
+                if (this.hls_load_timeout) {
+                    clearTimeout(this.hls_load_timeout);
+                    this.hls_load_timeout = null;
+                }
+                
+                if(this.audio_element) {
+                    this.audio_element.currentTime = 0; // Reset to start
+                    
+                    // Trigger the same logic as loadedmetadata event
+                    if(this.want_to_play) {
+                        console.log('🎵 Auto-playing after manifest parsed...');
+                        this._play();
+                    }
+                    this.track_loaded.emit();
+                    this.loading = false;
+                }
             });
             
             // Listen for manifest updates (when new qualities are added)
             this.hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
-                // console.log(`🎵 Manifest loaded with ${data.levels.length} quality levels`);
+                console.log(`🎵 HLS Manifest loaded with ${data.levels.length} quality levels`);
+                console.log('🎵 Manifest data:', data);
                 
                 // If multiple levels are available, enable auto quality
                 if (data.levels.length > 1) {
-                    this.hls.nextLevel = -1; // Enable auto quality selection
+                    this.hls!.nextLevel = -1; // Enable auto quality selection
                 }
+                
+                // Ensure loading starts after manifest is loaded
+                if (this.hls) {
+                    this.hls.startLoad();
+                    console.log('🎵 Ensuring HLS startLoad() after manifest loaded');
+                }
+            });
+
+            // Add more detailed event logging
+            this.hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                console.log('🎵 HLS Media attached successfully');
+            });
+
+            this.hls.on(Hls.Events.MEDIA_DETACHED, () => {
+                console.log('🎵 HLS Media detached');
+            });
+
+            this.hls.on(Hls.Events.BUFFER_CREATED, () => {
+                console.log('🎵 HLS Buffer created');
+            });
+
+            this.hls.on(Hls.Events.BUFFER_APPENDED, () => {
+                console.log('🎵 HLS Buffer appended - ready to play');
+                // Try to play when buffer is ready
+                if (this.want_to_play && this.audio_element?.paused) {
+                    console.log('🎵 Attempting play after buffer appended...');
+                    this._play().catch(error => {
+                        console.warn('Failed to play after buffer appended:', error);
+                    });
+                }
+            });
+
+            // Handle when audio element can start playing
+            this.hls.on(Hls.Events.BUFFER_CREATED, () => {
+                console.log('🎵 HLS Buffer created');
+                // Set loading to false when buffer is created as audio is ready
+                this.loading = false;
+                this.track_loaded.emit();
             });
 
             this.hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
                 // console.log('HLS level switched to:', data.level);
                 if(this.current_song_data && this.current_song_data.downloaded) return; // don't emit for downloaded songs
                 this.hls_level_changed.emit({index: data.level, details: this.hls?.levels[data.level]});
+            });
 
+            // Handle when first segment is loaded and ready to play
+            this.hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+                // Clear timeout when first fragment loads successfully
+                if (this.hls_load_timeout) {
+                    clearTimeout(this.hls_load_timeout);
+                    this.hls_load_timeout = null;
+                }
+                
+                // Only handle the first fragment load for auto-play
+                if (data.frag.sn === 0 && this.want_to_play && this.audio_element?.paused) {
+                    console.log('🎵 First HLS fragment loaded, attempting play');
+                    this._play().catch(error => {
+                        console.warn('Failed to auto-play after first fragment:', error);
+                    });
+                }
             });
             
             this.hls.on(Hls.Events.ERROR, (event, data) => {
                 // console.error('HLS Error:', data);
-                if (data.fatal) {
+                if (data.fatal && data.details !== "bufferAppendError") {
                     this.song_error.emit(Player_Error.COULD_NOT_LOAD);
                     console.error('Fatal HLS error encountered:', data);
                 }
@@ -142,11 +214,47 @@ export class MusicPlayerService {
     }
 
     private load_source_to_hls(hls_data: any): void {
+        // Clear any existing timeout
+        if (this.hls_load_timeout) {
+            clearTimeout(this.hls_load_timeout);
+            this.hls_load_timeout = null;
+        }
+
         if (this.hls) {
-            console.log(`Loading HLS playlist from URL: ${hls_data.playlist_url}`);
+            console.log(`🎵 Loading HLS playlist from URL: ${hls_data.playlist_url}`);
+            
+            // Ensure HLS is properly attached before loading source
+            if (!this.hls.media) {
+                console.log('🎵 Re-attaching HLS to audio element...');
+                this.hls.attachMedia(this.audio_element!);
+            }
+            
             this.hls.loadSource(hls_data.playlist_url);
             this.hls.startLoad();
+            
+            // Additional debug logging
+            console.log('🎵 HLS startLoad() called, waiting for manifest...');
+            console.log('🎵 HLS media attached:', !!this.hls.media);
+            console.log('🎵 Audio element ready state:', this.audio_element?.readyState);
+            
+            // Set timeout to detect stuck HLS loads
+            this.hls_load_timeout = window.setTimeout(() => {
+                console.warn('⚠️ HLS load timeout - no segments loaded within 10 seconds');
+                console.log('🎵 Current HLS state:', {
+                    attached: !!this.hls?.media,
+                    levels: this.hls?.levels?.length || 0,
+                    currentLevel: this.hls?.currentLevel,
+                    audioReadyState: this.audio_element?.readyState
+                });
+                
+                if (this.want_to_play && this.audio_element?.paused && this.hls) {
+                    console.log('🔄 Attempting to restart HLS loading...');
+                    this.hls.startLoad();
+                }
+            }, 10000); // 10 second timeout
+            
         } else if (this.audio_element) {
+            console.log(`🎵 Falling back to native HLS support: ${hls_data.playlist_url}`);
             this.audio_element.src = hls_data.playlist_url;
             this.audio_element.load();
         }
@@ -156,6 +264,15 @@ export class MusicPlayerService {
         if (!this.audio_element) return 'stopped';
         if (this.loading) return 'loading'; // middle of loading song
         if (this.audio_element.paused) return 'paused';
+        
+        // On iOS, readyState can be unreliable. If audio is not paused and not loading,
+        // and has some duration/currentTime data, treat it as playing
+        if (!this.audio_element.paused && 
+            !this.loading && 
+            (this.audio_element.currentTime > 0 || this.audio_element.duration > 0)) {
+            return 'playing';
+        }
+        
         if (this.audio_element.readyState < 2) return 'loading'; // Not enough data to play
         return 'playing';
     }
@@ -180,6 +297,14 @@ export class MusicPlayerService {
     }
     get disco_mode(): boolean {
         return this._disco_mode;
+    }
+    
+    get repeat(): number {
+        return this._repeat;
+    }
+    
+    set repeat(value: number) {
+        this._repeat = value;
     }
     get playlist(): Song_Playlist | null {
         return this.current_playlist;
@@ -384,6 +509,10 @@ export class MusicPlayerService {
             this.current_song = song_data.id;
         }
 
+        if(song_data.original_song_name === '#null' || (song_data.original_artists.length === 1 && song_data.original_artists[0].name === '#null')) {
+            this.correct_song_data(song_data.id);
+        }
+
         this.current_song_data = song_data;
         this.current_media = song_data; 
         this.current_song = song_data.id;
@@ -391,6 +520,37 @@ export class MusicPlayerService {
         this.update_media_session(song_data, track_key);
         await this.load_audio(track_key, song_data);
     } 
+
+    async correct_song_data(song: Song_Identifier): Promise<void> {
+        const data = await this.media.get_all_song_data(song.video_id);
+        // console.log(data);
+        if(!data) return;
+        // if(this.media.song_key(this.current_song_data.id) !== this.media.song_key(song)) return; // ensure still the same song
+        // this.current_song_data.original_song_name = data.original_song_name;
+        // this.current_song_data.original_artists = data.original_artists;
+        const current_song_data = await this.media.get_song_data(this.media.song_key(song));
+        if(!current_song_data) return;
+        current_song_data.original_song_name = data.title;
+        current_song_data.song_name = data.title;
+        current_song_data.original_artists = [{name: data.uploader, id: data.channel_id, source: 'musix'}];
+        current_song_data.video_duration = data.duration * 1000;
+        // current_song_data.url.artwork.high = data.thumbnail || null;
+
+        // current_song_data.colors.primary = await this.media.get_primary_color_from_artwork(data.thumbnail || null);
+        // current_song_data.colors.common = await this.media.get_top_colors_from_artwork(data.thumbnail || null);
+
+        // save it
+        console.log("Corrected song data:", current_song_data);
+        this.media.save_song_to_indexDB(this.media.song_key(song), current_song_data);
+
+        if(this.media.song_key(this.current_song_data?.id) === this.media.song_key(song)) {
+            this.current_song_data = current_song_data;
+            this.current_media = current_song_data; 
+            this.current_song = current_song_data.id;
+            this.playlist_song_data_map.set(this.media.song_key(song), current_song_data);
+            this.update_media_session(current_song_data, this.media.song_key(song));
+        }
+    }
 
     private async load_track_with_preloaded_track(): Promise<void> {
         if (!this.next_song || !this.next_song_data) {
@@ -409,6 +569,10 @@ export class MusicPlayerService {
         this.current_song_data = this.next_song_data;
         this.current_media = this.next_song_data; 
         const track_key = this.media.song_key(this.next_song);
+
+        if(this.next_song_data.original_song_name === '#null' || (this.next_song_data.original_artists.length === 1 && this.next_song_data.original_artists[0].name === '#null')) {
+            this.correct_song_data(this.next_song_data.id);
+        }
 
         this.update_media_session(this.next_song_data, track_key);
         this.load_source_to_hls(this.preloaded_hls_data);
@@ -472,11 +636,12 @@ export class MusicPlayerService {
                     this.song_error.emit(Player_Error.COULD_NOT_LOAD);
                     return;
                 }
+                
+                // Load HLS source and wait for it to be ready
                 this.load_source_to_hls(hls_stream_data!);
-                // this.hls.startLoad(); // Ensure HLS starts loading if applicable
-
+                
                 is_local_content = false; // External content, likely CORS restricted
-                return; // Don't use audio context for external content
+                return; // Exit early for HLS, the MANIFEST_PARSED event will handle playback
             }
 
             // source_url = (track_data?.downloaded && track_data?.download_audio_blob && track_data.download_audio_blob instanceof Blob && track_data.download_audio_blob.size > 0
@@ -533,10 +698,12 @@ export class MusicPlayerService {
 
         // Reset HLS if it exists
         if (this.hls) {
-            // this.hls.loadSource('');
-            console.log("Unloading HLS stream...");
+            console.log("🎵 Unloading HLS stream...");
+            // Detach media to ensure clean state
+            if (this.hls.media) {
+                this.hls.detachMedia();
+            }
             // this.hls.stopLoad();
-            // this.hls.detachMedia();
         }
     }
 
@@ -618,9 +785,9 @@ export class MusicPlayerService {
                 console.log('App came to foreground');
                 
                 // Handle stream restoration for iOS PWA
-                if (this.was_playing_before_background && this.current_song_data && !this.current_song_data.downloaded) {
-                    this.handle_stream_restoration();
-                }
+                // if (this.was_playing_before_background && this.current_song_data && !this.current_song_data.downloaded) {
+                //     this.handle_stream_restoration();
+                // }
                 
                 // Ensure audio context is active
                 if (this.audio_context && this.audio_context.state === 'suspended') {
@@ -864,7 +1031,7 @@ export class MusicPlayerService {
 
                 try {
                     navigator.mediaSession.setPositionState({
-                        duration: (song.video_duration || 0) / 1000, // ms to s if needed
+                        duration: (song.video_duration || 0) / 1000, // ms to s
                         playbackRate: 1,
                         position: 0
                     });
@@ -954,9 +1121,28 @@ export class MusicPlayerService {
         if (!this.audio_element) return;
 
         this.audio_element.addEventListener('loadedmetadata', () => {
+            console.log('🎵 Audio loadedmetadata event fired');
             if(this.want_to_play) this._play();
             this.track_loaded.emit();
             this.loading = false;
+        });
+
+        // Add listener for when audio has enough data to start playing
+        this.audio_element.addEventListener('canplay', () => {
+            console.log('🎵 Audio canplay event fired');
+            if(this.want_to_play && this.audio_element?.paused) {
+                console.log('🎵 Attempting play from canplay event...');
+                this._play().catch(error => {
+                    console.warn('Failed to play from canplay event:', error);
+                });
+            }
+        });
+
+        // Add listener for when audio has enough data to play through
+        this.audio_element.addEventListener('canplaythrough', () => {
+            console.log('🎵 Audio canplaythrough event fired');
+            this.loading = false;
+            this.track_loaded.emit();
         });
 
         // this.audio_element.addEventListener('timeupdate', () => {
@@ -992,6 +1178,12 @@ export class MusicPlayerService {
     async _play(): Promise<void> {
         if (!this.audio_element) throw new Error("Audio element is not set.");
         
+        // Check if audio element has a valid source before attempting to play
+        if (!this.audio_element.src && (!this.hls || !this.hls.media)) {
+            console.warn('Cannot play: Audio element has no source and HLS is not attached');
+            return;
+        }
+        
         // Ensure audio context is ready before playing
         if (this.audio_context && this.audio_context.state === 'suspended') {
             try {
@@ -1010,6 +1202,13 @@ export class MusicPlayerService {
             // Handle common play failures
             if (error.name === 'NotAllowedError') {
                 console.warn('Play was prevented by browser policy');
+            } else if (error.name === 'NotSupportedError') {
+                console.warn('Audio element has no supported sources - likely HLS not ready yet');
+                // For HLS streams, this is expected initially - the MANIFEST_PARSED event will retry
+                if (this.hls && this.current_song_data && !this.current_song_data.downloaded) {
+                    console.log('HLS stream not ready yet, waiting for manifest...');
+                    return; // Don't throw error, let HLS events handle playback
+                }
             } else if (error.name === 'AbortError' && this.current_song_data && !this.current_song_data.downloaded) {
                 // Common with broken HLS streams on iOS PWA
                 console.warn('Play aborted, likely due to broken stream. Attempting restoration...');
@@ -1045,10 +1244,10 @@ export class MusicPlayerService {
     }
 
     skipping_to_next = false; // Flag to prevent multiple skips
-    async skip_to_next(): Promise<void> {
-        if(this._repeat) {
+    async skip_to_next(force: boolean = false): Promise<void> {
+        if(this._repeat && !force) {
             // If repeat is enabled, just replay the current track
-            this._repeat--;
+            // this._repeat--;
             if (this.audio_element) {
                 this.audio_element.currentTime = 0; 
                 await this.play();
@@ -1139,7 +1338,7 @@ export class MusicPlayerService {
             }
             
             // Update current song and play
-            this._repeat = 0; // Reset repeat 
+            // this._repeat = 0; // Reset repeat 
             if(this.current_playlist) {
                 this.load_and_play_track(this.media.song_key(previous_song), this.playlist_song_data_map.get(this.media.song_key(previous_song)));
             } else {
@@ -1223,13 +1422,31 @@ export class MusicPlayerService {
             // song_data
             console.log("Adding song to play next queue:", song);
             this.play_next_queue.queue.push(song.id);
+            const song_key = this.media.song_key(song.id);
+            this.playlist_song_data_map.set(song_key, song); // Cache full data
         } else if (typeof song === 'object' && 'video_id' in song) {
             // song_identifier
             console.log("Adding song identifier to play next queue:", song);
             this.play_next_queue.queue.push(song);
+            const song_key = this.media.song_key(song);
+            const song_data = this.playlist_song_data_map.get(song_key);
+            if (!song_data) {
+                // Fetch minimal song data to cache
+                this.media.get_song_data(song_key).then(fetched_data => {
+                    if (fetched_data) {
+                        this.playlist_song_data_map.set(song_key, fetched_data);
+                    }
+                }).catch(error => {
+                    console.error("Failed to fetch song data for play next queue:", error);
+                });
+                return;
+            }
+            this.playlist_song_data_map.set(song_key, song_data); // Cache minimal data
         } else {
             console.error("Invalid song type provided to add to play next queue.");
         }
+        console.log("Updated play next queue:", this.play_next_queue.queue);
+        console.log("Current playlist queue:", this.playlist_song_data_map);
     }
 
     private is_ios_pwa(): boolean {

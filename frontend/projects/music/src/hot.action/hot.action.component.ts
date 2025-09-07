@@ -50,6 +50,9 @@ export class HotActionComponent {
     get song_data(): Song_Data | null {
         return this.hot_action.song_data;
     }
+    get meta_song_data(): Song_Data | null {
+        return this.hot_action.meta_song_data;
+    }
 
     // get playlist_identifiers(): Song_Playlist_Identifier[] {
     //     return this.playlists.playlist_identifiers;
@@ -108,7 +111,7 @@ export class HotActionComponent {
             icon: () => 'plus.svg',
             selected: false,
             select: () => {
-                
+                this.hot_action.action = 'create_playlist';
             },
             action: () => {},
             is_selectable: () => true
@@ -120,8 +123,9 @@ export class HotActionComponent {
             select: () => {
                 this.actions[1].selected = !this.actions[1].selected;
             },
-            action: () => {
+            action: async () => {
                 if(!this.song_data) return;
+
                 this.song_data.liked = true;
                 this.playlists.add_to_favorites(this.song_data);
 
@@ -138,8 +142,9 @@ export class HotActionComponent {
             select: () => {
                 this.actions[2].selected = !this.actions[2].selected;
             },
-            action: () => {
+            action: async () => {
                 if(!this.song_data) return;
+
                 this.media.request_download(this.media.song_key(this.song_data.id), { quality: DownloadQuality.Q0, bit_rate: '128K' });
             },
             is_selectable: () => !!this.song_data && !this.is_downloaded
@@ -151,7 +156,7 @@ export class HotActionComponent {
             select: () => {
                 this.actions[3].selected = !this.actions[3].selected;
             },
-            action: () => {
+            action: async () => {
                 console.log('Up next');
                 if(!this.song_data) return;
                 // console.log('Adding to play next:', this.song_data);

@@ -9,7 +9,7 @@
     align-items: center;
     flex-direction: column;
     background-color: var(--color-background);
-    z-index: 10000;
+    z-index: 100005;
     transition: bottom 0.25s ease-in-out;
 }
 :host.revealed {
@@ -83,7 +83,8 @@
     position: relative;
     height: 100%;
     scale: .9;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
     flex-shrink: 0;
     background-color: var(--color-background);
     border-radius: var(--space-2);
@@ -107,11 +108,11 @@
 .action .thumbnail {
     scale: .8;
     aspect-ratio: 1 / 1;
+    overflow: hidden;
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr 1fr;
     height: 80%;
-    aspect-ratio: 1 / 1;
     position: relative;
 }
 .preview .thumbnail img {

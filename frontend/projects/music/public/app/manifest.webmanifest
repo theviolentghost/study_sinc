@@ -1,8 +1,8 @@
 {
     "name": "MusiK",
     "short_name": "MusiK", 
-    "theme_color": "#1d1c1b",
-    "background_color": "#1d1c1b",
+    "theme_color": "#121212",
+    "background_color": "#121212",
     "start_url": "/music/",
     "display": "standalone",
     "icons": [

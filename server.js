@@ -834,6 +834,23 @@ app.get('/spotify/artist/:artist_id/albums', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+// /music/song_data/:video_id
+app.get('/music/song_data/:video_id', async (req, res) => {
+    const video_id = req.params.video_id;
+    if (!video_id) {
+        return res.status(400).json({ error: 'Video ID is required' });
+    }
+    try {
+        const song_data = await Music.get_song_data(video_id);
+        if (!song_data) {
+            return res.status(404).json({ error: 'No song data found for the given video ID' });
+        }
+        res.json(song_data);
+    } catch (error) {
+        console.error('Error fetching song data:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 
 

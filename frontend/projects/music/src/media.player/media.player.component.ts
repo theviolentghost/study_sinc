@@ -203,6 +203,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get player_status(): 'loading' | 'playing' | 'paused' | 'stopped' {
         return this.player.player_status;
     }
+    
+    get is_seekbar_disabled(): boolean {
+        // On iOS, be more permissive about when seeking is allowed
+        // Only disable if actually loading a new track or no duration available
+        return this.player.loading || this.audio_duration <= 0 || !this.current_song_data;
+    }
     get audio_started(): boolean {
         return this.player.started_playing;
     }
@@ -477,9 +483,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get shuffle(): boolean {
         return this.player.shuffle;
     }
-    // get repeat(): number {
-    //     return this.player.repeat;
-    // }
+    toggle_repeat(): void {
+        this.player.repeat = (this.player.repeat + 1) % 2; // Cycle through 0, 1
+    }
+    get repeat(): number {
+        return this.player.repeat;
+    }
     get disco_mode(): boolean {
         return this.player.disco_mode;
     }
@@ -493,7 +502,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.player.skip_to_previous();
     }
     next(): void {
-        this.player.skip_to_next();
+        this.player.skip_to_next(true);
     }
     async get_song_artwork(song: Song_Data | null): Promise<string | null> {
         if (!song) return null;

@@ -13,7 +13,7 @@
     overflow: hidden;
 }
 .content-container.music-idle {
-    height: calc(100% - var(--space-7));
+    height: calc(100% - var(--space-7) + var(--space-1));
 }
 
 router-outlet {
@@ -25,7 +25,7 @@ router-outlet {
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: clamp(0.5rem, 2.5vw, 2rem);
+    gap: clamp(0.5rem, 5vw, 2rem);
     padding: 1rem;
     padding-bottom: var(--space-5);
     width: 100%;

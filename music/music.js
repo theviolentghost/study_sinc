@@ -13,6 +13,7 @@ import Adaptive_Stream from './stream.js';
 const stream = new Adaptive_Stream();
 import { promisify } from 'util';
 import { request_embedding } from './recommendation/reuqest.embedding.js';
+import { get } from 'http';
 
 const exec_async = promisify(exec);
 async function kill_processes_on_port(port) {
@@ -1003,6 +1004,54 @@ async function get_watch_playlist(track_id) {
     }
 }
 
+async function get_song_data(youtube_video_id) {
+    if (!youtube_video_id || youtube_video_id.trim() === '') {
+        console.error('YouTube Video ID must be a non-empty string');
+        return null;
+    }
+    try {
+        // use yt-dlp to get video info
+        const ytdlpArgs = [
+            '--dump-json',
+            '--no-playlist',
+            '--quiet',
+            `https://www.youtube.com/watch?v=${youtube_video_id}`
+        ];
+
+        const ytdlp = spawn('yt-dlp', ytdlpArgs);
+        let output = '';
+        let error = '';
+
+        ytdlp.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+
+        ytdlp.stderr.on('data', (data) => {
+            error += data.toString();
+        });
+
+        return new Promise((resolve, reject) => {
+            ytdlp.on('close', (code) => {
+                if (code !== 0) {
+                    console.error('yt-dlp failed:', error);
+                    resolve(null);
+                    return;
+                }
+
+                try {
+                    const videoInfo = JSON.parse(output);
+                    resolve(videoInfo);
+                } catch (parseError) {
+                    console.error('Error parsing video info:', parseError);
+                    resolve(null);
+                }
+            });
+        });
+    } catch (error) {
+        console.error('Error fetching song data:', error);
+        return null;
+    }
+}
 
 
 
@@ -1041,5 +1090,6 @@ export default {
     get_mood_playlists: get_mood_playlists,
     get_watch_playlist: get_watch_playlist,
     get_artwork: download_audio_artwork_to_stream,
-    stream,
+    get_song_data: get_song_data,
+    stream, 
 };

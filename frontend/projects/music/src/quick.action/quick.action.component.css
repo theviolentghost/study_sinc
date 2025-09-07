@@ -181,12 +181,13 @@
     position: relative;
     height: var(--space-7);
     background-color: var(--color-background-200);
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1 / 1;
     flex-shrink: 0;
     flex-grow: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
     /* border-radius: var(--space-2); */
 }
 .result.video .thumbnail img {
@@ -471,13 +472,14 @@
     position: relative;
     height: 100%;
     scale: .9;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1 / 1;
     flex-shrink: 0;
     background-color: var(--color-background);
     border-radius: var(--space-1);
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
 }
 /* .action.playlist .thumbnail::after {
     content: '';

@@ -230,7 +230,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    line-height: 1;
+    line-height: 1.2;
 }
 .info .artist {
     font-size: var(--space-4);
@@ -292,6 +292,10 @@
     cursor: pointer;
     position: relative;
 }
+.slider:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
 .slider::after {
     content: '';
     position: absolute;
@@ -301,12 +305,20 @@
     height: 100%;
     background-color: var(--color-primary);
 }
+.slider:disabled::after {
+    background-color: var(--color-neutral);
+}
 .slider::-webkit-slider-thumb {
     appearance: none;
     width: 4px;
     height: 100px;
     border-radius: 50%;
     background: var(--color);
+    cursor: pointer;
+}
+.slider:disabled::-webkit-slider-thumb {
+    background: var(--color-neutral);
+    cursor: not-allowed;
 }
 .main-audio-progress:has(.slider:active) {
     height: 14px;
@@ -356,6 +368,9 @@
 }
 .control-button.error, .modifiers .modifier-button.error {
     --color: var(--color-deny);
+}
+.control-button.disabled, .modifiers .modifier-button.disabled {
+    --color: var(--color-background-300);
 }
 .controls .control-button:first-child {
     margin-right: auto;

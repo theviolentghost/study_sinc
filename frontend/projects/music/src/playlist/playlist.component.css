@@ -79,10 +79,10 @@
     min-height: 100vh;
     background-color: var(--color-background);
     box-shadow: 0 0 10px 10px var(--color-background);
-    padding: 0 var(--space-2);
+    /* padding: 0 var(--space-2); */
     box-sizing: content-box;
     /* min-height: 20vh; */
-    overflow-x: hidden;
+    /* overflow-x: hidden; */
 }
 .result {
     position: relative;
@@ -120,6 +120,7 @@
 .result.video .thumbnail {
     position: relative;
     height: var(--space-7);
+    width: var(--space-7);
     background-color: var(--color-background-200);
     aspect-ratio: 1 / 1;
     flex-shrink: 0;
@@ -127,6 +128,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
     /* border-radius: var(--space-2); */
 }
 .result.video .thumbnail img {
@@ -343,7 +345,7 @@
     width: 80%;
     max-width: 550px;
     min-height: fit-content;
-    height: 50vh;
+    /* height: 50vh; */
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -355,6 +357,8 @@
     margin: var(--space-6) 0;
     transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
                 box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                margin 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
                 opacity 0.3s ease-in-out;
     overflow: hidden;
     box-sizing: border-box;
@@ -363,6 +367,7 @@
         height: 0;
         margin: 0;
         min-height: 0;
+        padding: var(--space-4) var(--space-7);
         /* box-shadow: none; */
         opacity: 0;
     }
@@ -476,6 +481,7 @@
     background-color: transparent;
     cursor: pointer;
     transition: background-color 0.15s ease-in-out;
+    z-index: 9999;
 }
 .close::before {
     content: '';
@@ -619,6 +625,10 @@
     flex: 1;
     transition: flex 0.1s linear;
 }
+.result.video .quick-actions .action.loading::after {
+    animation: spin 3s linear infinite;
+}
+
 .result.video .quick-actions .action.hidden {
     flex: 0;
     width: 0;

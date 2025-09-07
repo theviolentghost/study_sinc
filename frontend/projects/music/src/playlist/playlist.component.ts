@@ -8,6 +8,7 @@ import { DownloadQuality, MusicMediaService, Song_Source } from '../../music.med
 import { PlaylistsService } from '../../playlists.service';
 import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
+import { HotActionService } from '../../hot.action.service';
 
 @Component({
     selector: 'app-playlist',
@@ -156,6 +157,9 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
             // same video 
             if(this.swipe_state === 'open') {
                 this.swipe_start_x = clientX + this.idle_swipe_open_size; // Keep it open
+            } else {
+                this.swipe_start_x = clientX;
+                this.swipe_x = 0;
             }
         }
         this.swiping_video = new_song_key;
@@ -413,7 +417,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
         private router: Router,
         private media: MusicMediaService,
         private player: MusicPlayerService,
-        public quick_action: QuickActionService
+        public quick_action: QuickActionService,
+        public hot_action: HotActionService
     ) {
         this.route.paramMap.subscribe(async params => {
             const playlist_id = params.get('playlist_id');
@@ -772,6 +777,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
     open_video_options(video: Song_Data | null): void {
         if (!video) return;
         this.dont_play = true;
+
+        this.hot_action.open_hot_action(video, 'spotify');
+        this.hot_action.action = 'add_to_playlist';
+        this.swipe_x = 0;
         
     }
 
@@ -779,12 +788,35 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
         if (!video) return;
         this.dont_play = true;
         
-        // this.media.toggle_like(video);
+        video.liked = !video.liked;
+        // this.media.save_song_to_indexDB(this.current_song_data.id.video_id, this.current_song_data);
+        if(video.liked) {
+            console.log('Adding song to favorites:', video);
+            this.playlists.add_to_favorites(video);
+        } else {
+            this.playlists.remove_from_favorites(video);
+        }
+    }
+
+    download_state(video: Song_Data | null): 'not_downloaded' | 'downloading' | 'downloaded' {
+        if (!video) return 'not_downloaded';
+        if (this.media.is_downloading(video.id.video_id)) return 'downloading';
+        if (video.downloaded) return 'downloaded';
+        return 'not_downloaded';
+    }
+
+    download_icon(video: Song_Data | null): string {
+        const state = this.download_state(video);
+        if (state === 'not_downloaded') return 'download.svg';
+        if (state === 'downloading') return 'loader.svg';
+        if (state === 'downloaded') return 'cloud-download.svg';
+        return 'download.svg';
     }
 
     download_video(video: Song_Data | null): void {
         if (!video) return;
         this.dont_play = true;
+        this.swipe_x = 0;
         
         this.media.request_download(this.media.song_key(video.id), {quality: DownloadQuality.Q0, bit_rate: '128k'});
     }

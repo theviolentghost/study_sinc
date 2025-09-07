@@ -169,6 +169,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
                 this.search_history.delete(current_entry);
                 this.set_catalog();
                 this.searched = true;   
+                this.store_search_history();
             }
         }
     }

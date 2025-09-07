@@ -9,12 +9,12 @@
     <ng-container *ngSwitchCase="'add_to_playlist'">
         <div class="container disable-select">
             <div class="preview">
-                <div class="thumbnail" [style.background-color]="song_data?.colors?.primary || 'transparent'">
-                    <img [src]="song_data?.download_artwork_blob || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high ||  'default-thumbnail.svg'" alt="Thumbnail" />
+                <div class="thumbnail" [style.background-color]="meta_song_data?.colors?.primary || song_data?.colors?.primary || 'transparent'">
+                    <img [src]="meta_song_data?.download_artwork_blob || meta_song_data?.url?.artwork?.low || meta_song_data?.url?.artwork?.high || song_data?.download_artwork_blob || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high || 'default-thumbnail.svg'" alt="Thumbnail" />
                 </div>
                 <div class="info">
-                    <div class="title">{{ song_data?.song_name || "#no name" }}</div>
-                    <div class="artist">{{ song_data?.original_artists?.[0]?.name }}</div>
+                    <div class="title">{{ meta_song_data?.song_name || song_data?.song_name || "" }}</div>
+                    <div class="artist">{{ meta_song_data?.original_artists?.[0]?.name || song_data?.original_artists?.[0]?.name || "" }}</div>
                 </div>
             </div>
             <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10) - var(--space-6))' : '100%'">

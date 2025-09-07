@@ -12,6 +12,7 @@ export class HotActionService {
     @Output() hot_action_opened: EventEmitter<boolean> = new EventEmitter<boolean>();
     _hot_action_open: boolean = false;
     song_data: Song_Data | null = null;
+    meta_song_data: Song_Data | null = null;
     action: string = 'add_to_playlist';
 
     get hot_action_open(): boolean {
@@ -63,6 +64,9 @@ export class HotActionService {
                 break;
             }
             case 'spotify': {
+                // get bare minimum data from spotify video object
+                this.meta_song_data = await this.spotify_track_data_bare(video);
+
                 const video_data = await this.spotify_track_data(video);
                 const id = video_data?.id;
                 const song_key = this.media.song_key(id);
@@ -130,6 +134,39 @@ export class HotActionService {
             return null;
         }
 
+            return {
+                original_song_name: video.name || '',
+                original_artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
+                song_name: video.name || '',
+                downloaded: false,
+                download_audio_blob: null,
+                download_artwork_blob: null,
+                download_options: null,
+                id: {
+                    video_id: video_id,
+                    source_id: video.id || video_uri || '', 
+                    source: 'spotify',
+                },
+                url: {
+                    audio: null,
+                    artwork: {
+                        low: video.album?.images?.[2]?.url || null,
+                        high: video.album?.images?.[0]?.url || null,
+                    },
+                },
+                colors: {
+                    primary: await this.media.get_primary_color_from_artwork(video.album?.images?.[0]?.url || null),
+                    common: await this.media.get_top_colors_from_artwork(video.album?.images?.[0]?.url || null, 5, 55),
+                },
+                video_duration: video.duration_ms,
+                liked: false,
+            }
+    }
+
+    async spotify_track_data_bare(video: any): Promise<Song_Data | null> {
+        const video_uri = video.uri;
+        if (!video_uri) return null;
+
         return {
             original_song_name: video.name || '',
             original_artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
@@ -139,8 +176,8 @@ export class HotActionService {
             download_artwork_blob: null,
             download_options: null,
             id: {
-                video_id: video_id,
-                source_id: video.id || video_uri || '', 
+                video_id: '',
+                source_id: video_uri || '', 
                 source: 'spotify',
             },
             url: {
@@ -151,8 +188,8 @@ export class HotActionService {
                 },
             },
             colors: {
-                primary: await this.media.get_primary_color_from_artwork(video.album?.images?.[0]?.url || null),
-                common: await this.media.get_top_colors_from_artwork(video.album?.images?.[0]?.url || null, 5, 55),
+                primary: null,
+                common: null,
             },
             video_duration: video.duration_ms,
             liked: false,
@@ -211,6 +248,8 @@ export class HotActionService {
         let data: Song_Data | null = await this.musi_track_data(video);
         if (!data || !data?.id?.source) return null;
         data.id.source = 'musix';
+        data.original_song_name = '#null';
+        data.original_artists = [{ name: '#null', id: '', source: 'musix' }];
         return data;
     }
 }

@@ -585,6 +585,7 @@
             gap: var(--space-2);
             width: 100%;
             padding: var(--space-2) 0;
+            height: calc(var(--space-8) * 2 + 24px);
 
             &.scroll-x {
                 flex-direction: column;
@@ -606,15 +607,15 @@
                 position: relative;
                 flex-shrink: 0;
                 flex-grow: 0;
-                width: clamp(100px, 30vw, 220px);
-                height: calc(clamp(100px, 30vw, 220px) + var(--space-7));
+                width: clamp(100px, 30vw, 226px);
+                height: calc(clamp(100px, 30vw, 226px) + var(--space-7));
                 margin-right: var(--space-2);
                 cursor: pointer;
                 display: flex;
                 flex-direction: column;
                 gap: var(--space-1);
                 background-color: var(--color-background-200);
-                border-radius: var(--space-4);
+                border-radius: var(--space-3);
                 overflow: hidden;
                 padding: var(--space-2);
 

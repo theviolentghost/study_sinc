@@ -305,8 +305,10 @@ class Audio_Search:
                     time.sleep(1)  # Brief pause between processing
             else:
                 print("Queue is empty. Waiting for new requests...")
-                time.sleep(60)  # Wait 60 seconds before checking again
+                break
+                # time.sleep(60)  # Wait 60 seconds before checking again
                 # No recursive call needed; the loop handles it
+        self.processing_queue = False
 
     def request_audio_to_be_processed(self, song_id: str):
         # Placeholder for queuing logic

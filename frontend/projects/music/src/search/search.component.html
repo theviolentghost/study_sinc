@@ -31,6 +31,10 @@
     </div>
     <div class="search-results-main">
         <div class="backdrop" [style.--primary]="get_search_primary_color()" [ngClass]="{ 'extra-space': catalog.length > 0 }"></div>
+        <ng-container *ngIf="!searching">
+            <ng-container *ngTemplateOutlet="searchHome"></ng-container>
+        </ng-container>
+
         <ng-container [ngSwitch]="search_source">
             <!-- YOUTUBE TEMPLATE -->
             <ng-container *ngSwitchCase="'youtube'">
@@ -68,7 +72,6 @@
 
             <!-- SPOTIFY TEMPLATE -->
             <ng-container *ngSwitchCase="'spotify'">
-                    <ng-container *ngTemplateOutlet="searchHome"></ng-container>
                     <ng-container *ngIf="searching">
                         <ng-container *ngTemplateOutlet="loadingResults"></ng-container>
                     </ng-container>
@@ -138,7 +141,6 @@
         </ng-container>
 
         <ng-template #loadingResults>
-            <p> loading</p>
             <div class="loading-results">
                 <div class="spinner" [style.--color]="get_search_primary_color()"></div>
             </div>
@@ -180,7 +182,7 @@
 
                     <h2 *ngIf="mood_categories.length > 0">Genres</h2>
                     <div class="category genres">
-                        <div class="list">
+                        <div class="list scroll-x hide-scrollbar">
                             <div class="item no-thumbnail" *ngFor="let category of mood_categories">
                                 <div class="thumbnail">
                                     <img/>

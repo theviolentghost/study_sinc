@@ -7,6 +7,7 @@ import { QuickActionService } from '../../quick.action.service';
 import { PlaylistsService } from '../../playlists.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { MusicMediaService, Song_Identifier, Song_Playlist_Identifier, Song_Data, Song_Source } from '../../music.media.service';
+import { HotActionService } from '../../hot.action.service';
 
 
 @Component({
@@ -185,7 +186,7 @@ export class QuickActionComponent {
         ['hsl(0deg 0% 40%)', 'hsl(0deg 0% 55%)', 'hsl(0deg 0% 80%)', 'hsl(0deg 0% 100%)']
     ]
 
-    constructor(private quick_action: QuickActionService, private playlists: PlaylistsService, private player: MusicPlayerService, private media: MusicMediaService) {}
+    constructor(private quick_action: QuickActionService, private playlists: PlaylistsService, private player: MusicPlayerService, private media: MusicMediaService, private hot_action: HotActionService) {}
 
     cancel() {
         this.quick_action.reset();
@@ -232,7 +233,7 @@ export class QuickActionComponent {
     swipe_start_x: number = 0;
     swipe_delta_x: number = 0;
     swipe_x: number = 0;
-    idle_swipe_open_size: number = 120; 
+    idle_swipe_open_size: number = 60; 
     delete_swipe_open_size: number = 150; // distance to travel before deleting
     get swipe_width(): number {
         return Math.abs(this.swipe_x);
@@ -293,6 +294,9 @@ export class QuickActionComponent {
             // same video 
             if(this.swipe_state === 'open') {
                 this.swipe_start_x = clientX + this.idle_swipe_open_size; // Keep it open
+            } else {
+                this.swipe_start_x = clientX; // Start from current position
+                this.swipe_x = 0;
             }
         }
         this.swiping_video = new_song_key;
@@ -393,9 +397,15 @@ export class QuickActionComponent {
                         const index_identifier = parseInt(this.swiping_video.substring(index_identifier_index + 1));
                         this.player.play_next_queue.queue.splice(index_identifier, 1);
                     } else {
-                        this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
-                            return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);
-                        });
+                        const index_identifier_index = this.swiping_video.lastIndexOf('-');
+                        // console.log(this.swiping_video);
+                        const index_identifier = parseInt(this.swiping_video.substring(index_identifier_index + 1));
+                        // console.log(index_identifier);
+                        this.player.playlist_queue.queue.splice(index_identifier - this.play_next_queue_with_song_data.length - 1, 1);
+                        // console.log(index_identifier - this.play_next_queue_with_song_data.length)
+                        // this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
+                        //     return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);
+                        // });
                     }
                 }, 395);
             }
@@ -427,6 +437,10 @@ export class QuickActionComponent {
     }
 
     async play(track_data: Song_Data | null) {
+        if(this.dont_play) {
+            this.dont_play = false;
+            return;
+        }
         if (!track_data) return;
         console.log('Playing track:', track_data);
         
@@ -687,16 +701,28 @@ export class QuickActionComponent {
         this.dragging = false;
     }
 
-    remove_from_play_next(video: Song_Data | null, index: number) {
+    remove_from_play_next(video: Song_Data | null, index: number, delete_from: string = "play_next") {
         if (!video) return;
 
         // Remove from play next queue
-        this.player.play_next_queue.queue.splice(index, 1);
-        this.player.play_next_queue.queue = [...this.player.play_next_queue.queue];
+        if(delete_from === "play_next") {
+            this.player.play_next_queue.queue.splice(index, 1);
+        } else {
+            this.player.playlist_queue.queue.splice(index, 1);
+            // Remove from main playlist queue
+            // this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
+            //     return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);
+            // });
+        }
     }
 
+    dont_play: boolean = false;
     open_more_options(video: Song_Data | null) {
         if (!video) return;
-        // this.quick_action.open_song_options(video);
+        this.dont_play = true;
+
+        this.hot_action.open_hot_action(video, 'spotify');
+        this.hot_action.action = 'add_to_playlist';
+        this.swipe_x = 0;
     }
 }
