@@ -437,8 +437,9 @@ class Adaptive_Stream {
                 }
             }
 
-            existing_session.start_time = Date.now(); 
-            requested_profiles = missing_profiles; // Update requested profiles to only include missing ones
+            existing_session.expire = Date.now() + Adaptive_Stream.hls_playlist_max_uphold_time;
+            existing_session.qualities.push(...missing_profiles); 
+            requested_profiles = existing_session.qualities; // Update requested profiles to only include missing ones
         }
         // Ensure directory exists synchronously for immediate use
         else if(!this.ensure_directory_with_retry(session_directory)) throw new Error(`Failed to create session directory: ${session_directory}`);
@@ -460,7 +461,7 @@ class Adaptive_Stream {
             // First, try to get the direct stream URL
             try {
                 console.log(`Attempting to get direct stream URL for ${video_id}...`);
-                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Attempting direct URL for ${video_id}\n`);
+                // fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Attempting direct URL for ${video_id}\n`);
                 // throw Error('skip url')
                 const stream_url = await this.get_stream_url(url);
                 input_source = stream_url;
@@ -469,7 +470,7 @@ class Adaptive_Stream {
                 fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Got direct URL for ${video_id}\n`);
             } catch (direct_url_error) {
                 console.log(`Direct stream URL failed for ${video_id}, falling back to yt-dlp process: ${direct_url_error.message}`);
-                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Direct URL failed for ${video_id}: ${direct_url_error.message}\n`);
+                // fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Direct URL failed for ${video_id}: ${direct_url_error.message}\n`);
                 
                 // If getting direct URL fails, fall back to yt-dlp process
                 yt_dlp_process = await this.create_yt_dlp_process(url);

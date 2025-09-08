@@ -21,7 +21,7 @@ class Audio_Search:
     song_id_to_index_path = os.path.join(storage_path, 'song_id_to_index.pkl')
     process_queue_path = os.path.join(storage_path, 'process_queue.pkl')
 
-    MAX_TOP_K = 50  # maximum number of recommendations to return
+    MAX_TOP_K = 85  # maximum number of recommendations to return
 
     def __init__(self):
         self.analyzer = Audio_Analyzer()
@@ -147,7 +147,7 @@ class Audio_Search:
             try:
                 response = requests.get(
                     "http://localhost:3000/stream",
-                    params={"video_id": song_id, "quality": "ultra-low"},
+                    params={"video_id": song_id, "quality": "medium"},
                     timeout=25 # timeout to avoid hanging
                 )
                 if response.status_code == 200:
@@ -263,7 +263,7 @@ class Audio_Search:
         effective_top_k = min(top_k + len(exclude_ids), len(self.index_to_song_id.keys()))  # max top_k is 50
         
         # Set ef to be at least equal to top_k (required by HNSWLIB)
-        self.index.set_ef(max(effective_top_k, 50))  # ef must be >= top_k
+        self.index.set_ef(min(effective_top_k, self.MAX_TOP_K))  # ef must be >= top_k
         
         # Search for similar songs
         indices, distances = self.index.knn_query(query_embedding, k=effective_top_k)
