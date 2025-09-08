@@ -245,7 +245,7 @@ def search_similar_songs():
         return jsonify({"error": "Missing required parameter 'song_id'"}), 400
 
     try:
-        similar_songs = audio_search.recommend_similar_songs_with_song_id(song_id, top_k=10, exclude_ids=[song_id])
+        similar_songs = audio_search.recommend_similar_songs_with_song_id(song_id, top_k=50, exclude_ids=[song_id])
         return jsonify({"song_id": song_id, "similar_songs": similar_songs})
     except Exception as e:
         logger.error(f"Error searching similar songs: {str(e)}")

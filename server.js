@@ -852,6 +852,23 @@ app.get('/music/song_data/:video_id', async (req, res) => {
     }
 });
 
+app.get('/music/recommend/:video_id', async (req, res) => {
+    const video_id = req.params.video_id;
+    if (!video_id) {
+        return res.status(400).json({ error: 'Video ID is required' });
+    }
+    try {
+        const recommendations = await Music.get_recommendations(video_id);
+        if (!recommendations || recommendations.length === 0) {
+            return res.status(404).json({ error: 'No recommendations found for the given video ID' });
+        }
+        res.json(recommendations);
+    } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 
 

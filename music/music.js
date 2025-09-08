@@ -1053,8 +1053,19 @@ async function get_song_data(youtube_video_id) {
     }
 }
 
-
-
+async function get_recommendations(youtube_video_id) {
+    if (!youtube_video_id || youtube_video_id.trim() === '') {
+        console.error('YouTube Video ID must be a non-empty string');
+        return [];
+    }
+    try {
+        const response = await axios.get(`http://localhost:54321/search_similar_songs?song_id=${youtube_video_id}`);
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching recommendations:', error);
+        return [];
+    }
+}
 
 export default {
     get: get_audio_file,
@@ -1091,5 +1102,6 @@ export default {
     get_watch_playlist: get_watch_playlist,
     get_artwork: download_audio_artwork_to_stream,
     get_song_data: get_song_data,
+    get_recommendations: get_recommendations,
     stream, 
 };
