@@ -47,6 +47,7 @@ export interface Song_Data {
     lyrics?: Song_Lyrics,
     id: Song_Identifier; // the where this song was downloaded
     liked?: boolean; // whether the song is liked by the user
+    date_added: Date; // date when the song was added to the library
 }
 
 export interface Song_Identifier {
@@ -359,7 +360,8 @@ export class MusicMediaService {
                 download_options: download_options,
                 id: { video_id, source: 'youtube' as Song_Source },
                 video_duration: undefined, 
-                lyrics: undefined 
+                lyrics: undefined,
+                date_added: new Date(),
             };
             
             this.download_progress_map.set(video_id, 0); 
@@ -1281,4 +1283,14 @@ export class MusicMediaService {
             this.http.get(`/music/song_data/${video_id}`)
         ) as Promise<any>;
     }
+
+    public async get_recommended_songs_for_song_using_musik(video_id: string): Promise<Song_Data[]> {
+        return lastValueFrom(
+            this.http.get(`/music/recommend/${video_id}`)
+        ) as Promise<Song_Data[]>;
+    }
+
+    // public async get_recommended_songs_from_playlist (): Promise<Song_Data[]> {
+        
+    // }
 }

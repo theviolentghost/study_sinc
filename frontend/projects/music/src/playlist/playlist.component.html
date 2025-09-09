@@ -86,7 +86,7 @@
     </div>
     <div *ngIf="visible_videos.length === 0 && videos.length > 0" class="no-results">
         <h2>No Songs Match This Query</h2>
-        <p>Try adjusting your search or search for it.</p>
-        <button (click)="redirect_to_search()" class="search" [style.background-color]="get_playlist_primary_color()">Look For Some! <div class="icon" [style.--mask]="'url(' + 'search.svg' + ')'"></div></button>
+        <p>Try adjusting your query or search for it.</p>
+        <button (click)="redirect_to_search()" class="search" [style.background-color]="get_playlist_primary_color()">Go to Search! <div class="icon" [style.--mask]="'url(' + 'search.svg' + ')'"></div></button>
     </div>
 </div>

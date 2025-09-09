@@ -112,6 +112,7 @@ export class HotActionService {
             },
             liked: false,
             video_duration: 0,
+            date_added: new Date(),
         }
     }
 
@@ -160,6 +161,7 @@ export class HotActionService {
                 },
                 video_duration: video.duration_ms,
                 liked: false,
+                date_added: new Date(),
             }
     }
 
@@ -193,6 +195,7 @@ export class HotActionService {
             },
             video_duration: video.duration_ms,
             liked: false,
+            date_added: new Date(),
         }
     }
 
@@ -240,7 +243,8 @@ export class HotActionService {
                 // common: await this.media.get_top_colors_from_artwork(video.artwork_url || null),
             },
             video_duration: 0,
-            liked: false
+            liked: false,
+            date_added: new Date(),
         }
     }
 

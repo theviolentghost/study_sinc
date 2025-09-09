@@ -68,22 +68,35 @@ export class MusicPlayerService {
     // iOS PWA background handling properties
     private was_playing_before_background: boolean = false;
     private background_position: number = 0;
+    private current_hls_data: any = null; // Current HLS data for restoration
 
     private hls: Hls | null = null; // For HLS streaming support
     private hls_load_timeout: number | null = null; // Timeout for detecting stuck HLS loads
 
     private setup_hls(): void {
         if(!this.audio_element) return;
+        
+        // Clean up existing HLS instance
         if (this.hls) {
             this.hls.destroy();
+            this.hls = null;
         }
 
+        // Check if we're on iOS Safari - use native HLS support
+        if (this.is_ios_safari()) {
+            console.log('🎵 Using native Safari HLS support on iOS');
+            // Safari on iOS has native HLS support, don't use hls.js
+            return;
+        }
+
+        // For other browsers, use hls.js
         if (Hls.isSupported()) {
+            console.log('🎵 Using hls.js for HLS support');
             this.hls = new Hls({
                 startLevel: -1, // Start with auto quality selection
                 autoStartLoad: true, // Start loading immediately
-                enableWorker: true, // Disable worker for immediate processing
-                maxBufferLength: 120, // Increase from 5 to 10 seconds
+                enableWorker: true, // Enable worker for better performance
+                maxBufferLength: 120, // Increase buffer length
                 maxMaxBufferLength: 150, // Max buffer size
                 maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
                 
@@ -220,8 +233,34 @@ export class MusicPlayerService {
             this.hls_load_timeout = null;
         }
 
+        if (!this.audio_element) {
+            console.error('No audio element available for HLS loading');
+            return;
+        }
+
+        // Check if we should use native Safari HLS support
+        if (this.is_ios_safari() && this.audio_element.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log(`🎵 Using native Safari HLS: ${hls_data.playlist_url}`);
+            
+            // Store the HLS data for potential restoration
+            this.current_hls_data = hls_data;
+            
+            // Use native Safari HLS support
+            this.audio_element.src = hls_data.playlist_url;
+            this.audio_element.load();
+            
+            // Simulate HLS level for consistency with the rest of the app
+            // Safari doesn't provide level switching events, so we'll fake it
+            setTimeout(() => {
+                this.hls_level_changed.emit({index: 2, details: {native_safari: true}});
+            }, 1000);
+            
+            return;
+        }
+
+        // Use hls.js for other browsers
         if (this.hls) {
-            console.log(`🎵 Loading HLS playlist from URL: ${hls_data.playlist_url}`);
+            console.log(`🎵 Loading HLS playlist with hls.js: ${hls_data.playlist_url}`);
             
             // Ensure HLS is properly attached before loading source
             if (!this.hls.media) {
@@ -253,7 +292,7 @@ export class MusicPlayerService {
                 }
             }, 10000); // 10 second timeout
             
-        } else if (this.audio_element) {
+        } else {
             console.log(`🎵 Falling back to native HLS support: ${hls_data.playlist_url}`);
             this.audio_element.src = hls_data.playlist_url;
             this.audio_element.load();
@@ -402,7 +441,6 @@ export class MusicPlayerService {
         const successful_loads = results.filter(result => 
             result.status === 'fulfilled' && result.value.success
         ).length;
-        console.log(song_data_promises)
         console.log(`Loaded song data for ${successful_loads}/${this.playlist_queue.queue.length} songs`);
 
         if(this.playlist_queue.queue.length > 1) this.remove_current_song_from_queue(); // Ensure current song is not in the queue
@@ -685,6 +723,11 @@ export class MusicPlayerService {
         // this.audio_element.pause();
         if(this.audio_element.src === '') return; // No source to unload
         
+        console.log("🎵 Unloading audio source...");
+        
+        // Clear current HLS data for iOS Safari
+        this.current_hls_data = null;
+        
         // Note: We don't disconnect the audio source anymore since we reuse it
         // The MediaElementSourceNode will automatically handle the new audio source
         
@@ -693,17 +736,24 @@ export class MusicPlayerService {
         //     URL.revokeObjectURL(this.audio_element.src);
         // }
         
+        // Clear the audio source
         this.audio_element.src = '';
         this.audio_element.load();
 
-        // Reset HLS if it exists
-        if (this.hls) {
-            console.log("🎵 Unloading HLS stream...");
+        // Reset HLS.js if it exists (not for iOS Safari native HLS)
+        if (this.hls && !this.is_ios_safari()) {
+            console.log("🎵 Unloading HLS.js stream...");
             // Detach media to ensure clean state
             if (this.hls.media) {
                 this.hls.detachMedia();
             }
             // this.hls.stopLoad();
+        }
+        
+        // Clear any pending HLS timeout
+        if (this.hls_load_timeout) {
+            clearTimeout(this.hls_load_timeout);
+            this.hls_load_timeout = null;
         }
     }
 
@@ -784,16 +834,22 @@ export class MusicPlayerService {
                 // App came to foreground
                 console.log('App came to foreground');
                 
-                // Handle stream restoration for iOS PWA
-                // if (this.was_playing_before_background && this.current_song_data && !this.current_song_data.downloaded) {
-                //     this.handle_stream_restoration();
-                // }
-                
-                // Ensure audio context is active
+                // CRITICAL: Always resume AudioContext on iOS when coming to foreground
                 if (this.audio_context && this.audio_context.state === 'suspended') {
-                    this.audio_context.resume().catch(error => {
-                        console.warn('Failed to resume audio context in foreground:', error);
+                    console.log('🔊 Resuming AudioContext after background...');
+                    this.audio_context.resume().then(() => {
+                        console.log('✅ AudioContext resumed successfully');
+                    }).catch(error => {
+                        console.warn('❌ Failed to resume audio context in foreground:', error);
                     });
+                }
+                
+                // Handle stream restoration for iOS PWA
+                if (this.is_ios_safari() && this.was_playing_before_background) {
+                    console.log('🔄 iOS detected, checking if stream restoration is needed...');
+                    setTimeout(() => {
+                        this.handle_ios_resume_after_background();
+                    }, 100);
                 }
             }
         });
@@ -879,6 +935,95 @@ export class MusicPlayerService {
                     console.error('Fallback stream restoration also failed:', fallbackError);
                 }
             }
+        }
+    }
+
+    private async handle_ios_resume_after_background(): Promise<void> {
+        if (!this.audio_element) return;
+
+        console.log('🍎 Handling iOS resume after background');
+        
+        // Check if audio element thinks it's playing but might not be producing sound
+        const shouldBePlayingButMaybeIsnt = this.want_to_play && 
+                                          !this.audio_element.paused && 
+                                          this.was_playing_before_background;
+
+        if (shouldBePlayingButMaybeIsnt) {
+            console.log('🔍 Audio should be playing but may have issues, attempting restoration...');
+            
+            // For downloaded content (blobs)
+            if (this.current_song_data?.downloaded) {
+                console.log('🎵 Restoring downloaded audio after background');
+                
+                // Re-apply media session metadata (Safari sometimes drops it)
+                await this.reapply_media_session();
+                
+                // Try a gentle play() to restart audio pipeline
+                try {
+                    await this.audio_element.play();
+                    console.log('✅ Successfully resumed downloaded audio');
+                } catch (error) {
+                    console.warn('⚠️ Failed to resume downloaded audio, trying full reload:', error);
+                    
+                    // Fallback: reload the blob source
+                    if (this.current_song) {
+                        await this.load_audio(this.media.song_key(this.current_song), this.current_song_data);
+                        if (this.background_position > 0 && this.audio_element) {
+                            this.audio_element.currentTime = this.background_position;
+                        }
+                    }
+                }
+            }
+            // For HLS streams
+            else if (this.current_hls_data || !this.current_song_data?.downloaded) {
+                console.log('🎵 Restoring HLS stream after background');
+                
+                // For native Safari HLS, try reloading the source
+                if (this.is_ios_safari() && this.current_hls_data) {
+                    const currentPos = this.background_position || this.audio_element.currentTime;
+                    
+                    // Re-apply media session metadata
+                    await this.reapply_media_session();
+                    
+                    // Reload the HLS source
+                    this.audio_element.src = this.current_hls_data.playlist_url;
+                    this.audio_element.load();
+                    
+                    // Wait for it to be ready, then restore position and play
+                    this.audio_element.addEventListener('canplay', () => {
+                        if (this.audio_element && currentPos > 0) {
+                            this.audio_element.currentTime = currentPos;
+                        }
+                        if (this.want_to_play) {
+                            this.audio_element.play().catch(error => {
+                                console.warn('Failed to play after HLS reload:', error);
+                            });
+                        }
+                    }, { once: true });
+                }
+            }
+            
+            // Reset background state
+            this.was_playing_before_background = false;
+            this.background_position = 0;
+        }
+    }
+
+    private async reapply_media_session(): Promise<void> {
+        if (!('mediaSession' in navigator) || !this.current_song_data) return;
+        
+        console.log('🎵 Re-applying media session metadata');
+        
+        try {
+            // Re-set the metadata
+            await this.update_media_session(this.current_song_data, this.media.song_key(this.current_song_data.id));
+            
+            // Ensure playback state is correct
+            this.update_playback_state();
+            
+            console.log('✅ Media session metadata re-applied successfully');
+        } catch (error) {
+            console.warn('⚠️ Failed to re-apply media session metadata:', error);
         }
     }
 
@@ -1152,15 +1297,53 @@ export class MusicPlayerService {
         this.audio_element.addEventListener('play', () => {
             this.started_playing = true;
             if(this.disco_mode) this.start_visualization();
+            
+            // IMPORTANT: Re-apply media session metadata on every play for iOS
+            if (this.is_ios_safari() && this.current_song_data) {
+                this.reapply_media_session().catch(error => {
+                    console.warn('Failed to re-apply media session on play:', error);
+                });
+            }
         });
 
         this.audio_element.addEventListener('pause', () => {
             if(this.disco_mode) this.stop_visualization();
+            this.update_playback_state();
         });
 
         this.audio_element.addEventListener('ended', () => {
             this.handle_track_ended();
         });
+
+        // iOS-specific: Handle when audio gets suspended/interrupted
+        if (this.is_ios_safari()) {
+            this.audio_element.addEventListener('suspend', () => {
+                console.log('🍎 iOS audio suspended');
+                if (this.want_to_play && !this.audio_element!.paused) {
+                    // Audio was suspended but should be playing
+                    setTimeout(() => {
+                        if (this.want_to_play && this.audio_element) {
+                            console.log('🔄 Attempting to resume after iOS audio suspension');
+                            this.audio_element.play().catch(error => {
+                                console.warn('Failed to resume after suspension:', error);
+                            });
+                        }
+                    }, 500);
+                }
+            });
+
+            // Handle waiting state (buffering)
+            this.audio_element.addEventListener('waiting', () => {
+                console.log('🍎 iOS audio waiting (buffering)');
+                // Don't set loading=true here as it might interfere with UI
+            });
+
+            // Handle when playback is ready after waiting
+            this.audio_element.addEventListener('playing', () => {
+                console.log('🍎 iOS audio playing (after buffering)');
+                this.loading = false;
+            });
+        }
     }
 
     private handle_track_ended(): void {
@@ -1171,6 +1354,18 @@ export class MusicPlayerService {
     async play(): Promise<void> {
         if (!this.audio_element) throw new Error("Audio element is not set.");
         this.want_to_play = true; 
+        
+        // iOS-specific: Always resume AudioContext before attempting to play
+        if (this.is_ios_safari() && this.audio_context && this.audio_context.state === 'suspended') {
+            console.log('🍎 Resuming AudioContext before play on iOS...');
+            try {
+                await this.audio_context.resume();
+                console.log('✅ AudioContext resumed successfully');
+            } catch (error) {
+                console.warn('⚠️ Failed to resume AudioContext:', error);
+            }
+        }
+        
         if(!this.loading) {
             await this._play();
         }
@@ -1454,6 +1649,13 @@ export class MusicPlayerService {
         return 'ontouchstart' in window && 
                (window.navigator as any).standalone === true &&
                /iPad|iPhone|iPod/.test(navigator.userAgent);
+    }
+
+    private is_ios_safari(): boolean {
+        // Check if running on iOS Safari (including PWA)
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) && 
+               /Safari/.test(navigator.userAgent) &&
+               this.audio_element?.canPlayType('application/vnd.apple.mpegurl') !== '';
     }
 
     private start_connection_health_check(): void {

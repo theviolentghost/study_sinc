@@ -243,7 +243,8 @@ export class ArtistComponent implements OnInit {
                 common: null,
             },
             video_duration: video.duration_ms,
-            liked: false
+            liked: false,
+            date_added: new Date(),
         }, '');
 
         this.player.open_player.emit();

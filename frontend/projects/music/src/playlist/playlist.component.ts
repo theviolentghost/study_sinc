@@ -24,7 +24,9 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
     loaded: boolean = true;
     search_query: string = '';
     filtered_videos: (Song_Data | null)[] = [];
-    
+
+    order_type: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
+
     ngOnInit(): void {
         // Component initialization
         this.loaded = false;
@@ -556,6 +558,23 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
     get visible_videos(): (Song_Data | null)[] {
         // Use filtered videos if search is active, otherwise use regular videos
         const source_videos = this.search_query ? this.filtered_videos : this.videos;
+
+        // Sort the videos based on the selected order type
+        source_videos.sort((a, b) => {
+            if (!a || !b) return 0;
+
+            switch (this.order_type) {
+                case 'recent_to_old':
+                    return (b?.date_added?.getTime() || 0) - (a?.date_added?.getTime() || 0);
+                case 'old_to_recent':
+                    return (a?.date_added?.getTime() || 0) - (b?.date_added?.getTime() || 0);
+                case 'alphabetical':
+                    return (a?.song_name || '').localeCompare(b?.song_name || '');
+                default:
+                    return 0;
+            }
+        });
+
         return source_videos.slice(this.visible_start_index, this.visible_end_index);
     }
 
