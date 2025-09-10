@@ -46,11 +46,11 @@
                 <img [src]="item?.image || 'music.svg'" alt="Card image" />
             </div>
             <div class="info">
-                <div class="title">{{ item?.title }}</div>
+                <div class="title">{{ item?.song_name }}</div>
                 <div style="display: flex; flex-direction: row;">
                     <div 
                         class="artist"
-                        *ngFor="let artist of item?.artists; let isLast = last"
+                        *ngFor="let artist of item?.original_artists; let isLast = last"
                     >
                         <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
                         <span *ngIf="!isLast">, </span>
@@ -82,16 +82,17 @@
                 <img [src]="current_card?.image || 'music.svg'" alt="Card image" />
             </div>
             <div class="info">
-                <div class="title">{{ current_card?.title }}</div>
+                <div class="title">{{ current_card?.song_name }}</div>
                 <div style="display: flex; flex-direction: row;">
                     <div 
                         class="artist"
-                        *ngFor="let artist of current_card?.artists; let isLast = last"
+                        *ngFor="let artist of current_card?.original_artists; let isLast = last"
                     >
                         <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
                         <span *ngIf="!isLast">, </span>
                     </div>
                 </div>
+                <button class="play" (click)="play_song(current_card?.id, current_card)">Play</button>
             </div>
         </div>
     </div>

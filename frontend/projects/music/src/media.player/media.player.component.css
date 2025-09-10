@@ -258,13 +258,11 @@
     z-index: 6;
 }
 .main-audio-progress {
-    position: absolute;
-    bottom: -8px;
+    position: relative;
+    top: 0;
     left: 0;
-    width: 100%;
+    width: calc(100% - var(--space-4));
     height: 8px;
-    overflow: hidden;
-    background: var(--color-background-200);
     z-index: 6;
     /* transition: height 0.15s ease-in-out; */
 }
@@ -274,7 +272,8 @@
     left: 0;
     height: 100%;
     width: 100%;
-    background: var(--color-background-300);
+    background: var(--color-primary);
+    filter: grayscale(0.7) brightness(.5);
     pointer-events: none;
 }
 .slider {
@@ -561,4 +560,63 @@
     height: 100%;
     z-index: 1;
     background-color: var(--primary);
+}
+
+
+.media.landscape {
+    flex-direction: row;
+    padding: 70px;
+    max-width: none;
+
+    .thumbnail {
+        position: relative;
+        width: fit-content;
+        /* max-width: 100%; */
+        aspect-ratio: 1 / 1;
+        /* flex-shrink: 0; */
+        /* max-height: 506.25px; */
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        transition: background .5s ease-in-out;
+
+        &::after {
+            display: none;
+        }
+
+        img {
+            border-top-left-radius: var(--space-4);
+            border-bottom-left-radius: var(--space-4);
+        }
+    }
+
+    .dashboard {
+        padding: var(--space-2);
+        box-shadow: none;
+        border-top-right-radius: var(--space-4);
+        border-bottom-right-radius: var(--space-4);
+        overflow: hidden;
+    }
+
+    .main-audio-progress {
+        position: relative;
+        top: var(--space-2);
+        height: 8px;
+        overflow: hidden;
+        background: var(--color-background-300);
+        z-index: 6;
+    }
+
+    .duration {
+        width: 100%;
+        padding: var(--space-4) var(--space-2) var(--space-3) var(--space-2);
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .modifiers {
+        margin-bottom: 0;
+    }
 }

@@ -1284,10 +1284,10 @@ export class MusicMediaService {
         ) as Promise<any>;
     }
 
-    public async get_recommended_songs_for_song_using_musik(video_id: string): Promise<Song_Data[]> {
+    public async get_recommended_songs_for_song_using_musik(video_id: string): Promise<any> {
         return lastValueFrom(
             this.http.get(`/music/recommend/${video_id}`)
-        ) as Promise<Song_Data[]>;
+        ) as Promise<any>;
     }
 
     // public async get_recommended_songs_from_playlist (): Promise<Song_Data[]> {

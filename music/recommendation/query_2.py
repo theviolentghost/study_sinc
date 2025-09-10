@@ -311,6 +311,15 @@ class Audio_Search:
         self.processing_queue = False
 
     def request_audio_to_be_processed(self, song_id: str):
+        if(self.embedding_exists(song_id)):
+            print(f"Embedding for song ID {song_id} already exists. No need to process.")
+            return
+        if song_id in self.process_queue:
+            print(f"Song ID {song_id} is already in the processing queue.")
+            return
+        if song_id == None or song_id.strip() == "" or song_id == "undefined" or song_id == "null":
+            print(f"Invalid song ID: {song_id}. Cannot process.")
+            return
         # Placeholder for queuing logic
         print(f"Request to process audio for song ID {song_id} has been queued.")
         self.process_queue.append(song_id)

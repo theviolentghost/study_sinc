@@ -5,7 +5,12 @@
     #playerContainer 
     class="container" 
     [@playerState]="getAnimationParams()"
-    [ngClass]="{'hidden': visibility_status === 'hidden', 'reduced': visibility_status === 'reduced'}"
+    [ngClass]="{
+        'hidden': visibility_status === 'hidden', 
+        'reduced': visibility_status === 'reduced',
+        'landscape': isLandscape,
+        'portrait': isPortrait
+    }"
     [style.background]="get_thumbnail_background(current_song_data)"
 >
     <canvas id="visualization-canvas" width="800" height="800"></canvas>
@@ -22,9 +27,9 @@
         <div class="queue-container" [style.display]="visibility_status === 'visible' ? 'flex' : 'none'" (click)="open_queue_management(); $event.stopPropagation();">
             <div class="queue" [style.mask-image]="'url(\'playlist.svg\')'"></div>
         </div>
-    </button>
-    <div class="media">
-        <div #media 
+    </button>    
+    <div class="media" [ngClass]="orientation_class">
+        <div #media
             class="draggable"
             (touchstart)="onTouchStart($event)"
             (touchmove)="onTouchMove($event)"
@@ -36,22 +41,6 @@
         ></div>
         <div class="thumbnail">
             <img id="thumbnail" src="" style="pointer-events: none;" [ngClass]="{disco: disco_mode }"/>
-            <div class="main-audio-progress">
-                <div class="buffer-bar" [style.width.%]="is_seekbar_disabled ? 0 : buffered_percent" ></div>
-                <input
-                    type="range"
-                    class="slider"
-                    min="0"
-                    [max]="audio_duration"
-                    [value]="audio_current_time"
-                    (input)="on_seek($event); $event.stopPropagation();"
-                    [disabled]="is_seekbar_disabled"
-                    [style.--value]="is_seekbar_disabled ? -100 : audio_current_time"
-                    [style.--max]="is_seekbar_disabled ? 100 : audio_duration"
-                    style="position: absolute;"
-                    [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
-                />
-            </div>
             <div class="audio-info">
                 <div 
                     class="quality" 
@@ -71,10 +60,25 @@
             Your browser does not support the audio element.
         </audio>
         <div class="dashboard">
+            <div class="main-audio-progress">
+                <div class="buffer-bar" [style.width.%]="is_seekbar_disabled ? 0 : buffered_percent" ></div>
+                <input
+                    type="range"
+                    class="slider"
+                    min="0"
+                    [max]="audio_duration"
+                    [value]="audio_current_time"
+                    (input)="on_seek($event); $event.stopPropagation();"
+                    [disabled]="is_seekbar_disabled"
+                    [style.--value]="is_seekbar_disabled ? -100 : audio_current_time"
+                    [style.--max]="is_seekbar_disabled ? 100 : audio_duration"
+                    style="position: absolute;"
+                    [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
+                />
+            </div>
             <div class="duration">
                 <span class="time">{{ seconds_to_time(audio_current_time) }}</span>
                 <span class="time">-{{ seconds_to_time(audio_duration - audio_current_time) }}</span>
-
             </div>
             <div class="metadata" style="margin-bottom: auto;">
                 <button class="liked" [style.background-color]="player_status === 'loading' ? 'var(--color-neutral)' : 'var(--color-primary)'" [style.mask-image]="'url(' + ((current_song_data?.liked === true || buffer_like === true) ? 'heart-fill.svg' : 'heart.svg') + ')'" (click)="toggle_like()"></button>

@@ -111,7 +111,11 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     // Animation state
     animationState: 'visible' | 'reduced' | 'hidden' | 'dragging' = 'hidden';
     dragOffset = 0;
-    calculatedHeight = this.window_height; 
+    calculatedHeight = this.window_height;
+
+    // Orientation detection
+    private _isLandscape = false;
+    private orientationChangeListener?: () => void; 
 
     get hot_action_open(): boolean {
         return this.hot_action.hot_action_open;
@@ -156,6 +160,9 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         private hot_action: HotActionService,
         private quick_action: QuickActionService
     ) {
+        // Initialize orientation detection
+        this.setupOrientationDetection();
+        
         // check if the user has internet connection
         window.addEventListener('online', () => {
             this.user_has_internet = true;
@@ -254,6 +261,15 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     ngOnDestroy(): void {
         // Clean up any remaining document event listeners
         this.removeDocumentMouseListeners();
+        
+        // Clean up orientation listeners
+        if (this.orientationChangeListener) {
+            if (screen.orientation) {
+                screen.orientation.removeEventListener('change', this.orientationChangeListener);
+            }
+            window.removeEventListener('orientationchange', this.orientationChangeListener);
+            window.removeEventListener('resize', this.orientationChangeListener);
+        }
     }
 
     ngAfterViewInit() {
@@ -586,5 +602,104 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const minutes = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+
+
+
+
+
+
+
+
+    
+    // Orientation detection methods
+    private setupOrientationDetection(): void {
+        // Initial orientation check
+        this.updateOrientation();
+        
+        // Setup orientation change listeners
+        this.orientationChangeListener = () => {
+            // Small delay to ensure the orientation change is complete
+            setTimeout(() => {
+                this.updateOrientation();
+            }, 100);
+        };
+        
+        // Listen for orientation changes (multiple event types for better compatibility)
+        if (screen.orientation) {
+            screen.orientation.addEventListener('change', this.orientationChangeListener);
+        }
+        
+        // Fallback for older browsers
+        window.addEventListener('orientationchange', this.orientationChangeListener);
+        
+        // Also listen to resize events as a fallback
+        window.addEventListener('resize', this.orientationChangeListener);
+    }
+
+    private updateOrientation(): void {
+        // Method 1: Use screen.orientation (modern browsers)
+        if (screen.orientation) {
+            this._isLandscape = screen.orientation.angle === 90 || screen.orientation.angle === -90;
+        }
+        // Method 2: Use window.orientation (older browsers)
+        else if (typeof (window as any).orientation !== 'undefined') {
+            this._isLandscape = Math.abs((window as any).orientation) === 90;
+        }
+        // Method 3: Fallback using window dimensions
+        else {
+            this._isLandscape = window.innerWidth > window.innerHeight;
+        }
+        
+        console.log('📱 Orientation changed:', this._isLandscape ? 'Landscape' : 'Portrait');
+        
+        // Trigger any orientation-specific logic here
+        this.onOrientationChange();
+    }
+
+    private onOrientationChange(): void {
+        // Add your orientation-specific logic here
+        if (this._isLandscape) {
+            // Landscape-specific logic
+            console.log('📱 Switched to landscape mode');
+            
+            // Example: You might want to expand the player in landscape
+            // if (this.visibility_status === 'reduced') {
+            //     this.visibility_status = 'visible';
+            // }
+            
+            // Example: Adjust drag thresholds for landscape
+            // this.dragThreshold = window.innerWidth * 0.5;
+            
+        } else {
+            // Portrait-specific logic
+            console.log('📱 Switched to portrait mode');
+            
+            // Example: You might want to compress the player in portrait
+            // if (this.visibility_status === 'visible') {
+            //     this.visibility_status = 'reduced';
+            // }
+            
+            // Example: Reset drag thresholds for portrait
+            // this.dragThreshold = window.innerHeight * 0.65;
+        }
+        
+        // Force a reflow/repaint to ensure layout updates
+        this.calculatedHeight = this.window_height;
+    }
+
+    // Public getter for orientation
+    get isLandscape(): boolean {
+        return this._isLandscape;
+    }
+
+    get isPortrait(): boolean {
+        return !this._isLandscape;
+    }
+
+    // Method to get orientation-specific CSS classes
+    get orientation_class(): string {
+        return this._isLandscape ? 'landscape' : 'portrait';
     }
 }

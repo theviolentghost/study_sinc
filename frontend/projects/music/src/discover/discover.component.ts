@@ -2,6 +2,8 @@ import { Component, HostListener, ElementRef, ViewChild, AfterViewInit } from '@
 import { CommonModule } from '@angular/common';
 import { DragDropModule, CdkDragEnd, CdkDragMove, CdkDragStart } from '@angular/cdk/drag-drop';
 import { PlaylistsService } from '../../playlists.service';
+import { MusicMediaService, Song_Data, Song_Identifier } from '../../music.media.service';
+import { MusicPlayerService } from '../../music.player.service';
 
 @Component({
   selector: 'app-discover',
@@ -12,12 +14,13 @@ import { PlaylistsService } from '../../playlists.service';
 export class DiscoverComponent implements AfterViewInit {
     @ViewChild('activeCard', { static: false }) active_card_ref!: ElementRef<HTMLElement>;
 
-    discover_cards = Array(10).fill(0).map((_, index) => ({
-        id: index,
-        title: `Song ${index + 1}`,
-        artists: [{ id: `artist_${index}`, name: `Artist ${index + 1}` }],
-        image: 'music.svg'
-    }));
+    // discover_cards = Array(10).fill(0).map((_, index) => ({
+    //     id: index,
+    //     title: `Song ${index + 1}`,
+    //     artists: [{ id: `artist_${index}`, name: `Artist ${index + 1}` }],
+    //     image: 'music.svg'
+    // }));
+    discover_cards = [];
 
     // Card swipe state
     current_card_index = 0;
@@ -39,7 +42,7 @@ export class DiscoverComponent implements AfterViewInit {
     show_right_glint = false;
     glint_opacity = 0;
 
-    constructor(private _playlists: PlaylistsService) {}
+    constructor(private _playlists: PlaylistsService, private media: MusicMediaService, private player: MusicPlayerService) {}
 
     is_playlist_dropdown_open = false;
     toggle_playlist_dropdown(): void {
@@ -54,13 +57,55 @@ export class DiscoverComponent implements AfterViewInit {
     }
 
     selected_playlist: any = null;
-    select_playlist(playlist: any): void {
+    async select_playlist(playlist: any): Promise<void> {
         if(this.selected_playlist && this.selected_playlist.id === playlist.id) {
             this.is_playlist_dropdown_open = false;
             return; // No change
         }
         this.selected_playlist = playlist;
         this.is_playlist_dropdown_open = false;
+
+        console.log('Selected playlist:', playlist);
+        const playlist_details = await this.media.get_playlist_from_indexDB(playlist);
+        console.log('Playlist details:', playlist_details, Array.from(playlist_details.songs), Array.from(playlist_details.songs.values())[0]?.video_id);
+        // just use first song in playlist for recommendations
+        this.discover_cards = (await this.media.get_recommended_songs_for_song_using_musik(Array.from(playlist_details.songs.values())[0]?.video_id))?.similar_songs;
+        console.log('Raw discover cards:', this.discover_cards);
+        this.discover_cards = await Promise.all(
+            this.discover_cards.map(async (data) => {
+                const song_data = await this.media.get_all_song_data(data.song_id);
+                return {
+                    // return song data object here
+                    original_song_name: song_data.title,
+                    original_artists: [{name: song_data.uploader, id: song_data.channel_id, source: 'musix'}],
+                song_name: song_data.title,
+                downloaded: false,
+                download_audio_blob: null,
+                download_artwork_blob: null,
+                url: {
+                    audio: null,
+                    artwork: {
+                        low: null,
+                        high: null
+                    }
+                },
+                colors: {
+                    primary: null,
+                    common: null
+                },
+                video_duration: song_data.duration * 1000,
+                lyrics: null,
+                id: {
+                    video_id: data.song_id,
+                    source_id: '',
+                    source: 'youtube'
+                },
+                liked: false,
+                date_added: new Date()
+            }
+        }));
+        this.update_background_cards();
+        console.log('Discover cards:', this.discover_cards);
     }
 
     // Throttling for smooth dragging
@@ -430,5 +475,11 @@ export class DiscoverComponent implements AfterViewInit {
         if (!this.is_dragging) {
             this.accept_card();
         }
+    }
+
+    play_song(identifier: Song_Identifier, song_data: Song_Data): void {
+        if (!identifier) return;
+        console.log('Play song with identifier:', identifier, song_data);
+        this.player.load_and_play_track(this.media.song_key(identifier), song_data);
     }
 }

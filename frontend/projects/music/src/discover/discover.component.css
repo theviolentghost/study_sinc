@@ -184,6 +184,12 @@
 .artist:hover {
     text-decoration: underline;
 }
+.play {
+    width: 100px;
+    height: 30px;
+    background: white;
+    color: black;
+}
 
 .action-buttons {
     display: flex;
