@@ -805,15 +805,12 @@ export class MusicPlayerService {
                 if (this.audio_element && !this.audio_element.paused) {
                     this.was_playing_before_background = true;
                     this.background_position = this.audio_element.currentTime;
+                    console.log('📱 iOS PWA: Stored playback state - playing at position:', this.background_position);
                 }
                 
-                // iOS PWA: Switch to silent audio to preserve pipeline when going to background
-                if (this.should_use_silent_audio() && !this.is_using_silent_audio && this.want_to_play) {
-                    console.log('🔇 iOS PWA: Switching to silent audio in background');
-                    this.switch_to_silent_audio().catch(error => {
-                        console.error('🔇 iOS PWA: Failed to switch to silent audio in background:', error);
-                    });
-                }
+                // DON'T switch to silent audio when going to background if actively playing
+                // Only use silent audio when user explicitly pauses
+                console.log('📱 iOS PWA: Allowing audio to continue in background (no silent audio switch)');
                 
                 // Try to resume audio context if it gets suspended
                 if (this.audio_context && this.audio_context.state === 'suspended') {
@@ -825,12 +822,21 @@ export class MusicPlayerService {
                 // App came to foreground
                 console.log('📱 iOS PWA: App came to foreground');
                 
-                // iOS PWA: Restore main audio when coming to foreground
-                if (this.should_use_silent_audio() && this.is_using_silent_audio && this.was_playing_before_background) {
-                    console.log('🔊 iOS PWA: Restoring main audio in foreground');
+                // iOS PWA: Only restore main audio if we were actually using silent audio (from manual pause)
+                if (this.should_use_silent_audio() && this.is_using_silent_audio && this.want_to_play) {
+                    console.log('🔊 iOS PWA: Restoring main audio from silent mode in foreground');
                     this.restore_main_audio().catch(error => {
                         console.error('🔊 iOS PWA: Failed to restore main audio in foreground:', error);
                     });
+                } else if (this.was_playing_before_background && this.background_position > 0) {
+                    // If we were playing before background and audio got stopped, try to restore position
+                    console.log('📱 iOS PWA: Restoring playback position after background:', this.background_position);
+                    if (this.audio_element && this.audio_element.paused && this.want_to_play) {
+                        this.audio_element.currentTime = this.background_position;
+                        this.audio_element.play().catch(error => {
+                            console.warn('📱 iOS PWA: Failed to resume playback after background:', error);
+                        });
+                    }
                 }
                 
                 // Handle stream restoration for iOS PWA
@@ -860,15 +866,9 @@ export class MusicPlayerService {
 
         window.addEventListener('blur', () => {
             console.log('📱 iOS PWA: Window lost focus');
-            if (this.should_use_silent_audio() && !this.is_using_silent_audio && this.want_to_play) {
-                // Delay switching to silent audio to avoid interrupting quick focus changes
-                this.silence_switch_timeout = window.setTimeout(() => {
-                    console.log('🔇 iOS PWA: Switching to silent audio on window blur');
-                    this.switch_to_silent_audio().catch(error => {
-                        console.error('🔇 iOS PWA: Failed to switch to silent audio on blur:', error);
-                    });
-                }, 1000); // 1 second delay
-            }
+            // DON'T switch to silent audio on blur if actively playing
+            // Only use silent audio when user explicitly pauses
+            console.log('📱 iOS PWA: Not switching to silent audio on blur (audio continues playing)');
         });
 
         // Handle iOS-specific audio interruptions
@@ -1551,9 +1551,12 @@ export class MusicPlayerService {
 
     private is_ios_pwa(): boolean {
         // Check if running as PWA on iOS
-        return 'ontouchstart' in window && 
-               (window.navigator as any).standalone === true &&
-               /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isPWA = (window.navigator as any).standalone === true || 
+                     window.matchMedia('(display-mode: standalone)').matches;
+        const hasTouch = 'ontouchstart' in window;
+        
+        return hasTouch && isPWA && isIOS;
     }
 
     private start_connection_health_check(): void {
@@ -1600,9 +1603,11 @@ export class MusicPlayerService {
 
         console.log('🔇 iOS PWA: Switching to silent audio to preserve pipeline');
         
-        // Store current main audio source
+        // Store current main audio source and position
         this.main_audio_source = this.audio_element.src;
         const current_time = this.audio_element.currentTime;
+        this.background_position = current_time; // Store position for restoration
+        console.log('🔇 iOS PWA: Storing audio position for restoration:', current_time);
         
         try {
             // Switch to silent audio
@@ -1641,6 +1646,10 @@ export class MusicPlayerService {
 
         console.log('🔊 iOS PWA: Restoring main audio from silent audio');
         
+        // Store current time position before restoration
+        const stored_time = this.background_position || this.audio_element.currentTime || 0;
+        console.log('🔊 iOS PWA: Preserving audio position:', stored_time);
+        
         try {
             this.is_using_silent_audio = false;
             
@@ -1662,10 +1671,30 @@ export class MusicPlayerService {
                 if (this.hls.url) {
                     this.hls.startLoad();
                 }
+                
+                // Wait for HLS to be ready then restore position
+                const restorePosition = () => {
+                    if (stored_time > 0) {
+                        console.log('🔊 iOS PWA: Restoring HLS position to:', stored_time);
+                        this.audio_element!.currentTime = stored_time;
+                    }
+                };
+                
+                // Listen for when HLS is ready
+                this.hls.once(Hls.Events.MEDIA_ATTACHED, restorePosition);
+                
             } else if (this.main_audio_source) {
                 // Regular audio source restoration
                 this.audio_element.src = this.main_audio_source;
                 this.audio_element.load();
+                
+                // Restore position after load
+                this.audio_element.addEventListener('loadedmetadata', () => {
+                    if (stored_time > 0) {
+                        console.log('🔊 iOS PWA: Restoring audio position to:', stored_time);
+                        this.audio_element!.currentTime = stored_time;
+                    }
+                }, { once: true });
             }
             
             // If user wants to play, start playback
@@ -1675,6 +1704,10 @@ export class MusicPlayerService {
             }
             
             console.log('🔊 iOS PWA: Successfully restored main audio');
+            
+            // Clear background state after successful restoration
+            this.was_playing_before_background = false;
+            this.background_position = 0;
             
         } catch (error) {
             console.error('🔊 iOS PWA: Failed to restore main audio:', error);
@@ -1708,6 +1741,21 @@ export class MusicPlayerService {
 
     public get_ios_silent_audio_enabled(): boolean {
         return this.use_silent_audio_on_ios_to_preserve_audio_pipeline;
+    }
+
+    // Debug method to check current state
+    public get_ios_silent_audio_state(): any {
+        return {
+            is_ios_pwa: this.is_ios_pwa(),
+            use_silent_audio: this.use_silent_audio_on_ios_to_preserve_audio_pipeline,
+            is_using_silent_audio: this.is_using_silent_audio,
+            main_audio_source: this.main_audio_source,
+            background_position: this.background_position,
+            was_playing_before_background: this.was_playing_before_background,
+            want_to_play: this.want_to_play,
+            current_time: this.audio_element?.currentTime || 0,
+            audio_src: this.audio_element?.src || 'no source'
+        };
     }
 
     // Method to handle when audio source changes normally (not silent audio switching)
