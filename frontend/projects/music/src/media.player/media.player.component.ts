@@ -590,8 +590,13 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.quick_action.action = 'queue_management';
     }
 
+    seek_value: number = -1;
     on_seek(event: any): void {
-        this.player.seek_to(event.target.value);
+        this.seek_value = event.target.value;
+    }
+    on_seek_end(event: any): void {
+        this.player.seek_to(this.seek_value);
+        this.seek_value = -1;
     }
 
     seconds_to_time(seconds: number): string {

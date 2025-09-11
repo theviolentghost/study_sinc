@@ -66,58 +66,24 @@ export class MusicPlayerService {
     private audio_element_connected: boolean = false; // Track if audio element is already connected to a source
 
     // iOS PWA background handling properties
-    private use_silent_audio_on_ios_to_preserve_audio_pipeline: boolean = false;
-    private real_audio_timestamp: number = 0; // To track real audio time when using silent audio
-    private in_foreground: boolean = true; // Track if app is in foreground
+    private was_playing_before_background: boolean = false;
+    private background_position: number = 0;
 
     private hls: Hls | null = null; // For HLS streaming support
     private hls_load_timeout: number | null = null; // Timeout for detecting stuck HLS loads
 
-    private position_update_interval: number | null = null;
-
-    private setup_position_state_updates(): void {
-        // Clear any existing interval
-        if (this.position_update_interval) {
-            clearInterval(this.position_update_interval);
-        }
-
-        // Update position state every 5 seconds during playback for iOS
-        this.position_update_interval = window.setInterval(() => {
-            if (this.audio_element && 
-                !this.audio_element.paused && 
-                !this.loading && 
-                'mediaSession' in navigator && 
-                navigator.mediaSession) {
-                
-                this.update_playback_state();
-            }
-        }, 5000); // Update every 5 seconds
-    }
-
     private setup_hls(): void {
         if(!this.audio_element) return;
-        
-        // Clean up existing HLS instance
         if (this.hls) {
             this.hls.destroy();
-            this.hls = null;
         }
 
-        // Check if we're on iOS Safari - use native HLS support
-        if (this.is_ios_safari()) {
-            console.log('🎵 Using native Safari HLS support on iOS');
-            // Safari on iOS has native HLS support, don't use hls.js
-            return;
-        }
-
-        // For other browsers, use hls.js
         if (Hls.isSupported()) {
-            console.log('🎵 Using hls.js for HLS support');
             this.hls = new Hls({
                 startLevel: -1, // Start with auto quality selection
                 autoStartLoad: true, // Start loading immediately
-                enableWorker: true, // Enable worker for better performance
-                maxBufferLength: 120, // Increase buffer length
+                enableWorker: true, // Disable worker for immediate processing
+                maxBufferLength: 120, // Increase from 5 to 10 seconds
                 maxMaxBufferLength: 150, // Max buffer size
                 maxBufferSize: 60 * 1000 * 1000, // 60MB buffer
                 
@@ -254,14 +220,8 @@ export class MusicPlayerService {
             this.hls_load_timeout = null;
         }
 
-        if (!this.audio_element) {
-            console.error('No audio element available for HLS loading');
-            return;
-        }
-
-        // Use hls.js for other browsers (and safari for now)
         if (this.hls) {
-            console.log(`🎵 Loading HLS playlist with hls.js: ${hls_data.playlist_url}`);
+            console.log(`🎵 Loading HLS playlist from URL: ${hls_data.playlist_url}`);
             
             // Ensure HLS is properly attached before loading source
             if (!this.hls.media) {
@@ -293,8 +253,12 @@ export class MusicPlayerService {
                 }
             }, 10000); // 10 second timeout
             
-        } else {
+        } else if (this.audio_element) {
             console.log(`🎵 Falling back to native HLS support: ${hls_data.playlist_url}`);
+            
+            // iOS PWA: Handle audio source change for HLS
+            this.on_audio_source_changed(hls_data.playlist_url);
+            
             this.audio_element.src = hls_data.playlist_url;
             this.audio_element.load();
         }
@@ -304,14 +268,9 @@ export class MusicPlayerService {
         if (!this.audio_element) return 'stopped';
         if (this.loading) return 'loading'; // middle of loading song
         
-        // iOS background handling: Check if we're using silent audio
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            // Return status based on want_to_play and actual audio element state
-            if (this.want_to_play && this.is_playing_silent_audio()) {
-                return 'playing';
-            } else {
-                return 'paused';
-            }
+        // iOS PWA: When using silent audio, base status on want_to_play instead of audio element state
+        if (this.should_use_silent_audio() && this.is_using_silent_audio) {
+            return this.want_to_play ? 'playing' : 'paused';
         }
         
         if (this.audio_element.paused) return 'paused';
@@ -388,6 +347,15 @@ export class MusicPlayerService {
     private _disco_mode: boolean = false; 
     private _song_duration: number = 0; // Duration of the current song in seconds
     private _preload_next: boolean = true; // Whether to preload the next track
+    
+    // iOS PWA Silent Audio Pipeline Preservation
+    // This feature helps maintain audio pipeline continuity on iOS PWA by switching to silent audio
+    // instead of pausing, which prevents iOS from suspending the audio context and breaking HLS streams
+    private use_silent_audio_on_ios_to_preserve_audio_pipeline: boolean = true; // Enable silent audio switching for iOS PWA
+    private silent_audio_url: string = '/public/audio/silent.mp3'; // Path to silent audio file (must exist)
+    private main_audio_source: string = ''; // Store the main audio source when switching to silent
+    private is_using_silent_audio: boolean = false; // Track if currently using silent audio
+    private silence_switch_timeout: number | null = null; // Timeout for switching back from silent
 
     set audio_source_element(element: HTMLAudioElement) {
         this.audio_element = element;
@@ -412,9 +380,11 @@ export class MusicPlayerService {
         this.track_loaded.subscribe(() => {
             this.loading = false;
         });
-        
-        // Initialize iOS background handling
-        this.setup_ios_background_handling();
+
+        // Start connection health check for iOS PWA
+        if (this.is_ios_pwa()) {
+            this.start_connection_health_check();
+        }
     }
 
     public async load_playlist(playlist: Song_Playlist | null, keep_hsitroy?: boolean, play_imediately: boolean = true, load_track: boolean = false, playlist_identifier?: Song_Playlist_Identifier | null | undefined, use_old_data: boolean = false): Promise<void> {
@@ -451,6 +421,7 @@ export class MusicPlayerService {
         const successful_loads = results.filter(result => 
             result.status === 'fulfilled' && result.value.success
         ).length;
+        console.log(song_data_promises)
         console.log(`Loaded song data for ${successful_loads}/${this.playlist_queue.queue.length} songs`);
 
         if(this.playlist_queue.queue.length > 1) this.remove_current_song_from_queue(); // Ensure current song is not in the queue
@@ -708,6 +679,9 @@ export class MusicPlayerService {
 
             if (signal.aborted) return;
             
+            // iOS PWA: Handle audio source change
+            this.on_audio_source_changed(source_url);
+            
             this.audio_element.src = source_url;
             this.audio_element.load();
 
@@ -733,7 +707,16 @@ export class MusicPlayerService {
         // this.audio_element.pause();
         if(this.audio_element.src === '') return; // No source to unload
         
-        console.log("🎵 Unloading audio source...");
+        // iOS PWA: Clear silent audio state when unloading
+        if (this.is_using_silent_audio) {
+            console.log('🔇 iOS PWA: Clearing silent audio state during unload');
+            this.is_using_silent_audio = false;
+            this.main_audio_source = '';
+            if (this.silence_switch_timeout) {
+                clearTimeout(this.silence_switch_timeout);
+                this.silence_switch_timeout = null;
+            }
+        }
         
         // Note: We don't disconnect the audio source anymore since we reuse it
         // The MediaElementSourceNode will automatically handle the new audio source
@@ -743,24 +726,17 @@ export class MusicPlayerService {
         //     URL.revokeObjectURL(this.audio_element.src);
         // }
         
-        // Clear the audio source
         this.audio_element.src = '';
         this.audio_element.load();
 
-        // Reset HLS.js if it exists (not for iOS Safari native HLS)
-        if (this.hls && !this.is_ios_safari()) {
-            console.log("🎵 Unloading HLS.js stream...");
+        // Reset HLS if it exists
+        if (this.hls) {
+            console.log("🎵 Unloading HLS stream...");
             // Detach media to ensure clean state
             if (this.hls.media) {
                 this.hls.detachMedia();
             }
             // this.hls.stopLoad();
-        }
-        
-        // Clear any pending HLS timeout
-        if (this.hls_load_timeout) {
-            clearTimeout(this.hls_load_timeout);
-            this.hls_load_timeout = null;
         }
     }
 
@@ -799,7 +775,7 @@ export class MusicPlayerService {
 
         this.setup_audio_listeners();
         this.setup_media_session();
-        this.setup_position_state_updates();
+        this.setup_background_handling();
 
         if(!this.audio_context) {
             this.audio_context = new AudioContext({
@@ -814,6 +790,168 @@ export class MusicPlayerService {
             // this.audio_source = this.audio_context.createMediaElementSource(this.audio_element);
             // this.audio_source.connect(this.audio_analyser);
             // this.audio_source.connect(this.audio_context.destination);
+        }
+        // setTimeout(()=>{this.setup_media_session();},3000); //temp
+    }
+
+    private setup_background_handling(): void {
+        // Handle visibility change for better background playback on iOS
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // App went to background
+                console.log('📱 iOS PWA: App went to background');
+                
+                // Store current playback state for restoration
+                if (this.audio_element && !this.audio_element.paused) {
+                    this.was_playing_before_background = true;
+                    this.background_position = this.audio_element.currentTime;
+                }
+                
+                // iOS PWA: Switch to silent audio to preserve pipeline when going to background
+                if (this.should_use_silent_audio() && !this.is_using_silent_audio && this.want_to_play) {
+                    console.log('🔇 iOS PWA: Switching to silent audio in background');
+                    this.switch_to_silent_audio().catch(error => {
+                        console.error('🔇 iOS PWA: Failed to switch to silent audio in background:', error);
+                    });
+                }
+                
+                // Try to resume audio context if it gets suspended
+                if (this.audio_context && this.audio_context.state === 'suspended') {
+                    this.audio_context.resume().catch(error => {
+                        console.warn('Failed to resume audio context in background:', error);
+                    });
+                }
+            } else {
+                // App came to foreground
+                console.log('📱 iOS PWA: App came to foreground');
+                
+                // iOS PWA: Restore main audio when coming to foreground
+                if (this.should_use_silent_audio() && this.is_using_silent_audio && this.was_playing_before_background) {
+                    console.log('🔊 iOS PWA: Restoring main audio in foreground');
+                    this.restore_main_audio().catch(error => {
+                        console.error('🔊 iOS PWA: Failed to restore main audio in foreground:', error);
+                    });
+                }
+                
+                // Handle stream restoration for iOS PWA
+                // if (this.was_playing_before_background && this.current_song_data && !this.current_song_data.downloaded) {
+                //     this.handle_stream_restoration();
+                // }
+                
+                // Ensure audio context is active
+                if (this.audio_context && this.audio_context.state === 'suspended') {
+                    this.audio_context.resume().catch(error => {
+                        console.warn('Failed to resume audio context in foreground:', error);
+                    });
+                }
+            }
+        });
+
+        // Add focus/blur event handlers for additional iOS PWA reliability
+        window.addEventListener('focus', () => {
+            console.log('📱 iOS PWA: Window gained focus');
+            if (this.should_use_silent_audio() && this.is_using_silent_audio && this.want_to_play) {
+                console.log('🔊 iOS PWA: Restoring main audio on window focus');
+                this.restore_main_audio().catch(error => {
+                    console.error('🔊 iOS PWA: Failed to restore main audio on focus:', error);
+                });
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            console.log('📱 iOS PWA: Window lost focus');
+            if (this.should_use_silent_audio() && !this.is_using_silent_audio && this.want_to_play) {
+                // Delay switching to silent audio to avoid interrupting quick focus changes
+                this.silence_switch_timeout = window.setTimeout(() => {
+                    console.log('🔇 iOS PWA: Switching to silent audio on window blur');
+                    this.switch_to_silent_audio().catch(error => {
+                        console.error('🔇 iOS PWA: Failed to switch to silent audio on blur:', error);
+                    });
+                }, 1000); // 1 second delay
+            }
+        });
+
+        // Handle iOS-specific audio interruptions
+        if ('ontouchstart' in window) { // iOS detection
+            this.audio_element?.addEventListener('pause', () => {
+                // On iOS, if audio pauses unexpectedly, try to resume after a short delay
+                if (!this.want_to_play) return; // User initiated pause
+                
+                setTimeout(() => {
+                    if (this.want_to_play && this.audio_element?.paused) {
+                        console.log('Attempting to resume after unexpected pause');
+                        this.audio_element.play().catch(error => {
+                            console.warn('Failed to resume after pause:', error);
+                        });
+                    }
+                }, 100);
+            });
+
+            // Handle audio element errors (common with broken streams)
+            this.audio_element?.addEventListener('error', (e) => {
+                console.warn('Audio element error detected:', e);
+                if (this.want_to_play && this.current_song_data && !this.current_song_data.downloaded) {
+                    this.handle_stream_restoration();
+                }
+            });
+
+            // Handle HLS errors specifically
+            if (this.hls) {
+                this.hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal && this.want_to_play) {
+                        console.warn('Fatal HLS error, attempting stream restoration');
+                        setTimeout(() => this.handle_stream_restoration(), 1000);
+                    }
+                });
+            }
+        }
+    }
+
+    private async handle_stream_restoration(): Promise<void> {
+        if (!this.current_song_data || this.current_song_data.downloaded) return;
+        
+        console.log('Attempting to restore stream after background/error');
+        
+        try {
+            // Store current state
+            const currentPosition = this.background_position || (this.audio_element?.currentTime || 0);
+            const wasPlaying = this.was_playing_before_background;
+            
+            // Reset background state
+            this.was_playing_before_background = false;
+            this.background_position = 0;
+            
+            // Reload the current track with the same position
+            if (this.current_song) {
+                console.log(`Reloading stream for ${this.media.song_key(this.current_song)} at position ${currentPosition}`);
+                
+                // Reload the audio source
+                await this.load_audio(this.media.song_key(this.current_song), this.current_song_data);
+                
+                // Wait a bit for the audio to be ready
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Restore position
+                if (this.audio_element && currentPosition > 0) {
+                    this.audio_element.currentTime = currentPosition;
+                }
+                
+                // Resume playback if it was playing before
+                if (wasPlaying && this.want_to_play) {
+                    console.log('Resuming playback after stream restoration');
+                    await this.play();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to restore stream:', error);
+            // Fallback: try to reload the current track from the beginning
+            if (this.current_song && this.want_to_play) {
+                try {
+                    await this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
+                } catch (fallbackError) {
+                    console.error('Fallback stream restoration also failed:', fallbackError);
+                }
+            }
         }
     }
 
@@ -875,100 +1013,34 @@ export class MusicPlayerService {
     
     private setup_media_session(): void {
         if ('mediaSession' in navigator) {
-            console.log('🎵 Setting up Media Session API handlers');
-            
-            // Set up media session handlers with proper error handling
+            // alert("Media Session API is supported in this browser.");
+            // Set up media session handlers
             navigator.mediaSession.setActionHandler('play', () => {
-                console.log('🎵 Media Session: Play action triggered');
-                this.play().catch(error => console.warn('Media Session play failed:', error));
+                this.play();
             });
 
             navigator.mediaSession.setActionHandler('pause', () => {
-                console.log('🎵 Media Session: Pause action triggered');
-                this.pause().catch(error => console.warn('Media Session pause failed:', error));
+                this.pause();
             });
 
             navigator.mediaSession.setActionHandler('nexttrack', () => {
-                console.log('🎵 Media Session: Next track action triggered');
-                // Check if we have a next track available
-                const hasNext = this.play_next_queue.queue.length > 0 || 
-                               this.playlist_queue.queue.length > 0 || 
-                               (this.current_playlist && this.current_playlist.songs.size > 1);
-                if (hasNext) {
-                    this.skip_to_next().catch(error => console.warn('Media Session skip next failed:', error));
-                }
+                this.skip_to_next();
             });
 
             navigator.mediaSession.setActionHandler('previoustrack', () => {
-                console.log('🎵 Media Session: Previous track action triggered');
-                // Check if we can go to previous (either history or restart current)
-                const canGoPrevious = this.history_stack.queue.length > 0 || 
-                                    (this.audio_element && this.audio_element.currentTime > 0);
-                if (canGoPrevious) {
-                    this.skip_to_previous().catch(error => console.warn('Media Session skip previous failed:', error));
-                }
+                this.skip_to_previous();
             });
 
-            // CRITICAL FOR iOS: Ensure seekto handler is properly set with validation
             navigator.mediaSession.setActionHandler('seekto', (details) => {
-                console.log(`🎵 Media Session: Seek to ${details.seekTime} requested`);
-                if (details.seekTime !== undefined && details.seekTime >= 0 && this.audio_element) {
-                    const duration = this.duration || this.audio_element.duration || 0;
-                    const current_pos = this.audio_element.currentTime || 0;
-                    
-                    if (duration > 0) {
-                        const seek_time = Math.min(Math.max(0, details.seekTime), duration);
-                        
-                        // Prevent random jumps: Only seek if the difference is significant (>2 seconds)
-                        // or if explicitly requested by user interaction
-                        if (Math.abs(seek_time - current_pos) > 2 || details.fastSeek) {
-                            console.log(`🎵 Valid seek: ${current_pos.toFixed(1)}s → ${seek_time.toFixed(1)}s`);
-                            this.audio_element.currentTime = seek_time;
-                            this.last_position_update = seek_time; // Update to prevent position state conflict
-                            
-                            // Update position state after seeking
-                            setTimeout(() => {
-                                this.update_playback_state();
-                            }, 100);
-                        } else {
-                            console.log(`🚫 Ignoring small seek: ${current_pos.toFixed(1)}s → ${seek_time.toFixed(1)}s (< 2s difference)`);
-                        }
-                    }
+                if (details.seekTime >= 0 && this.audio_element) {
+                    this.audio_element.currentTime = details.seekTime;
                 }
             });
-
-            // iOS-specific: Also handle fast seek actions if available
-            try {
-                navigator.mediaSession.setActionHandler('seekforward', (details) => {
-                    console.log('🎵 Media Session: Seek forward action triggered');
-                    if (this.audio_element) {
-                        const seekOffset = details.seekOffset || 10; // Default 10 seconds
-                        const newTime = Math.min(this.audio_element.currentTime + seekOffset, this.duration);
-                        this.audio_element.currentTime = newTime;
-                        this.update_playback_state();
-                    }
-                });
-
-                navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-                    console.log('🎵 Media Session: Seek backward action triggered');
-                    if (this.audio_element) {
-                        const seekOffset = details.seekOffset || 10; // Default 10 seconds
-                        const newTime = Math.max(this.audio_element.currentTime - seekOffset, 0);
-                        this.audio_element.currentTime = newTime;
-                        this.update_playback_state();
-                    }
-                });
-            } catch (error) {
-                // These actions might not be supported in all browsers
-                console.log('🎵 Fast seek actions not supported:', error);
-            }
         }
 
         this.update_playback_state();
     }
 
-    private last_position_update: number = 0; // Track last position to prevent unnecessary updates
-    
     private update_playback_state(): void {
         if ('mediaSession' in navigator && navigator.mediaSession) {
             // Set playback state based on current audio state
@@ -979,52 +1051,28 @@ export class MusicPlayerService {
 
             if (this.loading) {
                 navigator.mediaSession.playbackState = 'none';
-            } else if (this.audio_element.paused) {
-                navigator.mediaSession.playbackState = 'paused';
             } else {
-                navigator.mediaSession.playbackState = 'playing';
+                // iOS PWA: Use want_to_play state when using silent audio
+                if (this.should_use_silent_audio() && this.is_using_silent_audio) {
+                    navigator.mediaSession.playbackState = this.want_to_play ? 'playing' : 'paused';
+                    console.log(`🔇 iOS PWA: Media session state set to ${navigator.mediaSession.playbackState} (silent audio mode)`);
+                } else if (this.audio_element.paused) {
+                    navigator.mediaSession.playbackState = 'paused';
+                } else {
+                    navigator.mediaSession.playbackState = 'playing';
+                }
             }
 
-            // CRITICAL FOR iOS: Always set position state with valid values
-            const duration = this.duration || this.audio_element.duration || 0;
-            const currentTime = this.audio_element.currentTime || 0;
-            const playbackRate = this.audio_element.playbackRate || 1.0;
-
-            // Prevent excessive position updates that might cause seeking issues
-            if (Math.abs(currentTime - this.last_position_update) < 0.5 && !this.audio_element.paused) {
-                return; // Skip update if position hasn't changed significantly
-            }
-
-            if (duration > 0 && !isNaN(duration) && !isNaN(currentTime)) {
+            // Update position state to help iOS understand track capabilities
+            if (this.audio_element && !isNaN(this.audio_element.duration)) {
                 try {
-                    const safe_position = Math.min(Math.max(0, currentTime), duration);
-                    
-                    // Only update if position has changed meaningfully
-                    if (Math.abs(safe_position - this.last_position_update) >= 0.5 || this.audio_element.paused) {
-                        navigator.mediaSession.setPositionState({
-                            duration: Math.max(duration, 1), // Ensure minimum duration of 1 second
-                            playbackRate: playbackRate,
-                            position: safe_position
-                        });
-                        
-                        this.last_position_update = safe_position;
-                        console.log(`🎵 Position state updated: ${safe_position.toFixed(1)}/${duration.toFixed(1)}`);
-                    }
+                    navigator.mediaSession.setPositionState({
+                        duration: this.audio_element.duration,
+                        playbackRate: this.audio_element.playbackRate,
+                        position: this.audio_element.currentTime
+                    });
                 } catch (error) {
                     console.warn('Could not set position state:', error);
-                }
-            } else {
-                // If no duration yet, set a temporary state to enable controls
-                try {
-                    const fallback_duration = this._song_duration ? this._song_duration / 1000 : 180;
-                    navigator.mediaSession.setPositionState({
-                        duration: fallback_duration,
-                        playbackRate: 1.0,
-                        position: 0
-                    });
-                    console.log('🎵 Set fallback position state for iOS');
-                } catch (error) {
-                    console.warn('Could not set fallback position state:', error);
                 }
             }
         }
@@ -1156,9 +1204,6 @@ export class MusicPlayerService {
             if(this.want_to_play) this._play();
             this.track_loaded.emit();
             this.loading = false;
-            
-            // CRITICAL FOR iOS: Set initial position state when metadata loads
-            this.update_playback_state();
         });
 
         // Add listener for when audio has enough data to start playing
@@ -1186,47 +1231,10 @@ export class MusicPlayerService {
         this.audio_element.addEventListener('play', () => {
             this.started_playing = true;
             if(this.disco_mode) this.start_visualization();
-            
-            // CRITICAL FOR iOS: Update playback state immediately on play
-            this.update_playback_state();
-            
-            // IMPORTANT: Handle iOS background audio switching
-            if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline) {
-                // If we're in background and not using silent audio, this means user pressed play
-                // from control center - we should NOT actually play real audio, just update state
-                if (!this.in_foreground && !this.is_using_silent_audio) {
-                    console.log('🍎 User initiated play from background - switching to silent audio');
-                    // Immediately switch to silent audio since we're in background
-                    setTimeout(() => this.switch_to_silent_audio(), 0);
-                }
-                // If switching from silent to real audio, stop silent audio
-                else if (this.is_using_silent_audio && this.in_foreground) {
-                    this.switch_to_real_audio();
-                }
-            }
         });
 
         this.audio_element.addEventListener('pause', () => {
             if(this.disco_mode) this.stop_visualization();
-            
-            // For iOS: Handle background audio preservation
-            if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline) {
-                this.real_audio_timestamp = this.audio_element?.currentTime || 0;
-                
-                // If we're in background and user pauses from control center, 
-                // we should actually pause the audio (which is playing silent audio)
-                if (!this.in_foreground && this.is_using_silent_audio && !this.want_to_play) {
-                    console.log('🍎 User paused from background - stopping silent audio');
-                    // Audio element is already paused by this point, just mark as not using silent audio
-                    this.is_using_silent_audio = false;
-                }
-                // If pausing in foreground while not in background mode, normal behavior
-                else if (this.in_foreground && !this.is_using_silent_audio) {
-                    // Normal pause - no special handling needed
-                }
-            }
-            
-            this.update_playback_state();
         });
 
         this.audio_element.addEventListener('ended', () => {
@@ -1243,30 +1251,10 @@ export class MusicPlayerService {
         if (!this.audio_element) throw new Error("Audio element is not set.");
         this.want_to_play = true; 
         
-        // CRITICAL FOR iOS: Always resume AudioContext before attempting to play
-        if (this.audio_context && this.audio_context.state === 'suspended') {
-            console.log('🍎 Resuming AudioContext before play...');
-            try {
-                await this.audio_context.resume();
-                console.log('✅ AudioContext resumed successfully');
-            } catch (error) {
-                console.warn('⚠️ Failed to resume AudioContext:', error);
-            }
-        }
-        
-        // iOS background handling: If in background, start/continue silent audio
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && !this.in_foreground) {
-            console.log('🍎 Play requested while in background - using silent audio');
-            if (!this.is_using_silent_audio) {
-                this.switch_to_silent_audio();
-            } else if (this.audio_element?.paused) {
-                // Resume silent audio if it was paused
-                this.audio_element.play().catch(error => {
-                    console.warn('🍎 Failed to resume silent audio:', error);
-                });
-            }
-            this.update_playback_state();
-            return;
+        // iOS PWA: Restore main audio if currently using silent audio
+        if (this.should_use_silent_audio() && this.is_using_silent_audio) {
+            console.log('🔊 iOS PWA: Restoring main audio from silent audio on play');
+            await this.restore_main_audio();
         }
         
         if(!this.loading) {
@@ -1276,43 +1264,43 @@ export class MusicPlayerService {
     async _play(): Promise<void> {
         if (!this.audio_element) throw new Error("Audio element is not set.");
         
-        // iOS background handling: If we're using silent audio, don't check normal audio source
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            // We're playing silent audio, which is valid
-            console.log('🍎 Playing silent audio');
-        }
         // Check if audio element has a valid source before attempting to play
-        else if (!this.audio_element.src && (!this.hls || !this.hls.media)) {
+        if (!this.audio_element.src && (!this.hls || !this.hls.media)) {
             console.warn('Cannot play: Audio element has no source and HLS is not attached');
-            // Try to recover by checking if we have current song data to reload
-            if (this.current_song_data && this.current_song) {
-                console.log('🔄 Attempting to reload current track...');
-                try {
-                    await this.load_track(this.media.song_key(this.current_song), this.current_song_data);
-                    return; // load_track will handle playing if want_to_play is true
-                } catch (error) {
-                    console.error('Failed to reload track:', error);
-                    return;
-                }
-            }
             return;
         }
         
-        // CRITICAL FOR iOS: Always ensure audio context is ready before playing
+        // Ensure audio context is ready before playing
         if (this.audio_context && this.audio_context.state === 'suspended') {
             try {
                 await this.audio_context.resume();
-                console.log('✅ Audio context resumed before play');
+                console.log('Audio context resumed');
             } catch (error) {
-                console.warn('⚠️ Failed to resume audio context:', error);
+                console.warn('Failed to resume audio context:', error);
             }
         }
         
         try {
             await this.audio_element.play();
-            console.log('✅ Audio play successful');
         } catch (error: any) {
-            console.error('❌ Failed to play audio:', error);
+            console.error('Failed to play audio:', error);
+            
+            // Handle common play failures
+            if (error.name === 'NotAllowedError') {
+                console.warn('Play was prevented by browser policy');
+            } else if (error.name === 'NotSupportedError') {
+                console.warn('Audio element has no supported sources - likely HLS not ready yet');
+                // For HLS streams, this is expected initially - the MANIFEST_PARSED event will retry
+                if (this.hls && this.current_song_data && !this.current_song_data.downloaded) {
+                    console.log('HLS stream not ready yet, waiting for manifest...');
+                    return; // Don't throw error, let HLS events handle playback
+                }
+            } else if (error.name === 'AbortError' && this.current_song_data && !this.current_song_data.downloaded) {
+                // Common with broken HLS streams on iOS PWA
+                console.warn('Play aborted, likely due to broken stream. Attempting restoration...');
+                await this.handle_stream_restoration();
+                return; // Exit early as restoration will handle playback
+            }
             throw error;
         }
         
@@ -1323,16 +1311,14 @@ export class MusicPlayerService {
 
     async pause(): Promise<void> {
         if (!this.audio_element) throw new Error("Audio element is not set.");
-        
-        console.log('🎵 Pausing audio (user initiated)');
-        
         this.want_to_play = false; 
         
-        // iOS background handling: If using silent audio, pause the same audio element
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            console.log('🍎 Pausing silent audio');
-            this.audio_element.pause();
+        // iOS PWA: Use silent audio instead of pausing to preserve audio pipeline
+        if (this.should_use_silent_audio() && !this.is_using_silent_audio) {
+            console.log('🔇 iOS PWA: Using silent audio instead of pause to preserve pipeline');
+            await this.switch_to_silent_audio();
         } else {
+            // Regular pause for non-iOS PWA or when already using silent audio
             this.audio_element.pause();
         }
         
@@ -1342,21 +1328,14 @@ export class MusicPlayerService {
     toggle_play(): void {
         if (!this.audio_element) throw new Error("Audio element is not set.");
         
-        // iOS background handling: Check if we're using silent audio
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            // Toggle based on silent audio state and want_to_play
-            if (this.want_to_play && this.is_playing_silent_audio()) {
-                this.pause();
-            } else {
-                this.play();
-            }
+        // iOS PWA: Check if we're using silent audio to determine play state
+        const is_effectively_paused = this.should_use_silent_audio() ? 
+            !this.want_to_play : this.audio_element.paused;
+            
+        if (is_effectively_paused) {
+            this.play();
         } else {
-            // Normal toggle behavior
-            if (this.audio_element.paused) {
-                this.play();
-            } else {
-                this.pause();
-            }
+            this.pause();
         }
     }
 
@@ -1483,25 +1462,7 @@ export class MusicPlayerService {
 
     seek_to(time: number): void {
         if (this.audio_element) {
-            const current_pos = this.audio_element.currentTime || 0;
-            const duration = this.duration || this.audio_element.duration || 0;
-            
-            // Validate seek position
-            const safe_time = Math.min(Math.max(0, time), duration);
-            
-            // Only seek if the difference is meaningful (>0.5 seconds) to prevent micro-seeks
-            if (Math.abs(safe_time - current_pos) > 0.5) {
-                console.log(`🎵 Seeking from ${current_pos.toFixed(1)}s to ${safe_time.toFixed(1)}s`);
-                this.audio_element.currentTime = safe_time;
-                this.last_position_update = safe_time; // Update to prevent position state conflict
-                
-                // Update position state after manual seek
-                setTimeout(() => {
-                    this.update_playback_state();
-                }, 100);
-            } else {
-                console.log(`🚫 Ignoring micro-seek: ${current_pos.toFixed(1)}s → ${safe_time.toFixed(1)}s`);
-            }
+            this.audio_element.currentTime = time;
         }
     }
 
@@ -1595,213 +1556,173 @@ export class MusicPlayerService {
                /iPad|iPhone|iPod/.test(navigator.userAgent);
     }
 
-    private is_ios_safari(): boolean {
-        // Check if running on iOS Safari (including PWA)
-        // return /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-        //        /Safari/.test(navigator.userAgent) &&
-        //        this.audio_element?.canPlayType('application/vnd.apple.mpegurl') !== '';
-        return /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-               /Safari/.test(navigator.userAgent);
-    }
-
-    private setup_ios_background_handling(): void {
-        if (!this.is_ios_safari()) return;
-        
-        console.log('🍎 Setting up iOS background handling for Safari/PWA');
-        this.use_silent_audio_on_ios_to_preserve_audio_pipeline = true;
-        
-        // Add debug flag to temporarily disable iOS background handling if needed
-        // You can set this to false in browser console: window.playerService.disable_ios_background_handling()
-        (window as any).playerService = this;
-        
-        // Listen for visibility changes to detect background/foreground transitions
-        document.addEventListener('visibilitychange', () => {
-            this.handle_visibility_change();
-        });
-        
-        // Listen for page focus/blur events as backup
-        window.addEventListener('focus', () => {
-            this.handle_app_foreground();
-        });
-        
-        window.addEventListener('blur', () => {
-            this.handle_app_background();
-        });
-        
-        // For PWA: Listen for app state changes
-        if (this.is_ios_pwa()) {
-            window.addEventListener('pagehide', () => {
-                this.handle_app_background();
-            });
-            
-            window.addEventListener('pageshow', () => {
-                this.handle_app_foreground();
-            });
-        }
-    }
-
-    private handle_visibility_change(): void {
-        if (document.hidden) {
-            this.handle_app_background();
-        } else {
-            this.handle_app_foreground();
-        }
-    }
-
-    private handle_app_background(): void {
-        if (!this.is_ios_safari() || !this.use_silent_audio_on_ios_to_preserve_audio_pipeline) return;
-        
-        console.log('🍎 App going to background - preserving audio pipeline');
-        this.in_foreground = false;
-        
-        // Only switch to silent audio if:
-        // 1. Audio is currently playing (not paused)
-        // 2. We have a valid audio source
-        // 3. We're not already using silent audio
-        // 4. We're not currently loading a track
-        if (this.audio_element && 
-            !this.audio_element.paused && 
-            this.audio_element.src && 
-            this.audio_element.src !== '' &&
-            !this.is_using_silent_audio &&
-            !this.loading) {
-            this.switch_to_silent_audio();
-        }
-    }
-
-    private handle_app_foreground(): void {
-        if (!this.is_ios_safari() || !this.use_silent_audio_on_ios_to_preserve_audio_pipeline) return;
-        
-        console.log('🍎 App returning to foreground');
-        this.in_foreground = true;
-        
-        // Only switch back to real audio if we were actually using silent audio
-        if (this.is_using_silent_audio && this.is_playing_silent_audio()) {
-            this.switch_to_real_audio();
-        }
-    }
-
-    private is_using_silent_audio: boolean = false;
-    private real_audio_src: string = '';
-    private silent_audio_src: string = './audio/silent.mp3';
-
-    private switch_to_silent_audio(): void {
-        if (!this.audio_element || this.is_using_silent_audio) return;
-        
-        console.log('🍎 Switching to silent audio to preserve pipeline');
-        
-        // Store current timestamp, source, and pause state
-        this.real_audio_timestamp = this.audio_element.currentTime;
-        this.real_audio_src = this.audio_element.src;
-        
-        // Only switch to silent audio if we have a valid real audio source
-        if (!this.real_audio_src || this.real_audio_src === '') {
-            console.warn('🍎 No valid audio source to preserve, skipping silent audio switch');
-            return;
-        }
-        
-        // Switch to silent audio using the same audio element
-        this.audio_element.src = this.silent_audio_src;
-        this.audio_element.loop = true;
-        this.audio_element.volume = 0;
-        this.audio_element.load();
-        
-        // Start playing silent audio immediately to preserve pipeline
-        this.audio_element.play().then(() => {
-            console.log('🍎 Silent audio playing successfully');
-            this.is_using_silent_audio = true;
-        }).catch(error => {
-            console.warn('🍎 Failed to start silent audio:', error);
-            // If silent audio fails, revert back to original source
-            this.audio_element.src = this.real_audio_src;
-            this.audio_element.loop = false;
-            this.audio_element.volume = 1;
-            this.audio_element.load();
-        });
-        
-        // Update media session to show paused state visually
-        this.update_playback_state_for_background();
-    }
-
-    private switch_to_real_audio(): void {
-        if (!this.audio_element || !this.is_using_silent_audio) return;
-        
-        console.log('🍎 Switching back to real audio');
-        
-        // Check if we have a valid real audio source to restore
-        if (!this.real_audio_src || this.real_audio_src === '') {
-            console.warn('🍎 No valid real audio source to restore');
-            this.is_using_silent_audio = false;
-            return;
-        }
-        
-        // Restore original audio settings
-        this.audio_element.loop = false;
-        this.audio_element.volume = 1;
-        
-        this.is_using_silent_audio = false;
-        
-        // For HLS streams, don't change src directly - let HLS.js handle it
-        if (this.real_audio_src.includes('.m3u8') && this.hls) {
-            console.log('🍎 Restoring HLS stream instead of direct src');
-            // HLS stream - reattach and reload
-            if (!this.hls.media) {
-                this.hls.attachMedia(this.audio_element);
-            }
-            // The HLS stream should still be loaded, just resume playback
-            if (this.want_to_play) {
-                this.audio_element.currentTime = this.real_audio_timestamp;
-                this.audio_element.play().catch(error => {
-                    console.warn('🍎 Failed to resume HLS audio:', error);
-                });
-            }
-        } else {
-            // Regular audio file - restore src directly
-            this.audio_element.src = this.real_audio_src;
-            this.audio_element.load();
-            
-            // If we wanted to be playing, restore real audio playback
-            if (this.want_to_play) {
-                // Wait for loadedmetadata before setting currentTime
-                const onLoadedMetadata = () => {
-                    this.audio_element!.currentTime = this.real_audio_timestamp;
-                    this.audio_element!.play().catch(error => {
-                        console.warn('🍎 Failed to resume real audio:', error);
-                    });
-                    this.audio_element!.removeEventListener('loadedmetadata', onLoadedMetadata);
-                };
+    private start_connection_health_check(): void {
+        // Periodic health check for streaming connections on iOS PWA
+        setInterval(() => {
+            if (this.want_to_play && 
+                this.current_song_data && 
+                !this.current_song_data.downloaded && 
+                this.audio_element) {
                 
-                this.audio_element.addEventListener('loadedmetadata', onLoadedMetadata);
+                // Check if audio is stalled or has connection issues
+                const isStalled = this.audio_element.readyState < 2 && 
+                                 !this.loading && 
+                                 this.audio_element.networkState === HTMLMediaElement.NETWORK_LOADING;
+                
+                if (isStalled) {
+                    console.warn('Audio connection appears stalled, attempting restoration');
+                    this.handle_stream_restoration();
+                }
+            }
+        }, 5000); // Check every 5 seconds
+    }
+
+    // iOS PWA Silent Audio Pipeline Preservation Methods
+    // ===================================================
+    // These methods implement a workaround for iOS PWA audio pipeline issues.
+    // Instead of pausing audio (which can break HLS streams and suspend audio context),
+    // we switch to a silent audio file to maintain the pipeline while appearing "paused" to the user.
+    // This is automatically triggered when:
+    // 1. User pauses audio (pause() method)
+    // 2. App goes to background (visibilitychange/blur events)
+    // 3. User un-pauses or app comes to foreground, we restore main audio
+    
+    private async switch_to_silent_audio(): Promise<void> {
+        if (!this.audio_element || !this.use_silent_audio_on_ios_to_preserve_audio_pipeline || !this.is_ios_pwa()) {
+            console.log('🔇 iOS PWA: Silent audio switching not available or disabled');
+            return;
+        }
+
+        if (this.is_using_silent_audio) {
+            console.log('🔇 iOS PWA: Already using silent audio');
+            return;
+        }
+
+        console.log('🔇 iOS PWA: Switching to silent audio to preserve pipeline');
+        
+        // Store current main audio source
+        this.main_audio_source = this.audio_element.src;
+        const current_time = this.audio_element.currentTime;
+        
+        try {
+            // Switch to silent audio
+            this.is_using_silent_audio = true;
+            
+            // For HLS streams, we need to handle this differently
+            if (this.hls && this.hls.media) {
+                console.log('🔇 iOS PWA: Detaching HLS from main audio for silent switch');
+                this.hls.detachMedia();
+            }
+            
+            this.audio_element.src = this.silent_audio_url;
+            this.audio_element.load();
+            
+            // Set volume to very low but not zero (to keep pipeline active)
+            this.audio_element.volume = 0.001;
+            
+            // Start playing silent audio immediately to preserve pipeline
+            await this.audio_element.play();
+            
+            console.log('🔇 iOS PWA: Successfully switched to silent audio');
+            
+        } catch (error) {
+            console.error('🔇 iOS PWA: Failed to switch to silent audio:', error);
+            this.is_using_silent_audio = false;
+            // Try to restore main audio
+            this.restore_main_audio();
+        }
+    }
+
+    private async restore_main_audio(): Promise<void> {
+        if (!this.audio_element || !this.is_using_silent_audio) {
+            console.log('🔊 iOS PWA: Not using silent audio, no need to restore');
+            return;
+        }
+
+        console.log('🔊 iOS PWA: Restoring main audio from silent audio');
+        
+        try {
+            this.is_using_silent_audio = false;
+            
+            // Clear any pending silence switch timeout
+            if (this.silence_switch_timeout) {
+                clearTimeout(this.silence_switch_timeout);
+                this.silence_switch_timeout = null;
+            }
+            
+            // Restore volume first
+            this.audio_element.volume = 1.0;
+            
+            // If we have HLS, reattach it
+            if (this.hls && this.main_audio_source && this.current_song_data && !this.current_song_data.downloaded) {
+                console.log('🔊 iOS PWA: Reattaching HLS for main audio restoration');
+                this.hls.attachMedia(this.audio_element);
+                
+                // Reload the HLS stream
+                if (this.hls.url) {
+                    this.hls.startLoad();
+                }
+            } else if (this.main_audio_source) {
+                // Regular audio source restoration
+                this.audio_element.src = this.main_audio_source;
+                this.audio_element.load();
+            }
+            
+            // If user wants to play, start playback
+            if (this.want_to_play) {
+                console.log('🔊 iOS PWA: Resuming playback after silent audio restoration');
+                await this._play();
+            }
+            
+            console.log('🔊 iOS PWA: Successfully restored main audio');
+            
+        } catch (error) {
+            console.error('🔊 iOS PWA: Failed to restore main audio:', error);
+            // Try to reload the current track as fallback
+            if (this.current_song && this.want_to_play) {
+                console.log('🔊 iOS PWA: Attempting track reload as fallback');
+                this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
             }
         }
+    }
+
+    private should_use_silent_audio(): boolean {
+        return this.use_silent_audio_on_ios_to_preserve_audio_pipeline && 
+               this.is_ios_pwa() && 
+               this.audio_element !== null;
+    }
+
+    // Public method to control iOS PWA silent audio feature
+    public set_ios_silent_audio_enabled(enabled: boolean): void {
+        console.log(`🔧 iOS PWA: Silent audio pipeline preservation ${enabled ? 'enabled' : 'disabled'}`);
+        this.use_silent_audio_on_ios_to_preserve_audio_pipeline = enabled;
         
-        // Update media session to reflect actual state
-        this.update_playback_state();
+        // If disabling and currently using silent audio, restore main audio
+        if (!enabled && this.is_using_silent_audio) {
+            console.log('🔊 iOS PWA: Restoring main audio due to feature being disabled');
+            this.restore_main_audio().catch(error => {
+                console.error('🔊 iOS PWA: Failed to restore main audio when disabling feature:', error);
+            });
+        }
     }
 
-    private is_playing_silent_audio(): boolean {
-        return this.is_using_silent_audio && 
-               this.audio_element && 
-               !this.audio_element.paused &&
-               this.audio_element.src.includes('silent.mp3');
+    public get_ios_silent_audio_enabled(): boolean {
+        return this.use_silent_audio_on_ios_to_preserve_audio_pipeline;
     }
 
-    private update_playback_state_for_background(): void {
-        if ('mediaSession' in navigator && navigator.mediaSession) {
-            // Show paused state in control center while actually playing silent audio
-            navigator.mediaSession.playbackState = 'paused';
+    // Method to handle when audio source changes normally (not silent audio switching)
+    private on_audio_source_changed(new_source: string): void {
+        if (this.is_using_silent_audio && new_source !== this.silent_audio_url) {
+            // If we're using silent audio and the source changed to something else (not our silent audio),
+            // it means the app is loading a new track normally, so we should clear silent audio state
+            console.log('🔊 iOS PWA: Audio source changed during silent mode, clearing silent audio state');
+            this.is_using_silent_audio = false;
+            this.main_audio_source = new_source;
             
-            // Update position state with the timestamp where we paused
-            if (this.current_song_data && 'setPositionState' in navigator.mediaSession) {
-                try {
-                    navigator.mediaSession.setPositionState({
-                        duration: (this.current_song_data.video_duration ? this.current_song_data.video_duration / 1000 : 0) || this.audio_element?.duration || 0,
-                        playbackRate: 1,
-                        position: this.real_audio_timestamp
-                    });
-                } catch (error) {
-                    console.warn('Failed to set position state for background:', error);
-                }
+            // Clear any pending silence switch timeout
+            if (this.silence_switch_timeout) {
+                clearTimeout(this.silence_switch_timeout);
+                this.silence_switch_timeout = null;
             }
         }
     }
@@ -2682,50 +2603,5 @@ export class MusicPlayerService {
         });
         
         return smoothed_data;
-    }
-
-    // Utility method to check if audio is currently playing (real or silent)
-    is_playing(): boolean {
-        if (!this.audio_element) return false;
-        
-        // iOS background handling: Check both real audio and silent audio state
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            return this.want_to_play && this.is_playing_silent_audio();
-        }
-        
-        return !this.audio_element.paused;
-    }
-
-    // Utility method to get effective current time (real or preserved timestamp)
-    get_current_time(): number {
-        if (!this.audio_element) return 0;
-        
-        // iOS background handling: If using silent audio, return preserved timestamp
-        if (this.is_ios_safari() && this.use_silent_audio_on_ios_to_preserve_audio_pipeline && this.is_using_silent_audio) {
-            return this.real_audio_timestamp;
-        }
-        
-        return this.audio_element.currentTime;
-    }
-
-    // Debug method to disable iOS background handling
-    public disable_ios_background_handling(): void {
-        console.log('🍎 Disabling iOS background handling for debugging');
-        this.use_silent_audio_on_ios_to_preserve_audio_pipeline = false;
-        
-        // If currently using silent audio, switch back to real audio
-        if (this.is_using_silent_audio) {
-            this.switch_to_real_audio();
-        }
-    }
-
-    // Debug method to enable iOS background handling
-    public enable_ios_background_handling(): void {
-        if (!this.is_ios_safari()) {
-            console.warn('🍎 Not on iOS Safari, background handling not available');
-            return;
-        }
-        console.log('🍎 Enabling iOS background handling');
-        this.use_silent_audio_on_ios_to_preserve_audio_pipeline = true;
     }
 }
