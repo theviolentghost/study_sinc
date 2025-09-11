@@ -356,6 +356,7 @@ export class MusicPlayerService {
     private main_audio_source: string = ''; // Store the main audio source when switching to silent
     private is_using_silent_audio: boolean = false; // Track if currently using silent audio
     private silence_switch_timeout: number | null = null; // Timeout for switching back from silent
+    private media_session_position_interval: number | null = null; // Interval for keeping media session alive during silent audio
 
     set audio_source_element(element: HTMLAudioElement) {
         this.audio_element = element;
@@ -712,11 +713,11 @@ export class MusicPlayerService {
             console.log('🔇 iOS PWA: Clearing silent audio state during unload');
             this.is_using_silent_audio = false;
             this.main_audio_source = '';
-            if (this.silence_switch_timeout) {
-                clearTimeout(this.silence_switch_timeout);
-                this.silence_switch_timeout = null;
-            }
+            this.background_position = 0;
         }
+        
+        // Clean up all silent audio related timers
+        this.cleanup_silent_audio_timers();
         
         // Note: We don't disconnect the audio source anymore since we reuse it
         // The MediaElementSourceNode will automatically handle the new audio source
@@ -804,7 +805,7 @@ export class MusicPlayerService {
                 // Store current playback state for restoration
                 if (this.audio_element && !this.audio_element.paused) {
                     this.was_playing_before_background = true;
-                    this.background_position = this.audio_element.currentTime;
+                    this.update_background_position();
                     console.log('📱 iOS PWA: Stored playback state - playing at position:', this.background_position);
                 }
                 
@@ -1016,24 +1017,35 @@ export class MusicPlayerService {
             // alert("Media Session API is supported in this browser.");
             // Set up media session handlers
             navigator.mediaSession.setActionHandler('play', () => {
+                console.log('🎵 Media Session: Play action triggered');
                 this.play();
             });
 
             navigator.mediaSession.setActionHandler('pause', () => {
+                console.log('🎵 Media Session: Pause action triggered');
                 this.pause();
             });
 
             navigator.mediaSession.setActionHandler('nexttrack', () => {
+                console.log('🎵 Media Session: Next track action triggered');
                 this.skip_to_next();
             });
 
             navigator.mediaSession.setActionHandler('previoustrack', () => {
+                console.log('🎵 Media Session: Previous track action triggered');
                 this.skip_to_previous();
             });
 
             navigator.mediaSession.setActionHandler('seekto', (details) => {
-                if (details.seekTime >= 0 && this.audio_element) {
-                    this.audio_element.currentTime = details.seekTime;
+                console.log('🎵 Media Session: Seek action triggered to:', details.seekTime);
+                if (details.seekTime !== undefined && details.seekTime >= 0) {
+                    // Handle seeking during silent audio mode
+                    if (this.should_use_silent_audio() && this.is_using_silent_audio) {
+                        this.background_position = details.seekTime;
+                        console.log('🔇 iOS PWA: Updated background position via seek:', details.seekTime);
+                    } else if (this.audio_element) {
+                        this.audio_element.currentTime = details.seekTime;
+                    }
                 }
             });
         }
@@ -1063,14 +1075,66 @@ export class MusicPlayerService {
                 }
             }
 
-            // Update position state to help iOS understand track capabilities
-            if (this.audio_element && !isNaN(this.audio_element.duration)) {
+            // Enhanced position state management for better iOS control persistence
+            if (this.current_song_data || this.audio_element) {
                 try {
-                    navigator.mediaSession.setPositionState({
-                        duration: this.audio_element.duration,
-                        playbackRate: this.audio_element.playbackRate,
-                        position: this.audio_element.currentTime
-                    });
+                    let duration = 0;
+                    let position = 0;
+                    
+                    // Get duration from song data or audio element
+                    if (this.current_song_data && this.current_song_data.video_duration) {
+                        duration = this.current_song_data.video_duration / 1000; // Convert ms to seconds
+                    } else if (this.audio_element && !isNaN(this.audio_element.duration)) {
+                        duration = this.audio_element.duration;
+                    }
+                    
+                    // Get position - use stored position if in silent audio mode
+                    if (this.should_use_silent_audio() && this.is_using_silent_audio && this.background_position > 0) {
+                        position = this.background_position;
+                    } else if (this.audio_element && !isNaN(this.audio_element.currentTime)) {
+                        position = this.audio_element.currentTime;
+                    }
+                    
+                    // Only set position state if we have valid values
+                    if (duration > 0) {
+                        navigator.mediaSession.setPositionState({
+                            duration: duration,
+                            playbackRate: 1,
+                            position: Math.max(0, Math.min(position, duration)) // Ensure position is within bounds
+                        });
+                        
+                        // Keep updating position during silent audio to prevent controls from disappearing
+                        if (this.should_use_silent_audio() && this.is_using_silent_audio) {
+                            // Schedule periodic position updates to keep media session alive
+                            if (!this.media_session_position_interval) {
+                                this.media_session_position_interval = window.setInterval(() => {
+                                    if (this.is_using_silent_audio && this.background_position > 0) {
+                                        try {
+                                            navigator.mediaSession!.setPositionState({
+                                                duration: duration,
+                                                playbackRate: 1,
+                                                position: this.background_position
+                                            });
+                                        } catch (e) {
+                                            // Ignore errors during periodic updates
+                                        }
+                                    } else {
+                                        // Clear interval if no longer in silent mode
+                                        if (this.media_session_position_interval) {
+                                            clearInterval(this.media_session_position_interval);
+                                            this.media_session_position_interval = null;
+                                        }
+                                    }
+                                }, 5000); // Update every 5 seconds to keep session alive
+                            }
+                        } else {
+                            // Clear position interval when not in silent audio mode
+                            if (this.media_session_position_interval) {
+                                clearInterval(this.media_session_position_interval);
+                                this.media_session_position_interval = null;
+                            }
+                        }
+                    }
                 } catch (error) {
                     console.warn('Could not set position state:', error);
                 }
@@ -1314,11 +1378,16 @@ export class MusicPlayerService {
         this.want_to_play = false; 
         
         // iOS PWA: Use silent audio instead of pausing to preserve audio pipeline
-        if (this.should_use_silent_audio() && !this.is_using_silent_audio) {
-            console.log('🔇 iOS PWA: Using silent audio instead of pause to preserve pipeline');
+        // BUT only for streaming content - downloaded songs can pause normally
+        if (this.should_use_silent_audio() && 
+            !this.is_using_silent_audio && 
+            this.current_song_data && 
+            !this.current_song_data.downloaded) {
+            console.log('🔇 iOS PWA: Using silent audio instead of pause to preserve streaming pipeline');
             await this.switch_to_silent_audio();
         } else {
-            // Regular pause for non-iOS PWA or when already using silent audio
+            // Regular pause for non-iOS PWA, downloaded content, or when already using silent audio
+            console.log('📱 Regular pause (downloaded content or non-iOS PWA)');
             this.audio_element.pause();
         }
         
@@ -1601,24 +1670,34 @@ export class MusicPlayerService {
             return;
         }
 
+        // Don't switch to silent audio if we're loading a track (to prevent interference)
+        if (this.loading) {
+            console.log('🔇 iOS PWA: Skipping silent audio switch - currently loading track');
+            return;
+        }
+
         console.log('🔇 iOS PWA: Switching to silent audio to preserve pipeline');
         
-        // Store current main audio source and position
+        // Store current main audio source and position with better accuracy
         this.main_audio_source = this.audio_element.src;
-        const current_time = this.audio_element.currentTime;
-        this.background_position = current_time; // Store position for restoration
-        console.log('🔇 iOS PWA: Storing audio position for restoration:', current_time);
+        this.update_background_position();
+        console.log('🔇 iOS PWA: Storing audio position for restoration:', this.background_position);
         
         try {
-            // Switch to silent audio
+            // Set flag before making any changes
             this.is_using_silent_audio = true;
             
-            // For HLS streams, we need to handle this differently
-            if (this.hls && this.hls.media) {
-                console.log('🔇 iOS PWA: Detaching HLS from main audio for silent switch');
-                this.hls.detachMedia();
+            // For HLS streams, don't detach immediately - store HLS state
+            let was_hls_playing = false;
+            if (this.hls && this.hls.media && this.hls.media === this.audio_element) {
+                was_hls_playing = true;
+                console.log('🔇 iOS PWA: HLS stream detected, will handle restoration carefully');
             }
             
+            // Store original volume
+            const original_volume = this.audio_element.volume;
+            
+            // Load silent audio
             this.audio_element.src = this.silent_audio_url;
             this.audio_element.load();
             
@@ -1629,6 +1708,22 @@ export class MusicPlayerService {
             await this.audio_element.play();
             
             console.log('🔇 iOS PWA: Successfully switched to silent audio');
+            
+            // Update media session to maintain controls during silent mode
+            this.update_playback_state();
+            
+            // Keep media session metadata active
+            if ('mediaSession' in navigator && navigator.mediaSession && this.current_song_data) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: (this.current_song_data.video_duration || 0) / 1000,
+                        playbackRate: 1,
+                        position: this.background_position
+                    });
+                } catch (e) {
+                    console.warn('Could not update media session position during silent switch:', e);
+                }
+            }
             
         } catch (error) {
             console.error('🔇 iOS PWA: Failed to switch to silent audio:', error);
@@ -1646,75 +1741,142 @@ export class MusicPlayerService {
 
         console.log('🔊 iOS PWA: Restoring main audio from silent audio');
         
-        // Store current time position before restoration
-        const stored_time = this.background_position || this.audio_element.currentTime || 0;
-        console.log('🔊 iOS PWA: Preserving audio position:', stored_time);
+        // Use the stored position with better fallback logic
+        let stored_time = this.background_position;
+        if (!stored_time || stored_time <= 0) {
+            stored_time = this.audio_element.currentTime || 0;
+        }
+        console.log('🔊 iOS PWA: Will restore to position:', stored_time);
         
         try {
+            // Clear silent audio state first
             this.is_using_silent_audio = false;
             
-            // Clear any pending silence switch timeout
-            if (this.silence_switch_timeout) {
-                clearTimeout(this.silence_switch_timeout);
-                this.silence_switch_timeout = null;
-            }
+            // Clean up all silent audio related timers
+            this.cleanup_silent_audio_timers();
             
             // Restore volume first
             this.audio_element.volume = 1.0;
             
-            // If we have HLS, reattach it
-            if (this.hls && this.main_audio_source && this.current_song_data && !this.current_song_data.downloaded) {
-                console.log('🔊 iOS PWA: Reattaching HLS for main audio restoration');
-                this.hls.attachMedia(this.audio_element);
+            // Handle restoration based on audio type
+            const is_hls_stream = this.current_song_data && !this.current_song_data.downloaded;
+            
+            if (is_hls_stream && this.hls) {
+                console.log('🔊 iOS PWA: Restoring HLS stream');
                 
-                // Reload the HLS stream
+                // Reattach HLS if needed
+                if (!this.hls.media || this.hls.media !== this.audio_element) {
+                    this.hls.attachMedia(this.audio_element);
+                }
+                
+                // Reload the stream if URL is available
                 if (this.hls.url) {
                     this.hls.startLoad();
                 }
                 
-                // Wait for HLS to be ready then restore position
-                const restorePosition = () => {
+                // Set up position restoration for HLS
+                const restoreHLSPosition = () => {
                     if (stored_time > 0) {
-                        console.log('🔊 iOS PWA: Restoring HLS position to:', stored_time);
-                        this.audio_element!.currentTime = stored_time;
+                        // Use setTimeout to ensure HLS is ready
+                        setTimeout(() => {
+                            try {
+                                console.log('🔊 iOS PWA: Restoring HLS position to:', stored_time);
+                                this.audio_element!.currentTime = stored_time;
+                            } catch (error) {
+                                console.warn('🔊 iOS PWA: Failed to set HLS position:', error);
+                            }
+                        }, 500);
                     }
                 };
                 
-                // Listen for when HLS is ready
-                this.hls.once(Hls.Events.MEDIA_ATTACHED, restorePosition);
+                // Multiple event listeners to catch when HLS is ready
+                this.hls.once(Hls.Events.MEDIA_ATTACHED, restoreHLSPosition);
+                this.hls.once(Hls.Events.MANIFEST_PARSED, restoreHLSPosition);
                 
             } else if (this.main_audio_source) {
-                // Regular audio source restoration
+                console.log('🔊 iOS PWA: Restoring regular audio source');
+                
+                // Restore regular audio source
                 this.audio_element.src = this.main_audio_source;
                 this.audio_element.load();
                 
-                // Restore position after load
-                this.audio_element.addEventListener('loadedmetadata', () => {
+                // Multiple approaches to restore position
+                const restorePosition = () => {
                     if (stored_time > 0) {
-                        console.log('🔊 iOS PWA: Restoring audio position to:', stored_time);
-                        this.audio_element!.currentTime = stored_time;
+                        setTimeout(() => {
+                            try {
+                                console.log('🔊 iOS PWA: Restoring audio position to:', stored_time);
+                                this.audio_element!.currentTime = stored_time;
+                            } catch (error) {
+                                console.warn('🔊 iOS PWA: Failed to set position:', error);
+                            }
+                        }, 100);
                     }
-                }, { once: true });
+                };
+                
+                // Listen for multiple events to ensure position is set
+                this.audio_element.addEventListener('loadedmetadata', restorePosition, { once: true });
+                this.audio_element.addEventListener('canplay', restorePosition, { once: true });
+                
+            } else {
+                console.warn('🔊 iOS PWA: No main audio source to restore');
+                // Fallback: reload current track
+                if (this.current_song) {
+                    console.log('🔊 iOS PWA: Reloading current track as fallback');
+                    this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
+                    return;
+                }
             }
             
-            // If user wants to play, start playback
+            // Update media session immediately to restore controls
+            this.update_playback_state();
+            
+            // Restore media session position state
+            if ('mediaSession' in navigator && navigator.mediaSession && this.current_song_data) {
+                try {
+                    navigator.mediaSession.setPositionState({
+                        duration: (this.current_song_data.video_duration || 0) / 1000,
+                        playbackRate: 1,
+                        position: stored_time
+                    });
+                } catch (e) {
+                    console.warn('Could not restore media session position:', e);
+                }
+            }
+            
+            // If user wants to play, start playback after a short delay to ensure everything is ready
             if (this.want_to_play) {
                 console.log('🔊 iOS PWA: Resuming playback after silent audio restoration');
-                await this._play();
+                setTimeout(async () => {
+                    try {
+                        await this._play();
+                    } catch (error) {
+                        console.warn('🔊 iOS PWA: Failed to resume playback:', error);
+                    }
+                }, 200);
             }
             
-            console.log('🔊 iOS PWA: Successfully restored main audio');
+            console.log('🔊 iOS PWA: Successfully initiated main audio restoration');
             
-            // Clear background state after successful restoration
-            this.was_playing_before_background = false;
-            this.background_position = 0;
+            // Clear background state after successful restoration initiation
+            setTimeout(() => {
+                this.was_playing_before_background = false;
+                this.background_position = 0;
+            }, 1000);
             
         } catch (error) {
             console.error('🔊 iOS PWA: Failed to restore main audio:', error);
+            
+            // Reset state on error
+            this.is_using_silent_audio = false;
+            this.background_position = 0;
+            
             // Try to reload the current track as fallback
             if (this.current_song && this.want_to_play) {
                 console.log('🔊 iOS PWA: Attempting track reload as fallback');
-                this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
+                setTimeout(() => {
+                    this.load_and_play_track(this.media.song_key(this.current_song), this.current_song_data);
+                }, 500);
             }
         }
     }
@@ -1772,6 +1934,37 @@ export class MusicPlayerService {
                 clearTimeout(this.silence_switch_timeout);
                 this.silence_switch_timeout = null;
             }
+        }
+    }
+
+    // Helper method for accurate position tracking during silent audio mode
+    private get_accurate_playback_position(): number {
+        if (this.should_use_silent_audio() && this.is_using_silent_audio && this.background_position > 0) {
+            return this.background_position;
+        }
+        if (this.audio_element && !isNaN(this.audio_element.currentTime)) {
+            return this.audio_element.currentTime;
+        }
+        return 0;
+    }
+
+    // Helper method to safely update background position
+    private update_background_position(): void {
+        if (this.audio_element && !isNaN(this.audio_element.currentTime)) {
+            this.background_position = this.audio_element.currentTime;
+        }
+    }
+
+    // Helper method to cleanup all silent audio related timers and intervals
+    private cleanup_silent_audio_timers(): void {
+        if (this.silence_switch_timeout) {
+            clearTimeout(this.silence_switch_timeout);
+            this.silence_switch_timeout = null;
+        }
+        
+        if (this.media_session_position_interval) {
+            clearInterval(this.media_session_position_interval);
+            this.media_session_position_interval = null;
         }
     }
 
