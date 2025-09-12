@@ -143,6 +143,7 @@ export class MusicPlayerService {
         history_stack: string[];
     } = { data: null, identifier: null, play_next: [], queue: [], history_stack: [] };
 
+    private use_silent_audio_to_preserve_audio_pipeline: boolean = false;
     private readonly silent_audio_source: string = '/music/audio/silent.mp3';
     private playing_silent_audio: boolean = false;
     private is_app_in_foreground: boolean = true;
@@ -159,9 +160,7 @@ export class MusicPlayerService {
     private _disco_mode: boolean = false;
 
     public seek_to(seconds: number): void {
-        console.log('seek_to called with seconds:', seconds);
         if(!this.audio_element) return;
-        console.log('Seeking to', seconds, 'seconds');
         this.audio_element.currentTime = seconds;
         this.update_playback_state();
     }
@@ -236,7 +235,7 @@ export class MusicPlayerService {
         if(this.audio_element.paused) return true; // already paused
         if(this.playing_silent_audio) return true; // silent audio is paused state
 
-        if(!this.is_app_in_foreground /*&& this.is_ios_safari*/) {
+        if(!this.is_app_in_foreground && this.use_silent_audio_to_preserve_audio_pipeline /*&& this.is_ios_safari*/) {
             // If the app is in the background on iOS Safari, we need to play silent audio to keep the audio pipeline alive
             this.switch_from_real_audio_to_silent_audio();
             return true;
@@ -364,6 +363,8 @@ export class MusicPlayerService {
             return this.update_playback_state_for_silent_audio();
         }
 
+        this.audio_element.muted = false;
+
         const playback_state: MediaSessionPlaybackState = this.audio_element.paused ? 'paused' : 'playing';
         navigator.mediaSession.playbackState = playback_state;
         navigator.mediaSession.setPositionState({
@@ -375,6 +376,8 @@ export class MusicPlayerService {
 
     private update_playback_state_for_silent_audio(): void {
         if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
+
+        this.audio_element.muted = true;
 
         const playback_state: MediaSessionPlaybackState = 'paused';
         navigator.mediaSession.playbackState = playback_state;
@@ -389,11 +392,18 @@ export class MusicPlayerService {
         if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
         
         navigator.mediaSession.setActionHandler('play', () => {
-            console.log('Media session play action triggered');
-            this.play();
+            // console.log('Media session play action triggered');
+            // this.play();
+            // test
+            this.load_and_play_track(this.audio_data.current.identifier || '');
         });
         navigator.mediaSession.setActionHandler('pause', () => {
             console.log('Media session pause action triggered');
+            if(this.playing_silent_audio) {
+                // account for visual mismatch
+                this.play();
+                return;
+            }
             this.pause();
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {

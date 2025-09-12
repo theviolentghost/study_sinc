@@ -264,6 +264,8 @@
     width: calc(100% - var(--space-4));
     height: 8px;
     z-index: 6;
+    background: var(--color-background-300);
+    border-radius: 9999px;
     /* transition: height 0.15s ease-in-out; */
 }
 .buffer-bar {
@@ -602,7 +604,7 @@
         position: relative;
         top: var(--space-2);
         height: 8px;
-        overflow: hidden;
+        border-radius: 999px;
         background: var(--color-background-300);
         z-index: 6;
     }
