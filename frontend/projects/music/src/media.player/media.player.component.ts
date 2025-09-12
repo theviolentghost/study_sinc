@@ -131,10 +131,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.player.song_data;
     }
     get current_media_data(): Song_Data | null {
-        return this.player.media_data;
+        return this.player.song_data; // idk why here
     }
     get current_playlist_data(): Song_Playlist | null {
-        return this.player.playlist;
+        return this.player.playlist_data;
     }
     is_downloading(video_id: string): boolean {
         return this.media.is_downloading(video_id);
@@ -214,10 +214,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get is_seekbar_disabled(): boolean {
         // On iOS, be more permissive about when seeking is allowed
         // Only disable if actually loading a new track or no duration available
-        return this.player.loading || this.audio_duration <= 0 || !this.current_song_data;
+        return this.player.player_status === 'loading' || this.audio_duration <= 0 || !this.current_song_data;
     }
     get audio_started(): boolean {
-        return this.player.started_playing;
+        return this.player.loaded_current_song;
     }
     get play_button_icon(): string {
         if( this.player_error ) {
@@ -284,8 +284,8 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.audio_duration = this.player.duration || 0; // Ensure duration is set
         });
 
-        this.player.audio_source_element = audio;
-        this.player.thumbnail_source_element = document.getElementById('thumbnail') as HTMLImageElement;
+        this.player.set_audio_element(audio);
+        // this.player.thumbnail_source_element = document.getElementById('thumbnail') as HTMLImageElement;
         
         this.setupTouchListeners();
     }
@@ -482,7 +482,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.buffer_like = !this.buffer_like; 
         this.buffer_like_clicked = true; 
 
-        if(!this.current_song_data || this.player.loading) return;
+        if(!this.current_song_data || this.player.loaded_current_song) return;
         this.buffer_like = false; 
         this.current_song_data.liked = !this.current_song_data?.liked;
         // this.media.save_song_to_indexDB(this.current_song_data.id.video_id, this.current_song_data);

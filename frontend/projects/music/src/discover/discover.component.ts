@@ -480,6 +480,6 @@ export class DiscoverComponent implements AfterViewInit {
     play_song(identifier: Song_Identifier, song_data: Song_Data): void {
         if (!identifier) return;
         console.log('Play song with identifier:', identifier, song_data);
-        this.player.load_and_play_track(this.media.song_key(identifier), song_data);
+        this.player.load_and_play_track(song_data);
     }
 }

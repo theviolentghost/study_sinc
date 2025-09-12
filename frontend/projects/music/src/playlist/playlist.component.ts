@@ -663,10 +663,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
 
         // this.player.update_media_session(track_data, this.media.song_key(track_data.id));
 
-        await this.player.load_playlist(this.playlists.selected_playlist, false, false, false, this.playlists.selected_playlist_identifier);
-        await this.player.load_and_play_track(this.media.song_key(track_data.id), track_data);
-        this.player.unshuffle_playlist();
-        this.player.remove_current_song_from_queue();
+        await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, false);
+        await this.player.load_and_play_track(track_data);
+        // this.player.unshuffle_playlist();
+        // this.player.remove_current_song_from_queue();
     }
 
     ms_to_time(ms: number): string {
@@ -692,7 +692,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
         if(this.playlists.selected_playlist.songs.size === 0) return;
         this.player.shuffle = true;
         // this.player.load_and_play_random_song();
-        this.player.load_playlist(this.playlists.selected_playlist, false, true, true, this.playlists.selected_playlist_identifier);
+        this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
         this.player.open_player.emit();
     }
 

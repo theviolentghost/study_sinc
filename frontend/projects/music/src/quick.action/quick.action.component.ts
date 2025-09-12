@@ -45,22 +45,24 @@ export class QuickActionComponent {
         return `${this.visible_start_index * this.item_height}px`;
     }
     get play_next_queue_length(): number {
-        return this.player.play_next_queue.queue.length;
+        return this.player.play_next_queue.length;
     }
-    get play_next_queue(): Song_Identifier[] {
-        return this.player.play_next_queue.queue;
+    get play_next_queue(): string[] {
+        //
+        return this.player.play_next_queue;
     }
     get play_next_queue_with_song_data(): Song_Data[] {
-        return this.play_next_queue.map(song_identifier => {
-            return this.player.playlist_song_data_map.get(this.media.song_key(song_identifier)) || null;
+        return this.play_next_queue.map(song_key => {
+            return this.player.song_cache.get(song_key as string) || null;
         }).filter(song_data => song_data !== null) as Song_Data[];
     }
-    get playlist_queue(): Song_Identifier[] {
-        return this.player.playlist_queue.queue.slice(this.visible_start_index, this.visible_end_index); 
+    get playlist_queue(): string[] {
+        //
+        return this.player.playlist_queue.slice(this.visible_start_index, this.visible_end_index); 
     }
     get playlist_queue_with_song_data(): Song_Data[] {
-        return this.playlist_queue.map(song_identifier => {
-            return this.player.playlist_song_data_map.get(this.media.song_key(song_identifier)) || null;
+        return this.playlist_queue.map(song_key => {
+            return this.player.song_cache.get(song_key as string) || null;
         }).filter(song_data => song_data !== null) as Song_Data[];
     }
     get current_song_identifier(): Song_Identifier | null {
@@ -93,11 +95,11 @@ export class QuickActionComponent {
         const new_start = Math.floor(scrollTop / this.item_height);
         const new_end = Math.min(
             new_start + Math.ceil(this.container_height / this.item_height),
-            this.player.playlist_queue.queue.length
+            this.player.playlist_queue.length
         );
 
         const buffered_start = Math.max(0, new_start - this.buffer_size);
-        const buffered_end = Math.min(this.player.playlist_queue.queue.length, new_end + this.buffer_size);
+        const buffered_end = Math.min(this.player.playlist_queue.length, new_end + this.buffer_size);
         
         // console.log(buffered_start, buffered_end, this.visible_start_index, this.visible_end_index);
 
@@ -395,13 +397,13 @@ export class QuickActionComponent {
                     if(delete_from === "play_next") {
                         const index_identifier_index = this.swiping_video.lastIndexOf('-');
                         const index_identifier = parseInt(this.swiping_video.substring(index_identifier_index + 1));
-                        this.player.play_next_queue.queue.splice(index_identifier, 1);
+                        this.player.play_next_queue.splice(index_identifier, 1);
                     } else {
                         const index_identifier_index = this.swiping_video.lastIndexOf('-');
                         // console.log(this.swiping_video);
                         const index_identifier = parseInt(this.swiping_video.substring(index_identifier_index + 1));
                         // console.log(index_identifier);
-                        this.player.playlist_queue.queue.splice(index_identifier - this.play_next_queue_with_song_data.length - 1, 1);
+                        this.player.playlist_queue.splice(index_identifier - this.play_next_queue_with_song_data.length - 1, 1);
                         // console.log(index_identifier - this.play_next_queue_with_song_data.length)
                         // this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
                         //     return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);
@@ -448,7 +450,7 @@ export class QuickActionComponent {
 
         // this.player.update_media_session(track_data, this.media.song_key(track_data.id));
 
-        await this.player.load_and_play_track(this.media.song_key(track_data.id), track_data);
+        await this.player.load_and_play_track(track_data);
         // this.player.remove_current_song_from_queue();
     }
 
@@ -601,7 +603,7 @@ export class QuickActionComponent {
     }
 
     // Drag and Drop Methods
-    onDrop(event: CdkDragDrop<Song_Identifier[]>) {
+    onDrop(event: CdkDragDrop<string[]>) {
         const previousContainer = event.previousContainer;
         const currentContainer = event.container;
         
@@ -635,22 +637,22 @@ export class QuickActionComponent {
     }
 
     private reorderPlayNextQueue(previousIndex: number, currentIndex: number) {
-        const queue = [...this.player.play_next_queue.queue];
+        const queue = [...this.player.play_next_queue];
         moveItemInArray(queue, previousIndex, currentIndex);
-        this.player.play_next_queue.queue = queue;
+        this.player.play_next_queue = queue;
     }
 
     private reorderPlaylistQueue(previousIndex: number, currentIndex: number) {
-        const queue = [...this.player.playlist_queue.queue];
+        const queue = [...this.player.playlist_queue];
         const adjustedPreviousIndex = previousIndex + this.visible_start_index;
         const adjustedCurrentIndex = currentIndex + this.visible_start_index;
         moveItemInArray(queue, adjustedPreviousIndex, adjustedCurrentIndex);
-        this.player.playlist_queue.queue = queue;
+        this.player.playlist_queue = queue;
     }
 
     private moveFromPlayNextToPlaylist(previousIndex: number, currentIndex: number) {
-        const playNextQueue = [...this.player.play_next_queue.queue];
-        const playlistQueue = [...this.player.playlist_queue.queue];
+        const playNextQueue = [...this.player.play_next_queue];
+        const playlistQueue = [...this.player.playlist_queue];
         const adjustedCurrentIndex = currentIndex + this.visible_start_index;
         
         transferArrayItem(
@@ -660,13 +662,13 @@ export class QuickActionComponent {
             adjustedCurrentIndex
         );
         
-        this.player.play_next_queue.queue = playNextQueue;
-        this.player.playlist_queue.queue = playlistQueue;
+        this.player.play_next_queue = playNextQueue;
+        this.player.playlist_queue = playlistQueue;
     }
 
     private moveFromPlaylistToPlayNext(previousIndex: number, currentIndex: number) {
-        const playNextQueue = [...this.player.play_next_queue.queue];
-        const playlistQueue = [...this.player.playlist_queue.queue];
+        const playNextQueue = [...this.player.play_next_queue];
+        const playlistQueue = [...this.player.playlist_queue];
         const adjustedPreviousIndex = previousIndex + this.visible_start_index;
         
         transferArrayItem(
@@ -676,8 +678,8 @@ export class QuickActionComponent {
             currentIndex
         );
         
-        this.player.play_next_queue.queue = playNextQueue;
-        this.player.playlist_queue.queue = playlistQueue;
+        this.player.play_next_queue = playNextQueue;
+        this.player.playlist_queue = playlistQueue;
     }
 
     // Predicate functions for drag-and-drop constraints
@@ -706,9 +708,9 @@ export class QuickActionComponent {
 
         // Remove from play next queue
         if(delete_from === "play_next") {
-            this.player.play_next_queue.queue.splice(index, 1);
+            this.player.play_next_queue.splice(index, 1);
         } else {
-            this.player.playlist_queue.queue.splice(index, 1);
+            this.player.playlist_queue.splice(index, 1);
             // Remove from main playlist queue
             // this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
             //     return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);

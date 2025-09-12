@@ -262,7 +262,7 @@ export class ArtistsComponent implements OnInit {
             video_duration: video.duration_ms,
             liked: false,
             date_added: new Date(),
-        }, '');
+        });
 
         this.player.open_player.emit();
 
@@ -290,16 +290,16 @@ export class ArtistsComponent implements OnInit {
             top_tracks_songs.forEach((song, index) => map.set(top_tracks_keys[index], top_tracks_songs[index].id));
 
             if(top_tracks_keys.length > 0) {
-                this.player.load_song_data_array_into_playlist_cache(top_tracks_songs);
-                await this.player.load_playlist({
+                // this.player.load_song_data_array_into_playlist_cache(top_tracks_songs);
+                await this.player.load_playlist(null, {
                     songs: map,
                     name: (this.artist_details?.name || 'Unknown Artist') + ' Top Tracks',
-                }, false, false, false, undefined, true);
+                }, false, false);
                 console.log('Loaded top tracks playlist:', top_tracks_songs);
             }
         }
 
-        await this.player.load_and_play_track(this.media.song_key(track_data.id), track_data);
+        await this.player.load_and_play_track(track_data);
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;

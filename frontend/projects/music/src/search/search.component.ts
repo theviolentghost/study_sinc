@@ -206,8 +206,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                await this.player.load_playlist(playlist, true, false);
-                this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
+                await this.player.load_playlist(null, playlist, true, false);
+                console.log('Loaded playlist for track:', playlist);
+                // this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
@@ -217,9 +218,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.player.open_player.emit();
 
-        this.player.update_media_session(track_data, track_data.id.video_id);
+        this.player.update_media_session(track_data);
 
-        await this.player.load_and_play_track(this.media.song_key(track_data.id), track_data);
+        await this.player.load_and_play_track(track_data);
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;
@@ -257,7 +258,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
             video_duration: video.duration_ms,
             liked: false,
             date_added: new Date(),
-        }, '');
+        });
 
         this.player.open_player.emit();
 
@@ -267,8 +268,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                await this.player.load_playlist(playlist, false, false);
-                this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
+                await this.player.load_playlist(null, playlist, false, false);
+                console.log('Loaded playlist for track:', playlist);
+                // this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
@@ -276,7 +278,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
             console.error('Error fetching watch playlist:', error);
         });
 
-        await this.player.load_and_play_track(this.media.song_key(track_data.id), track_data);
+        await this.player.load_and_play_track(track_data);
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;

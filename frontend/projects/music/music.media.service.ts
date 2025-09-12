@@ -277,6 +277,23 @@ export class MusicMediaService {
         return true;
     }
 
+    public parse_song_key(song_key: string): Song_Identifier | null {
+        const key_parts = song_key.split(':');
+        if(key_parts.length == 2) {
+            return {
+                source: key_parts[0] as Song_Source,
+                source_id: null,
+                video_id: key_parts[1] || null
+            }
+        }
+
+        return {
+            source: key_parts[0] as Song_Source,
+            source_id: key_parts[1] || null,
+            video_id: key_parts[2] || null
+        }
+    }
+
     public download_progress(video_id: string): number {
         if (!this.download_progress_map.has(video_id)) {
             return 0; // No progress available
