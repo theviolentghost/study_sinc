@@ -285,8 +285,8 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         });
 
         this.player.set_audio_element(audio);
-        // this.player.thumbnail_source_element = document.getElementById('thumbnail') as HTMLImageElement;
-        
+        this.player.set_thumbnail_element(document.getElementById('thumbnail') as HTMLImageElement);
+
         this.setupTouchListeners();
     }
 

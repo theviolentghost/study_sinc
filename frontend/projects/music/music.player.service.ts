@@ -30,6 +30,10 @@ export class MusicPlayerService {
         this.setup_visibility_change_listeners();
     }
 
+    set_thumbnail_element(element: HTMLImageElement | null): void {
+        this.thumbnail_element = element;
+    }
+
     get player_status(): 'loading' | 'playing' | 'paused' | 'stopped' {
         if (!this.audio_element) return 'stopped';
         // if (this.loading) return 'loading'; // middle of loading song
@@ -143,12 +147,13 @@ export class MusicPlayerService {
         history_stack: string[];
     } = { data: null, identifier: null, play_next: [], queue: [], history_stack: [] };
 
-    private use_silent_audio_to_preserve_audio_pipeline: boolean = false;
+    private use_silent_audio_to_preserve_audio_pipeline: boolean = true;
     private readonly silent_audio_source: string = '/music/audio/silent.mp3';
     private playing_silent_audio: boolean = false;
     private is_app_in_foreground: boolean = true;
 
     private audio_element: HTMLAudioElement | null = null;
+    private thumbnail_element: HTMLImageElement | null = null;
     private hls: Hls | null = null;
     private readonly hls_supported: boolean = Hls.isSupported();
 
@@ -196,6 +201,7 @@ export class MusicPlayerService {
         }
     }
 
+    private switching_from_silent: boolean = false;
     private async switch_from_silent_audio_to_real_audio(): Promise<boolean> {
         try {
             if(!this.audio_data.current.audio_source) return false; // no audio source to switch to
@@ -205,6 +211,7 @@ export class MusicPlayerService {
             // this.audio_element.currentTime = this.real_audio_timestamp;
             this.update_playback_state();
             this.playing_silent_audio = false;
+            this.switching_from_silent = true;
             return true;
         } catch (error) {
             console.error('Error switching from silent to real audio:', error);
@@ -331,19 +338,24 @@ export class MusicPlayerService {
             (song_data.download_artwork_blob) ||
             (song_data.url.artwork.low && song_data.url.artwork.low !== '') ||
             (song_data.url.artwork.high && song_data.url.artwork.high !== '');
+        
+        const artwork_url = 
+            has_artwork_ready ? 
+                URL.createObjectURL(song_data.download_artwork_blob) ??
+                song_data.url.artwork.low ?? 
+                song_data.url.artwork.high
+            : '';
+
+        this.thumbnail_element.src = artwork_url;
 
         navigator.mediaSession.metadata = new MediaMetadata({
             title: song_data.song_name || '',
-            artist: song_data?.original_artists.map(artist => artist.name).join(', ') || '',
+            artist: 
+                (song_data?.original_artists.map(artist => artist.name).join(', ') || '') + (this.playing_silent_audio ? ' (paused)' : ''),
             album: '',
             artwork: [
                 { 
-                    src: 
-                        has_artwork_ready ? 
-                            URL.createObjectURL(song_data.download_artwork_blob) ??
-                            song_data.url.artwork.low ?? 
-                            song_data.url.artwork.high
-                        : '',
+                    src: artwork_url,
                     sizes: '512x512',
                     type: 'image/png' 
                 }
@@ -393,12 +405,10 @@ export class MusicPlayerService {
         
         navigator.mediaSession.setActionHandler('play', () => {
             // console.log('Media session play action triggered');
-            // this.play();
-            // test
-            this.load_and_play_track(this.audio_data.current.identifier || '');
+            this.play();
         });
         navigator.mediaSession.setActionHandler('pause', () => {
-            console.log('Media session pause action triggered');
+            // console.log('Media session pause action triggered');
             if(this.playing_silent_audio) {
                 // account for visual mismatch
                 this.play();
@@ -436,6 +446,17 @@ export class MusicPlayerService {
             //     this.audio_element.currentTime = this.real_audio_timestamp;
             //     this.update_playback_state();
             // }
+            if(this.switching_from_silent) {
+                this.switching_from_silent = false;
+                // start interval that waits until audio duration is greater or equal to real_aduio_timestamp then set current time
+                const checkInterval = setInterval(() => {
+                    if (this.audio_element!.duration >= this.real_audio_timestamp) {
+                        this.audio_element!.currentTime = this.real_audio_timestamp;
+                        this.update_playback_state();
+                        clearInterval(checkInterval);
+                    }
+                }, 100);
+            }
         });
         this.audio_element.addEventListener('play', () => {
             this.update_playback_state();
@@ -448,7 +469,7 @@ export class MusicPlayerService {
             this.update_playback_state();
         });
         // this.audio_element.addEventListener('timeupdate', () => {
-        //     this.update_playback_state();
+        //     // this.update_playback_state();
         // });
         this.audio_element.addEventListener('error', (event) => {
             console.error('Audio element error:', event);
