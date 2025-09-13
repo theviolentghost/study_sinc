@@ -81,10 +81,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         if (status === 'hidden') {
             this.dragOffset = 0; // Reset drag offset when hiding
             this.animationState = 'hidden';
+            this.player.clear_playlist_color.emit(); // Clear main color when hiding
         } else if (status === 'reduced') {
             this.animationState = 'reduced';
+            this.player.clear_playlist_color.emit(); // Clear main color when reducing
+            return;
         } else {
             this.animationState = 'visible';
+            this.player.playlist_changed.emit(); // Refresh playlist view when expanding
         }
     }
     get visibility_status(): 'visible' | 'reduced' | 'hidden' {
@@ -104,10 +108,13 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private startX = 0;
     private currentX = 0;
     private horizontalDragOffset = 0;
-    private readonly swipeThreshold = 80; // Minimum distance to trigger skip
+    private readonly swipeThreshold = 30; // Minimum distance to trigger skip
     private readonly swipeVelocityThreshold = 0.3; // Minimum velocity to trigger skip
     private lastSwipeTime = 0;
     private lastSwipeX = 0;
+    private headerTouchStartTime = 0;
+    private headerHasMoved = false;
+    private readonly clickThreshold = 10; // Maximum movement allowed for a click (px)
     
     private get dragThreshold(): number {
         return window.innerHeight * 0.65; // 65% of the viewport height
@@ -182,11 +189,11 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.user_has_internet = false;
         });
         this.player.open_player.subscribe(() => {
-            this._visibility_status = 'visible';
+            this.visibility_status = 'visible';
             this.animationState = 'visible';
         });
         this.player.reduce_player.subscribe(() => {
-            this._visibility_status = 'reduced';
+            this.visibility_status = 'reduced';
             this.animationState = 'reduced';
         });
         this.player.track_loaded.subscribe(() => {
@@ -278,11 +285,16 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         document.removeEventListener('mouseup', this.boundHeaderMouseUp);
         
         // Reset any visual feedback classes
-        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        const headerElement = document.querySelector('.media-header') as HTMLElement;
+        const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
+        
         if (headerElement) {
-            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
             headerElement.style.transform = '';
             headerElement.style.transition = '';
+        }
+        
+        if (backgroundElement) {
+            backgroundElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
         }
         
         // Clean up orientation listeners
@@ -361,7 +373,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const shouldReduce = this.currentDragOffset > this.dragThreshold || velocity > this.velocityThreshold - 2;
         
         if (shouldReduce) {
-            this._visibility_status = 'reduced';
+            this.visibility_status = 'reduced';
             this.animationState = 'reduced';
         } else {
             this.animationState = 'visible';
@@ -429,7 +441,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const shouldReduce = this.currentDragOffset > this.dragThreshold || velocity > this.velocityThreshold;
         
         if (shouldReduce) {
-            this._visibility_status = 'reduced';
+            this.visibility_status = 'reduced';
             this.animationState = 'reduced';
         } else {
             this.animationState = 'visible';
@@ -494,10 +506,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
 
     toggle_visibility(): void {
         if (this.visibility_status === 'visible') {
-            this._visibility_status = 'reduced';
+            this.visibility_status = 'reduced';
             this.animationState = 'reduced';
         } else if (this.visibility_status === 'reduced') {
-            this._visibility_status = 'visible';
+            this.visibility_status = 'visible';
             this.animationState = 'visible';
         }
     }
@@ -546,6 +558,21 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     async get_song_artwork(song: Song_Data | null): Promise<string | null> {
         if (!song) return null;
         return await this.media.get_song_artwork(song) || '';
+    }
+
+    // Debug methods for quick actions
+    debug_like_click(event: MouseEvent): void {
+        console.log('Like button clicked');
+        this.toggle_like();
+        event.stopPropagation();
+        event.preventDefault();
+    }
+
+    debug_play_click(event: MouseEvent): void {
+        console.log('Play button clicked');
+        this.toggle_play();
+        event.stopPropagation();
+        event.preventDefault();
     }
     download_song(): void {
         if (!this.current_song_data) return;
@@ -642,20 +669,28 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.horizontalDragOffset = 0;
         this.lastSwipeTime = Date.now();
         this.lastSwipeX = this.startX;
+        this.headerTouchStartTime = Date.now();
+        this.headerHasMoved = false;
         
-        // Prevent default scrolling behavior
-        event.preventDefault();
-        event.stopPropagation();
+        // Don't prevent default initially - let's see if it's a click or swipe
     }
 
     onHeaderTouchMove(event: TouchEvent): void {
         if (!this.isHorizontalSwiping || this.visibility_status !== 'reduced') return;
         
-        event.preventDefault();
-        event.stopPropagation();
-        
         this.currentX = event.touches[0].clientX;
         this.horizontalDragOffset = this.currentX - this.startX;
+        
+        // Check if user has moved enough to be considered a swipe
+        if (Math.abs(this.horizontalDragOffset) > this.clickThreshold) {
+            this.headerHasMoved = true;
+            // Now prevent default since we're clearly swiping
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        // Only proceed with swipe logic if we've moved enough
+        if (!this.headerHasMoved) return;
         
         // Apply resistance to the drag
         const resistance = 0.6;
@@ -669,20 +704,23 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         }
         
         // Visual feedback: Apply transform to media-header
-        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
-        if (headerElement) {
-            headerElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
-            headerElement.style.transition = 'none';
-            
+        const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
+        
+        if (backgroundElement) {
+            backgroundElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
+            backgroundElement.style.transition = 'none';
+        }
+        
+        if (backgroundElement) {
             // Add visual feedback classes based on swipe direction
-            headerElement.classList.add('swiping');
-            headerElement.classList.remove('swipe-left', 'swipe-right');
+            backgroundElement.classList.add('swiping');
+            backgroundElement.classList.remove('swipe-left', 'swipe-right');
             
             if (Math.abs(this.horizontalDragOffset) > 30) { // Show direction indicator after 30px
                 if (this.horizontalDragOffset > 0) {
-                    headerElement.classList.add('swipe-right');
+                    backgroundElement.classList.add('swipe-right');
                 } else {
-                    headerElement.classList.add('swipe-left');
+                    backgroundElement.classList.add('swipe-left');
                 }
             }
         }
@@ -693,37 +731,51 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         this.isHorizontalSwiping = false;
         
-        const swipeDistance = Math.abs(this.horizontalDragOffset);
-        const swipeVelocity = this.calculateHorizontalVelocity();
-        const isRightSwipe = this.horizontalDragOffset > 0;
+        // Check if this was a swipe (significant movement)
+        const touchDuration = Date.now() - this.headerTouchStartTime;
+        const isSwipe = this.headerHasMoved && Math.abs(this.horizontalDragOffset) > this.clickThreshold;
         
         // Reset visual feedback
-        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
-        if (headerElement) {
-            headerElement.style.transform = '';
-            headerElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
-            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+        const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
+        
+        if (backgroundElement) {
+            backgroundElement.style.transform = '';
+            backgroundElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
         }
         
-        // Check if swipe should trigger skip
-        const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+        if (backgroundElement) {
+            backgroundElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+        }
         
-        if (shouldSkip) {
-            if (isRightSwipe) {
-                // Swipe right: previous track
-                this.previous();
-            } else {
-                // Swipe left: next track
-                this.next();
+        if (isSwipe) {
+            // Handle as swipe
+            const swipeDistance = Math.abs(this.horizontalDragOffset);
+            const swipeVelocity = this.calculateHorizontalVelocity();
+            const isRightSwipe = this.horizontalDragOffset > 0;
+            
+            // Check if swipe should trigger skip
+            const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+            
+            if (shouldSkip) {
+                if (isRightSwipe) {
+                    // Swipe right: previous track
+                    this.previous();
+                } else {
+                    // Swipe left: next track
+                    this.next();
+                }
             }
+            
+            // Prevent the click event from firing after a swipe
+            event.preventDefault();
+            event.stopPropagation();
         }
+        // For clicks/taps, let the click handler deal with it
         
         // Reset values
         this.horizontalDragOffset = 0;
         this.currentX = 0;
-        
-        event.preventDefault();
-        event.stopPropagation();
+        this.headerHasMoved = false;
     }
 
     // Mouse events for horizontal swipe on media-header
@@ -736,9 +788,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.horizontalDragOffset = 0;
         this.lastSwipeTime = Date.now();
         this.lastSwipeX = this.startX;
+        this.headerTouchStartTime = Date.now();
+        this.headerHasMoved = false;
         
-        event.preventDefault();
-        event.stopPropagation();
+        // Don't prevent default initially - let's see if it's a click or drag
         
         // Add document listeners for mouse events
         document.addEventListener('mousemove', this.boundHeaderMouseMove);
@@ -750,6 +803,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         this.currentX = event.clientX;
         this.horizontalDragOffset = this.currentX - this.startX;
+        
+        // Check if user has moved enough to be considered a drag
+        if (Math.abs(this.horizontalDragOffset) > this.clickThreshold) {
+            this.headerHasMoved = true;
+            // Now prevent default since we're clearly dragging
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        // Only proceed with drag logic if we've moved enough
+        if (!this.headerHasMoved) return;
         
         // Apply resistance
         const resistance = 0.6;
@@ -763,20 +827,24 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         }
         
         // Visual feedback
-        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        const headerElement = document.querySelector('.media-header') as HTMLElement;
+        const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
+        
         if (headerElement) {
             headerElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
             headerElement.style.transition = 'none';
-            
+        }
+        
+        if (backgroundElement) {
             // Add visual feedback classes based on swipe direction
-            headerElement.classList.add('swiping');
-            headerElement.classList.remove('swipe-left', 'swipe-right');
+            backgroundElement.classList.add('swiping');
+            backgroundElement.classList.remove('swipe-left', 'swipe-right');
             
             if (Math.abs(this.horizontalDragOffset) > 30) { // Show direction indicator after 30px
                 if (this.horizontalDragOffset > 0) {
-                    headerElement.classList.add('swipe-right');
+                    backgroundElement.classList.add('swipe-right');
                 } else {
-                    headerElement.classList.add('swipe-left');
+                    backgroundElement.classList.add('swipe-left');
                 }
             }
         }
@@ -787,39 +855,89 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         this.isHorizontalSwiping = false;
         
-        const swipeDistance = Math.abs(this.horizontalDragOffset);
-        const swipeVelocity = this.calculateHorizontalVelocity();
-        const isRightSwipe = this.horizontalDragOffset > 0;
+        // Check if this was a drag (significant movement)
+        const isDrag = this.headerHasMoved && Math.abs(this.horizontalDragOffset) > this.clickThreshold;
         
         // Reset visual feedback
-        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        const headerElement = document.querySelector('.media-header') as HTMLElement;
+        const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
+        
         if (headerElement) {
             headerElement.style.transform = '';
             headerElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
-            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
         }
         
-        // Check if swipe should trigger skip
-        const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+        if (backgroundElement) {
+            backgroundElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+        }
         
-        if (shouldSkip) {
-            if (isRightSwipe) {
-                this.previous();
-            } else {
-                this.next();
+        if (isDrag) {
+            // Handle as drag
+            const swipeDistance = Math.abs(this.horizontalDragOffset);
+            const swipeVelocity = this.calculateHorizontalVelocity();
+            const isRightSwipe = this.horizontalDragOffset > 0;
+            
+            // Check if swipe should trigger skip
+            const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+            
+            if (shouldSkip) {
+                if (isRightSwipe) {
+                    this.previous();
+                } else {
+                    this.next();
+                }
             }
+            
+            // Prevent the click event from firing after a drag
+            event.preventDefault();
+            event.stopPropagation();
         }
+        // For clicks, let the click handler deal with it
         
         // Reset values
         this.horizontalDragOffset = 0;
         this.currentX = 0;
+        this.headerHasMoved = false;
         
         // Remove document listeners
         document.removeEventListener('mousemove', this.boundHeaderMouseMove);
         document.removeEventListener('mouseup', this.boundHeaderMouseUp);
+    }
+
+    onHeaderClick(event: MouseEvent): void {
+        console.log('Header click:', {
+            visibility: this.visibility_status,
+            headerHasMoved: this.headerHasMoved,
+            target: (event.target as HTMLElement).className,
+            isHorizontalSwiping: this.isHorizontalSwiping
+        });
+
+        // Check if click is on a quick action button first
+        const target = event.target as HTMLElement;
+        const isQuickActionButton = target.closest('.player-status') || 
+                                   target.closest('.queue-container') || 
+                                   target.classList.contains('player-status') || 
+                                   target.classList.contains('queue');
         
-        event.preventDefault();
-        event.stopPropagation();
+        if (isQuickActionButton) {
+            console.log('Quick action button clicked, ignoring header click');
+            // Don't handle header click for quick action buttons
+            event.stopPropagation();
+            return;
+        }
+
+        // For reduced mode, always allow clicks to open (ignore headerHasMoved for simple taps)
+        if (this.visibility_status === 'reduced') {
+            console.log('Opening player from reduced mode');
+            this.toggle_visibility();
+            return;
+        }
+
+        // For visible mode, only handle if we haven't moved (to avoid clicks after drags)
+        if (this.visibility_status === 'visible' && !this.headerHasMoved) {
+            console.log('Closing player from visible mode');
+            this.toggle_visibility();
+        }
     }
 
     private calculateHorizontalVelocity(): number {

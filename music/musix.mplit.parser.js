@@ -14,7 +14,7 @@ async function parse_musix_playlist(filePathOrBuffer) {
         }
         
         // Try multiple limits
-        const limits = [100000, 200000, 500000];
+        const limits = [1000000, 2000000, 5000000];
         let result = null;
         
         for (const limit of limits) {

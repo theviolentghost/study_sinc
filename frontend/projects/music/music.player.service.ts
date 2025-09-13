@@ -21,6 +21,7 @@ export class MusicPlayerService {
     @Output() song_changed: EventEmitter<void> = new EventEmitter<void>();
     @Output() song_error: EventEmitter<Player_Error> = new EventEmitter<Player_Error>();
     @Output() playlist_changed: EventEmitter<void> = new EventEmitter<void>();
+    @Output() clear_playlist_color: EventEmitter<void> = new EventEmitter<void>();
     @Output() hls_level_changed: EventEmitter<{index: number, details: any}> = new EventEmitter<{index: number, details: any}>();
 
     set_audio_element(element: HTMLAudioElement | null): void {
@@ -153,7 +154,7 @@ export class MusicPlayerService {
     } = { data: null, identifier: null, play_next: [], queue: [], history_stack: [] };
 
     private use_silent_audio_to_preserve_audio_pipeline: boolean = true;
-    private readonly silent_audio_source: string = '/music/audio/silent.mp3';
+    private readonly silent_audio_source: string = '/music/audio/test_audio_quiet_noisy.wav';
     private playing_silent_audio: boolean = false;
     private is_app_in_foreground: boolean = true;
 

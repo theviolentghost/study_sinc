@@ -34,6 +34,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.player.playlist_changed.subscribe(() => {
             this.update_main_color();
         });
+        this.update_main_color();
+        this.player.clear_playlist_color.subscribe(() => {
+            document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
+        });
     }
 
     ngAfterViewInit(): void {

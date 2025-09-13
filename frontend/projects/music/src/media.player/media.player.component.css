@@ -62,10 +62,12 @@
     z-index: -1;
 }
 
+/* Remove empty swiping pseudo-element for now
 .media-info-background.swiping::before {
-    /* width: 120px;
-    height: 120px; */
+    width: 120px;
+    height: 120px;
 }
+*/
 
 @keyframes come-from-left {
     0% {
@@ -369,17 +371,18 @@
     height: 100%;
     width: calc(var(--buffered-percent, 0%) * (100% - 14px) / 100%); /* Subtract thumb width and use percentage */
     background: var(--color-primary);
-    filter: grayscale(0.7) brightness(.5);
+    filter: grayscale(0.8) brightness(.75);
     pointer-events: none;
     border-radius: 9999px;
 }
 .slider {
-    top: 0;
+    --buffer-height: 10px;
+    top: calc( -.5 * var(--buffer-height));
     left: 0;
     --value: 00;
     --max: 100;
     width: 100%;
-    height: 100%;
+    height: calc(100% + var(--buffer-height));
     background: transparent;
     appearance: none;
     outline: none;
@@ -396,10 +399,10 @@
 .slider::after {
     content: '';
     position: absolute;
-    top: 0;
+    top: calc(var(--buffer-height) / 2);
     left: 0;
-    width: calc((var(--value)) / var(--max) * calc(100% - 1px)); /* Subtract full thumb width */
-    height: 100%;
+    width: calc((var(--value)) / var(--max) * calc(100%));
+    height: calc(100% - var(--buffer-height));
     background-color: var(--color-primary);
     border-radius: 9999px;
 }
@@ -682,6 +685,8 @@
         border-top-left-radius: var(--space-4);
         border-bottom-left-radius: var(--space-4);
         padding: 0;
+        flex-grow: 0;
+        flex-shrink: 0;
 
         #thumbnail {
             border-radius: 0;
