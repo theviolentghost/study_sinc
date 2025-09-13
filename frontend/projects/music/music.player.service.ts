@@ -154,7 +154,7 @@ export class MusicPlayerService {
     } = { data: null, identifier: null, play_next: [], queue: [], history_stack: [] };
 
     private use_silent_audio_to_preserve_audio_pipeline: boolean = true;
-    private readonly silent_audio_source: string = '/music/audio/test_audio_quiet_noisy.wav';
+    private readonly silent_audio_source: string = '/music/audio/constant_noise_30db_1min.mp3';
     private playing_silent_audio: boolean = false;
     private is_app_in_foreground: boolean = true;
 
