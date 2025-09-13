@@ -154,7 +154,7 @@ export class MusicPlayerService {
     } = { data: null, identifier: null, play_next: [], queue: [], history_stack: [] };
 
     private use_silent_audio_to_preserve_audio_pipeline: boolean = true;
-    private readonly silent_audio_source: string = '/music/audio/song10.wav';
+    private readonly silent_audio_source: string = '/music/audio/silent.mp3';
     private playing_silent_audio: boolean = false;
     private is_app_in_foreground: boolean = true;
 
@@ -396,6 +396,8 @@ export class MusicPlayerService {
             return this.update_playback_state_for_silent_audio();
         }
 
+        this.audio_element.loop = false;
+
         const playback_state: MediaSessionPlaybackState = this.audio_element.paused ? 'paused' : 'playing';
         navigator.mediaSession.playbackState = playback_state;
         navigator.mediaSession.setPositionState({
@@ -407,6 +409,8 @@ export class MusicPlayerService {
 
     private update_playback_state_for_silent_audio(): void {
         if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
+
+        this.audio_element.loop = true;
 
         const playback_state: MediaSessionPlaybackState = 'paused';
         navigator.mediaSession.playbackState = playback_state;
