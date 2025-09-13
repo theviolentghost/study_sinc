@@ -255,7 +255,7 @@ export class MusicPlayerService {
         if(this.audio_element.paused) return true; // already paused
         if(this.playing_silent_audio) return true; // silent audio is paused state
 
-        if(!this.is_app_in_foreground && this.use_silent_audio_to_preserve_audio_pipeline /*&& this.is_ios_safari*/) {
+        if(/*!this.is_app_in_foreground &&*/ this.use_silent_audio_to_preserve_audio_pipeline /*&& this.is_ios_safari*/) {
             // If the app is in the background on iOS Safari, we need to play silent audio to keep the audio pipeline alive
             this.switch_from_real_audio_to_silent_audio();
             return true;
