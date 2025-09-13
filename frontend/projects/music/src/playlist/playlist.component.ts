@@ -36,6 +36,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         });
         this.update_main_color();
         this.player.clear_playlist_color.subscribe(() => {
+            // check to see if the navigation url is the same as this playlist
+            if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
             document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
         });
     }
