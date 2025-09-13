@@ -396,8 +396,6 @@ export class MusicPlayerService {
             return this.update_playback_state_for_silent_audio();
         }
 
-        this.audio_element.muted = false;
-
         const playback_state: MediaSessionPlaybackState = this.audio_element.paused ? 'paused' : 'playing';
         navigator.mediaSession.playbackState = playback_state;
         navigator.mediaSession.setPositionState({
@@ -409,8 +407,6 @@ export class MusicPlayerService {
 
     private update_playback_state_for_silent_audio(): void {
         if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
-
-        this.audio_element.muted = true;
 
         const playback_state: MediaSessionPlaybackState = 'paused';
         navigator.mediaSession.playbackState = playback_state;
