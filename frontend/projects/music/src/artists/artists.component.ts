@@ -261,7 +261,6 @@ export class ArtistsComponent implements OnInit {
             },
             video_duration: video.duration_ms,
             liked: false,
-            date_added: new Date(),
         });
 
         this.player.open_player.emit();
@@ -294,6 +293,8 @@ export class ArtistsComponent implements OnInit {
                 await this.player.load_playlist(null, {
                     songs: map,
                     name: (this.artist_details?.name || 'Unknown Artist') + ' Top Tracks',
+                    song_added_timestamps: new Map(),
+                    sorting_method: 'recent_to_old'
                 }, false, false);
                 console.log('Loaded top tracks playlist:', top_tracks_songs);
             }

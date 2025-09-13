@@ -20,6 +20,7 @@ export class PlaylistsService {
     selected_playlist_video_identifiers: Song_Identifier[] = [];
 
     private player?: MusicPlayerService;
+    // sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
 
     constructor(
         private media: MusicMediaService, 
@@ -173,6 +174,8 @@ export class PlaylistsService {
         const new_playlist: Song_Playlist = {
             name: name,
             songs: new Map(),
+            song_added_timestamps: new Map(),
+            sorting_method: 'recent_to_old'
         };
 
         const updated_indentifier: Song_Playlist_Identifier = {
@@ -246,6 +249,7 @@ export class PlaylistsService {
         this.media.add_song_to_cache(this.media.bare_song_key(song_data.id), playlist_identifier.id);
 
         playlist.songs.set(this.media.song_key(song_data.id), song_data.id);
+        playlist.song_added_timestamps.set(this.media.song_key(song_data.id), Date.now());
         playlist_identifier.track_count = (playlist_identifier.track_count || 0) + 1;
         playlist_identifier.duration = (playlist_identifier.duration || 0) + (song_data.video_duration || 0);
         if(!playlist_identifier.images || playlist_identifier.images.length < 4) {
@@ -311,6 +315,7 @@ export class PlaylistsService {
         this.media.remove_song_from_cache(this.media.bare_song_key(song_data.id), playlist_identifier.id);
 
         playlist.songs.delete(this.media.song_key(song_data.id));
+        playlist.song_added_timestamps.delete(this.media.song_key(song_data.id));
         playlist_identifier.track_count = (playlist_identifier.track_count || 1) - 1;
         playlist_identifier.duration = (playlist_identifier.duration || 0) - (song_data.video_duration || 0);
         if(playlist_identifier.track_count < 4) {

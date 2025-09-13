@@ -208,7 +208,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
                 await this.player.load_playlist(null, playlist, true, false);
                 console.log('Loaded playlist for track:', playlist);
-                // this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
+                playlist.song_data.map((song) => {
+                    this.player.add_song_to_cache(song);
+                });
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
@@ -218,6 +220,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.player.open_player.emit();
 
+        this.player.add_song_to_cache(track_data);
         this.player.update_media_session(track_data);
 
         await this.player.load_and_play_track(track_data);
@@ -257,8 +260,9 @@ export class SearchComponent implements AfterViewInit, OnInit {
             },
             video_duration: video.duration_ms,
             liked: false,
-            date_added: new Date(),
         });
+
+        this.player.pause();
 
         this.player.open_player.emit();
 
@@ -266,11 +270,15 @@ export class SearchComponent implements AfterViewInit, OnInit {
         let track_data: Song_Data | null = cache || await this.hot_action.spotify_track_data(video);
         if(!track_data) return;
 
+        this.player.add_song_to_cache(track_data);
+
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
                 await this.player.load_playlist(null, playlist, false, false);
                 console.log('Loaded playlist for track:', playlist);
-                // this.player.load_song_data_array_into_playlist_cache(playlist.song_data || []);
+                playlist.song_data.map((song) => {
+                    this.player.add_song_to_cache(song);
+                });
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }

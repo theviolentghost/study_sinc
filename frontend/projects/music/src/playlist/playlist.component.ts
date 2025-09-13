@@ -1,4 +1,4 @@
-import { Component, HostListener, ViewChild, ElementRef, OnInit, AfterViewInit } from '@angular/core';
+import { Component, HostListener, ViewChild, ElementRef, OnInit, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
@@ -17,30 +17,51 @@ import { HotActionService } from '../../hot.action.service';
     styleUrl: './playlist.component.css',
     standalone: true
 })
-export class PlaylistComponent implements OnInit, AfterViewInit {
+export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     @ViewChild('resultVideos', { static: false }) result_videos_ref!: ElementRef<HTMLElement>;
     @ViewChild('searchInput', { static: false }) search_input_ref!: ElementRef<HTMLInputElement>;
 
     loaded: boolean = true;
     search_query: string = '';
     filtered_videos: (Song_Data | null)[] = [];
+    use_playlist_color_for_main: boolean = true;
 
     order_type: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
 
     ngOnInit(): void {
         // Component initialization
         this.loaded = false;
+        this.player.playlist_changed.subscribe(() => {
+            this.update_main_color();
+        });
     }
 
     ngAfterViewInit(): void {
         // Auto-scroll to hide search-filter when component loads
         this.auto_scroll_past_search_filter();
         this.loaded = true;
+        this.update_main_color();
+    }
+
+    update_main_color(): void {
+        if(this.use_playlist_color_for_main) {
+            if(this.playlist_identifier.id !== this.player?.playlist_identifier?.id) return;
+            const color = this.get_playlist_primary_color();
+            if( color.trim() !== 'var(--color-primary)' ) {
+                document.documentElement.style.setProperty('--color-primary', color);
+            }
+        }
+    }
+
+    ngOnDestroy(): void {
+        // Reset primary color on destroy
+        document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
     }
 
     private auto_scroll_past_search_filter(smooth: boolean = false): void {
         // Wait for next tick to ensure DOM is fully rendered
         setTimeout(() => {
+            this.update_main_color();
             if (this.result_videos_ref?.nativeElement) {
                 // Find the search-filter element to get its height
                 const host_element = this.result_videos_ref.nativeElement.closest('app-playlist');
@@ -558,21 +579,27 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
     get visible_videos(): (Song_Data | null)[] {
         // Use filtered videos if search is active, otherwise use regular videos
         const source_videos = this.search_query ? this.filtered_videos : this.videos;
+        const playlist = this.playlists.selected_playlist;
+        if(!playlist) return source_videos;
+        if(playlist.song_added_timestamps.size !== playlist.songs.size) {
+            console.warn('Playlist song_added_timestamps size does not match songs size. Not sorting.');
+            return source_videos;
+        }
 
         // Sort the videos based on the selected order type
         source_videos.sort((a, b) => {
             if (!a || !b) return 0;
 
-            switch (this.order_type) {
+            switch (playlist.sorting_method || 'recent_to_old') {
                 case 'recent_to_old':
-                    return (b?.date_added?.getTime() || 0) - (a?.date_added?.getTime() || 0);
+                    return (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0) - (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0);
                 case 'old_to_recent':
-                    return (a?.date_added?.getTime() || 0) - (b?.date_added?.getTime() || 0);
+                    return (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0) - (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0);
                 case 'alphabetical':
                     return (a?.song_name || '').localeCompare(b?.song_name || '');
                 default:
                     return 0;
-            }
+                }
         });
 
         return source_videos.slice(this.visible_start_index, this.visible_end_index);
@@ -661,12 +688,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
         
         this.player.open_player.emit();
 
-        // this.player.update_media_session(track_data, this.media.song_key(track_data.id));
-
+        this.player.update_media_session(track_data)
         await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, false);
-        await this.player.load_and_play_track(track_data);
-        // this.player.unshuffle_playlist();
-        // this.player.remove_current_song_from_queue();
+        this.player.load_and_play_track(track_data);
+        this.player.remove_track_from_playlist_queue(this.media.song_key(track_data.id));
     }
 
     ms_to_time(ms: number): string {
@@ -691,7 +716,6 @@ export class PlaylistComponent implements OnInit, AfterViewInit {
         if(!this.playlists.selected_playlist) return;
         if(this.playlists.selected_playlist.songs.size === 0) return;
         this.player.shuffle = true;
-        // this.player.load_and_play_random_song();
         this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
         this.player.open_player.emit();
     }

@@ -98,6 +98,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private isDragging = false;
     private startY = 0;
     private currentDragOffset = 0;
+    
+    // Horizontal swipe properties for media-header
+    private isHorizontalSwiping = false;
+    private startX = 0;
+    private currentX = 0;
+    private horizontalDragOffset = 0;
+    private readonly swipeThreshold = 80; // Minimum distance to trigger skip
+    private readonly swipeVelocityThreshold = 0.3; // Minimum velocity to trigger skip
+    private lastSwipeTime = 0;
+    private lastSwipeX = 0;
+    
     private get dragThreshold(): number {
         return window.innerHeight * 0.65; // 65% of the viewport height
     }
@@ -262,6 +273,18 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         // Clean up any remaining document event listeners
         this.removeDocumentMouseListeners();
         
+        // Clean up horizontal swipe listeners
+        document.removeEventListener('mousemove', this.boundHeaderMouseMove);
+        document.removeEventListener('mouseup', this.boundHeaderMouseUp);
+        
+        // Reset any visual feedback classes
+        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        if (headerElement) {
+            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+            headerElement.style.transform = '';
+            headerElement.style.transition = '';
+        }
+        
         // Clean up orientation listeners
         if (this.orientationChangeListener) {
             if (screen.orientation) {
@@ -386,7 +409,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         // Track velocity for mouse movements
         const now = Date.now();
-        if (now - this.lastTouchTime > 16) { // ~60fps throttling
+        if (now - this.lastTouchTime > 16) {
             this.lastTouchTime = now;
             this.lastTouchY = currentY;
         }
@@ -608,6 +631,208 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const secs = Math.floor(seconds % 60);
         return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
+
+    // Horizontal swipe methods for media-header
+    onHeaderTouchStart(event: TouchEvent): void {
+        if (this.visibility_status !== 'reduced') return;
+        
+        this.isHorizontalSwiping = true;
+        this.startX = event.touches[0].clientX;
+        this.currentX = this.startX;
+        this.horizontalDragOffset = 0;
+        this.lastSwipeTime = Date.now();
+        this.lastSwipeX = this.startX;
+        
+        // Prevent default scrolling behavior
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    onHeaderTouchMove(event: TouchEvent): void {
+        if (!this.isHorizontalSwiping || this.visibility_status !== 'reduced') return;
+        
+        event.preventDefault();
+        event.stopPropagation();
+        
+        this.currentX = event.touches[0].clientX;
+        this.horizontalDragOffset = this.currentX - this.startX;
+        
+        // Apply resistance to the drag
+        const resistance = 0.6;
+        this.horizontalDragOffset *= resistance;
+        
+        // Track velocity for better gesture recognition
+        const now = Date.now();
+        if (now - this.lastSwipeTime > 16) { // ~60fps throttling
+            this.lastSwipeTime = now;
+            this.lastSwipeX = this.currentX;
+        }
+        
+        // Visual feedback: Apply transform to media-header
+        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        if (headerElement) {
+            headerElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
+            headerElement.style.transition = 'none';
+            
+            // Add visual feedback classes based on swipe direction
+            headerElement.classList.add('swiping');
+            headerElement.classList.remove('swipe-left', 'swipe-right');
+            
+            if (Math.abs(this.horizontalDragOffset) > 30) { // Show direction indicator after 30px
+                if (this.horizontalDragOffset > 0) {
+                    headerElement.classList.add('swipe-right');
+                } else {
+                    headerElement.classList.add('swipe-left');
+                }
+            }
+        }
+    }
+
+    onHeaderTouchEnd(event: TouchEvent): void {
+        if (!this.isHorizontalSwiping || this.visibility_status !== 'reduced') return;
+        
+        this.isHorizontalSwiping = false;
+        
+        const swipeDistance = Math.abs(this.horizontalDragOffset);
+        const swipeVelocity = this.calculateHorizontalVelocity();
+        const isRightSwipe = this.horizontalDragOffset > 0;
+        
+        // Reset visual feedback
+        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        if (headerElement) {
+            headerElement.style.transform = '';
+            headerElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
+            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+        }
+        
+        // Check if swipe should trigger skip
+        const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+        
+        if (shouldSkip) {
+            if (isRightSwipe) {
+                // Swipe right: previous track
+                this.previous();
+            } else {
+                // Swipe left: next track
+                this.next();
+            }
+        }
+        
+        // Reset values
+        this.horizontalDragOffset = 0;
+        this.currentX = 0;
+        
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    // Mouse events for horizontal swipe on media-header
+    onHeaderMouseDown(event: MouseEvent): void {
+        if (this.visibility_status !== 'reduced') return;
+        
+        this.isHorizontalSwiping = true;
+        this.startX = event.clientX;
+        this.currentX = this.startX;
+        this.horizontalDragOffset = 0;
+        this.lastSwipeTime = Date.now();
+        this.lastSwipeX = this.startX;
+        
+        event.preventDefault();
+        event.stopPropagation();
+        
+        // Add document listeners for mouse events
+        document.addEventListener('mousemove', this.boundHeaderMouseMove);
+        document.addEventListener('mouseup', this.boundHeaderMouseUp);
+    }
+
+    onHeaderMouseMove(event: MouseEvent): void {
+        if (!this.isHorizontalSwiping || this.visibility_status !== 'reduced') return;
+        
+        this.currentX = event.clientX;
+        this.horizontalDragOffset = this.currentX - this.startX;
+        
+        // Apply resistance
+        const resistance = 0.6;
+        this.horizontalDragOffset *= resistance;
+        
+        // Track velocity
+        const now = Date.now();
+        if (now - this.lastSwipeTime > 16) {
+            this.lastSwipeTime = now;
+            this.lastSwipeX = this.currentX;
+        }
+        
+        // Visual feedback
+        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        if (headerElement) {
+            headerElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
+            headerElement.style.transition = 'none';
+            
+            // Add visual feedback classes based on swipe direction
+            headerElement.classList.add('swiping');
+            headerElement.classList.remove('swipe-left', 'swipe-right');
+            
+            if (Math.abs(this.horizontalDragOffset) > 30) { // Show direction indicator after 30px
+                if (this.horizontalDragOffset > 0) {
+                    headerElement.classList.add('swipe-right');
+                } else {
+                    headerElement.classList.add('swipe-left');
+                }
+            }
+        }
+    }
+
+    onHeaderMouseUp(event: MouseEvent): void {
+        if (!this.isHorizontalSwiping || this.visibility_status !== 'reduced') return;
+        
+        this.isHorizontalSwiping = false;
+        
+        const swipeDistance = Math.abs(this.horizontalDragOffset);
+        const swipeVelocity = this.calculateHorizontalVelocity();
+        const isRightSwipe = this.horizontalDragOffset > 0;
+        
+        // Reset visual feedback
+        const headerElement = document.querySelector('.media-info-background') as HTMLElement;
+        if (headerElement) {
+            headerElement.style.transform = '';
+            headerElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
+            headerElement.classList.remove('swiping', 'swipe-left', 'swipe-right');
+        }
+        
+        // Check if swipe should trigger skip
+        const shouldSkip = swipeDistance > this.swipeThreshold || swipeVelocity > this.swipeVelocityThreshold;
+        
+        if (shouldSkip) {
+            if (isRightSwipe) {
+                this.previous();
+            } else {
+                this.next();
+            }
+        }
+        
+        // Reset values
+        this.horizontalDragOffset = 0;
+        this.currentX = 0;
+        
+        // Remove document listeners
+        document.removeEventListener('mousemove', this.boundHeaderMouseMove);
+        document.removeEventListener('mouseup', this.boundHeaderMouseUp);
+        
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    private calculateHorizontalVelocity(): number {
+        const timeDelta = Date.now() - this.lastSwipeTime;
+        if (timeDelta === 0) return 0;
+        
+        const distance = Math.abs(this.horizontalDragOffset);
+        return distance / timeDelta;
+    }
+
+    // Bound methods for horizontal swipe event listeners
+    private boundHeaderMouseMove = (event: MouseEvent) => this.onHeaderMouseMove(event);
+    private boundHeaderMouseUp = (event: MouseEvent) => this.onHeaderMouseUp(event);
 
 
 

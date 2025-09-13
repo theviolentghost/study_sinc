@@ -13,7 +13,7 @@
     overflow: hidden;
     /* transition: height 0.65s ease-in-out, bottom 0.25s ease-in-out; */
     z-index: 1000;
-    background-color: var(--color-background);
+    background-color: var(--color-background-200);
 }
 .container.reduced {
     bottom: 74px;
@@ -37,9 +37,98 @@
     background-color: var(--color-background-200);
     border-bottom: solid 1px var(--color-background-300);
     cursor: pointer;
+    /* Enable smooth transitions for horizontal swipe feedback */
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    /* Prevent text selection during swipe */
+    user-select: none;
+    -webkit-user-select: none;
+    /* Ensure touch events are properly handled */
+    touch-action: pan-y;
 }
+
+/* Swipe gesture feedback for media-header */
+.media-info::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.media-info-background.swiping::before {
+    /* width: 120px;
+    height: 120px; */
+}
+
+@keyframes come-from-left {
+    0% {
+        transform: translateX(-100px) translateY(-50%);
+    }
+    100% {
+        transform: translateX(0) translateY(-50%);
+    }
+}
+
+@keyframes come-from-right {
+    0% {
+        transform: translateX(100px) translateY(-50%);
+    }
+    100% {
+        transform: translateX(0) translateY(-50%);
+    }
+}
+
+/* Visual feedback for swipe direction */
+.media-info-background.swipe-left::after,
+.media-info-background.swipe-right::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    background-color: transparent;
+    mask-position: center;
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    opacity: 0.8;
+    transition: all 0.2s ease;
+    z-index: 10;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.media-info-background.swipe-left::after {
+    background-color: var(--color-primary);
+    mask-image: url('/music/player-skip-forward.svg');
+    right: 0px;
+    animation: come-from-right 0.3s ease-out;
+}
+
+.media-info-background.swipe-right::after {
+    background-color: var(--color-primary);
+    mask-image: url('/music/player-skip-back.svg');
+    left: 0px;
+    right: auto;
+    animation: come-from-left 0.3s ease-out;
+}
+
+/* Hide indicators in visible state */
+.container:not(.reduced) .media-info-background::before,
+.container:not(.reduced) .media-info-background::after {
+    opacity: 0;
+}
+
 .media-info {
     display: flex;
+    overflow: hidden;
     width: calc(100% - var(--space-8) * 2 - var(--space-1));
 }
 .title {
@@ -144,9 +233,9 @@
 .thumbnail {
     position: relative;
     /* overflow: hidden; */
-    width: 100%;
+    width: calc(100% - var(--space-8));
     max-width: 100%;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 1 / 1;
     flex-shrink: 0;
     max-height: calc(900px * 9 / 16);
     display: flex;
@@ -154,6 +243,7 @@
     justify-content: center;
     flex-direction: column;
     transition: background 0.5s ease-in-out;
+    padding: 32px;
 }
 .thumbnail::after {
     content: '';
@@ -170,11 +260,12 @@
 #thumbnail {
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
     background-position: center;
     background-repeat: no-repeat;
     background-size: contain;
     transition: filter .5s ease-in-out, object-fit .5s ease-in-out;
+    border-radius: var(--space-2);
 }
 #thumbnail.disco {
     filter: blur(5px) brightness(0.8);
@@ -191,9 +282,12 @@
     justify-content: center;
     background-color: var(--color-background);
     box-shadow: 0 0 10px 10px var(--color-background);
-    width: 100%;
+    width: calc(100% - var(--space-8));
     height: 100%;
     padding-top: var(--space-2);
+    margin-bottom: calc(var(--space-8) / 2);
+    border-bottom-left-radius: var(--space-3);
+    border-bottom-right-radius: var(--space-3);
 }
 .duration {
     width: 100%;
@@ -271,12 +365,13 @@
 .buffer-bar {
     position: absolute;
     top: 0;
-    left: 0;
+    left: 7px; /* Offset by thumb radius */
     height: 100%;
-    width: 100%;
+    width: calc(var(--buffered-percent, 0%) * (100% - 14px) / 100%); /* Subtract thumb width and use percentage */
     background: var(--color-primary);
     filter: grayscale(0.7) brightness(.5);
     pointer-events: none;
+    border-radius: 9999px;
 }
 .slider {
     top: 0;
@@ -292,6 +387,7 @@
     padding: 0;
     cursor: pointer;
     position: relative;
+    border-radius: 9999px;
 }
 .slider:disabled {
     cursor: not-allowed;
@@ -302,9 +398,10 @@
     position: absolute;
     top: 0;
     left: 0;
-    width: calc((var(--value) + 1) / var(--max) * 100%);
+    width: calc((var(--value)) / var(--max) * calc(100% - 1px)); /* Subtract full thumb width */
     height: 100%;
     background-color: var(--color-primary);
+    border-radius: 9999px;
 }
 .slider:disabled::after {
     background-color: var(--color-neutral);
@@ -419,6 +516,7 @@
     to {
         transform: rotate(0deg);
     }
+    
 }
 
 
@@ -580,12 +678,28 @@
         justify-content: center;
         flex-direction: column;
         transition: background .5s ease-in-out;
+        overflow: hidden;
+        border-top-left-radius: var(--space-4);
+        border-bottom-left-radius: var(--space-4);
+        padding: 0;
+
+        #thumbnail {
+            border-radius: 0;
+        }
 
         &::after {
-            display: none;
+            position: absolute;
+            content: '';
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--color-background);
         }
 
         img {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
             border-top-left-radius: var(--space-4);
             border-bottom-left-radius: var(--space-4);
         }
@@ -598,6 +712,8 @@
         border-bottom-right-radius: var(--space-4);
         overflow: hidden;
         max-width: 500px;
+        margin: 0;
+        border-bottom-left-radius: 0;
     }
 
     .main-audio-progress {

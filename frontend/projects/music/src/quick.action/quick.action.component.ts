@@ -362,7 +362,7 @@ export class QuickActionComponent {
 
         event.stopPropagation();
     }
-    video_on_swipe_end(event: TouchEvent | MouseEvent, delete_from: string): void {
+    async video_on_swipe_end(event: TouchEvent | MouseEvent, delete_from: string): Promise<void> {
         if (!this.is_gesture_active) return;
 
         let clientX: number, clientY: number;
@@ -427,24 +427,24 @@ export class QuickActionComponent {
             // This is a tap - play
             this.gesture_type = 'tap';
             if (this.swiping_video_data) {
-                setTimeout(() => this.play(this.swiping_video_data), 50);
+                await this.play(this.swiping_video_data);
             }
         }
 
         // Reset gesture state
         this.is_gesture_active = false;
         this.gesture_type = 'none';
+        this.dont_play = false;
 
         event.stopPropagation();
     }
 
     async play(track_data: Song_Data | null) {
         if(this.dont_play) {
-            this.dont_play = false;
+            // this.dont_play = false;
             return;
         }
         if (!track_data) return;
-        console.log('Playing track:', track_data);
         
         this.player.open_player.emit();
 
@@ -506,6 +506,7 @@ export class QuickActionComponent {
         
         // Reset states
         this.is_gesture_active = false;
+        this.dont_play = true; // Prevent immediate play after hold
         this.gesture_type = 'none';
         this.hold_progress = 0;
     }

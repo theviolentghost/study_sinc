@@ -112,7 +112,6 @@ export class HotActionService {
             },
             liked: false,
             video_duration: 0,
-            date_added: new Date(),
         }
     }
 
@@ -161,7 +160,6 @@ export class HotActionService {
                 },
                 video_duration: video.duration_ms,
                 liked: false,
-                date_added: new Date(),
             }
     }
 
@@ -195,7 +193,6 @@ export class HotActionService {
             },
             video_duration: video.duration_ms,
             liked: false,
-            date_added: new Date(),
         }
     }
 
@@ -244,7 +241,6 @@ export class HotActionService {
             },
             video_duration: 0,
             liked: false,
-            date_added: new Date(),
         }
     }
 

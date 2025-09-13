@@ -47,7 +47,6 @@ export interface Song_Data {
     lyrics?: Song_Lyrics,
     id: Song_Identifier; // the where this song was downloaded
     liked?: boolean; // whether the song is liked by the user
-    date_added: Date; // date when the song was added to the library
 }
 
 export interface Song_Identifier {
@@ -74,6 +73,8 @@ export interface Song_Playlist_Identifier {
 
 export interface Song_Playlist {
     songs: Map<string, Song_Identifier>;
+    song_added_timestamps: Map<string, number>; // song key -> timestamp
+    sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical';
     name: string; 
     default?: boolean; // whether this is a default playlist
 }
@@ -605,21 +606,21 @@ export class MusicMediaService {
                         default_playlist = { id: playlist_identifier.id, name: playlist_identifier.name, default: true, duration: 0, track_count: 0, images: [] };
                     }
 
-                    var playlist_data: Song_Playlist = { songs: new Map(), name: default_playlist?.name, default: true };
+                    var playlist_data: Song_Playlist = { songs: new Map(), name: default_playlist?.name, default: true, song_added_timestamps: new Map(), sorting_method: 'recent_to_old' };
                     playlist_identifier.track_count = default_playlist?.track_count || 0;
                     playlist_identifier.duration = default_playlist?.duration || 0;
                     playlist_identifier.images = default_playlist?.images || [];
                     playlist_identifier.default = true;
                     playlist_identifier.name = default_playlist?.name || playlist_identifier.name;
                 } else {
-                    var playlist_data: Song_Playlist = { songs: new Map(), name: playlist_identifier.name, default: false };
+                    var playlist_data: Song_Playlist = { songs: new Map(), name: playlist_identifier.name, default: false, song_added_timestamps: new Map(), sorting_method: 'recent_to_old' };
                 }
                 this.save_playlist_to_indexDB(playlist_identifier, playlist_data);
                 return playlist_data;
             }
         } catch (error) {
             console.error('Error retrieving playlist from IndexedDB:', error);
-            return { songs: new Map(), name: playlist_identifier.name, default: false };
+            return { songs: new Map(), name: playlist_identifier.name, default: false, song_added_timestamps: new Map(), sorting_method: 'recent_to_old' }; // Return empty playlist on error
         }
     }
 
