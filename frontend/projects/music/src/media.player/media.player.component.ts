@@ -148,6 +148,9 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get current_song_data(): Song_Data | null {
         return this.player.song_data;
     }
+    set current_song_data(value: Song_Data | null) {
+        this.player.song_data = value;
+    }
     get current_media_data(): Song_Data | null {
         return this.player.song_data; // idk why here
     }
@@ -517,11 +520,11 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.buffer_like = !this.buffer_like; 
         this.buffer_like_clicked = true; 
 
-        if(!this.current_song_data || this.player.loaded_current_song) return;
-        this.buffer_like = false; 
+        if (!this.current_song_data) return;
+        this.buffer_like = false;
         this.current_song_data.liked = !this.current_song_data?.liked;
-        // this.media.save_song_to_indexDB(this.current_song_data.id.video_id, this.current_song_data);
-        if(this.current_song_data.liked) {
+        this.media.save_song_to_indexDB(this.current_song_data.id.video_id, this.current_song_data);
+        if (this.current_song_data.liked) {
             console.log('Adding song to favorites:', this.current_song_data);
             this.playlists.add_to_favorites(this.current_song_data);
         } else {

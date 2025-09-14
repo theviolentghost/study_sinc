@@ -632,7 +632,7 @@
     background: transparent;
 }
 .audio-info {
-    width: 100%;
+    width: calc(100% - var(--space-2) * 2);
     position: absolute;
     bottom: var(--space-1);
     z-index: 100;

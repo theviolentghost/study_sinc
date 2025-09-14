@@ -380,6 +380,12 @@ export class MusicPlayerService {
             : '';
 
         this.thumbnail_element.src = artwork_url;
+        if (!song_data?.colors?.common) {
+            // generate colors from artwork
+            this.media.get_top_colors_from_artwork(artwork_url).then(colors => {
+                song_data.colors.common = colors;
+            });
+        }
 
         navigator.mediaSession.metadata = new MediaMetadata({
             title: song_data.song_name || '',
@@ -469,10 +475,10 @@ export class MusicPlayerService {
             // Metadata loaded, ready to play
             this.track_loaded.emit();
             this.audio_data.current.loaded = true;
-            if(this.wants_to_play) {
+            // if (this.wants_to_play) {
                 this.play();
                 this.wants_to_play = false;
-            }
+            // }
             // if(this.playing_silent_audio ) {
             //     // if we were playing silent audio, switch back to real audio now that real audio is loaded
             //     this.playing_silent_audio = false;
@@ -580,12 +586,6 @@ export class MusicPlayerService {
             return;
         }
 
-        // pause current audio
-        if(load_type === 'current') {
-            this.audio_element.pause();
-            // this.preload_next_track();
-        }
-
         if(this.is_string(data)) {
             song_key = data;
             song_identifier = this.media.parse_song_key(data);
@@ -608,6 +608,12 @@ export class MusicPlayerService {
             return;
         }
 
+        // pause current audio
+        if(load_type === 'current') {
+            this.audio_element.pause();
+            // this.preload_next_track();
+        }
+
         // song identifier must be set now
         // and so should song_data if it was available in the cache
         if(!song_identifier) {
@@ -616,14 +622,13 @@ export class MusicPlayerService {
         }
 
         audio_data_reference.identifier = song_identifier;
+        audio_data_reference.loaded = false;
 
         if(song_data) {
             if(load_type === 'current') this.update_media_session(song_data);
             audio_data_reference.data = song_data;
         }
         if(load_type === 'current') this.song_changed.emit();
-
-        audio_data_reference.loaded = false;
 
         if(use_reference_source && audio_data_reference.audio_source && audio_data_reference.source_type) {
             // use existing source
