@@ -475,10 +475,10 @@ export class MusicPlayerService {
             // Metadata loaded, ready to play
             this.track_loaded.emit();
             this.audio_data.current.loaded = true;
-            // if (this.wants_to_play) {
+            if (this.wants_to_play) {
                 this.play();
                 this.wants_to_play = false;
-            // }
+            }
             // if(this.playing_silent_audio ) {
             //     // if we were playing silent audio, switch back to real audio now that real audio is loaded
             //     this.playing_silent_audio = false;
@@ -565,8 +565,8 @@ export class MusicPlayerService {
 
     private wants_to_play: boolean = false;
     public async load_and_play_track(data: Song_Identifier | Song_Data | string): Promise<void> {
-        await this.load_track(data);
         this.wants_to_play = true;
+        await this.load_track(data);
     }
 
     // use_refrence_source: if true, will use the source from the current audio data reference (useful for reloading same track after error or using preloaded track)
