@@ -55,4 +55,8 @@ export class PlaylistsComponent {
     get_playlist_primary_color(playlist_identifier: Song_Playlist_Identifier): string {
         return playlist_identifier?.colors?.primary || 'var(--color-primary)';
     }
+
+    start_dj_play(): void {
+
+    }
 }

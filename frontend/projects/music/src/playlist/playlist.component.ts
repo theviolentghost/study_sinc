@@ -9,6 +9,7 @@ import { PlaylistsService } from '../../playlists.service';
 import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
 import { HotActionService } from '../../hot.action.service';
+import { SettingsService } from '../../settings.service';
 
 @Component({
     selector: 'app-playlist',
@@ -27,6 +28,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     use_playlist_color_for_main: boolean = true;
 
     order_type: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
+
+    get prefers_shuffle_play_over_dj_play(): boolean {
+        return this.settings.prefers_shuffle_play_over_dj_play;
+    }
 
     ngOnInit(): void {
         // Component initialization
@@ -51,7 +56,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
 
     update_main_color(): void {
         if(this.use_playlist_color_for_main) {
-            if(this.playlist_identifier.id !== this.player?.playlist_identifier?.id) return;
+            if(this.playlist_identifier?.id !== this.player?.playlist_identifier?.id) return;
             const color = this.get_playlist_primary_color();
             if( color.trim() !== 'var(--color-primary)' ) {
                 document.documentElement.style.setProperty('--color-primary', color);
@@ -282,14 +287,14 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             const swipeDistance = clientX - this.swipe_start_x;
             if( swipeDistance < -this.delete_swipe_open_size) {
                 this.play_delete_animation();
-                this.delete_video_from_playlist(this.swiping_video_data);
                 setTimeout(() => {
                     // delete from video array
                     const index = this.videos.findIndex(v => this.media.bare_song_key(v?.id) === this.swiping_video);
                     if (index !== -1) {
                         this.videos.splice(index, 1);
                     }
-                    console.log(index)
+                    this.delete_video_from_playlist(this.swiping_video_data);
+                    // console.log(index)
                 }, 600);
             }
             else if (swipeDistance < -this.idle_swipe_open_size / 2) {
@@ -447,7 +452,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         private media: MusicMediaService,
         private player: MusicPlayerService,
         public quick_action: QuickActionService,
-        public hot_action: HotActionService
+        public hot_action: HotActionService,
+        public settings: SettingsService,
     ) {
         this.route.paramMap.subscribe(async params => {
             const playlist_id = params.get('playlist_id');
@@ -724,6 +730,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.player.shuffle = true;
         this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
         this.player.open_player.emit();
+    }
+
+    dj_play(): void {
+
     }
 
     close(to_top: boolean): void {

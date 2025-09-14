@@ -272,7 +272,10 @@ export class ArtistComponent implements OnInit {
             top_tracks_songs.forEach((song, index) => map.set(top_tracks_keys[index], top_tracks_songs[index].id));
 
             if(top_tracks_keys.length > 0) {
-                // this.player.load_song_data_array_into_playlist_cache(top_tracks_songs);
+                top_tracks_songs.map((song) => {
+                    this.player.add_song_to_cache(song);
+                });
+
                 await this.player.load_playlist(null, {
                     songs: map,
                     name: (this.artist_details?.name || 'Unknown Artist') + ' Top Tracks',

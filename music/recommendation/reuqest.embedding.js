@@ -42,8 +42,8 @@ async function process_spotify_track_embedding_queue() {
             await request_embedding(video_id);
             console.log(`Requested embedding for ${item.type} with ID ${video_id}`);
         }
-        // wait 5 seconds before next request
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // wait 60 seconds before next request
+        await new Promise(resolve => setTimeout(resolve, 60 * 1000));
     }
 
     processing_queue = false;

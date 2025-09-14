@@ -206,11 +206,18 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                await this.player.load_playlist(null, playlist, true, false);
-                console.log('Loaded playlist for track:', playlist);
+                // convert the array of songs to a map of song_key to song_identifier
+                const song_map = new Map<string, Song_Identifier>();
+                playlist.song_data.forEach((song) => {
+                    song_map.set(this.media.bare_song_key(song.id), song.id);
+                });
+                playlist.songs = song_map;
+
                 playlist.song_data.map((song) => {
                     this.player.add_song_to_cache(song);
                 });
+
+                await this.player.load_playlist(null, playlist, false, false);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
@@ -263,7 +270,6 @@ export class SearchComponent implements AfterViewInit, OnInit {
         });
 
         this.player.pause();
-
         this.player.open_player.emit();
 
         const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'spotify', source_id: video.id || video.uri || '', video_id: ''}));
@@ -274,11 +280,18 @@ export class SearchComponent implements AfterViewInit, OnInit {
 
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                await this.player.load_playlist(null, playlist, false, false);
-                console.log('Loaded playlist for track:', playlist);
+                // convert the array of songs to a map of song_key to song_identifier
+                const song_map = new Map<string, Song_Identifier>();
+                playlist.song_data.forEach((song) => {
+                    song_map.set(this.media.bare_song_key(song.id), song.id);
+                });
+                playlist.songs = song_map;
+
                 playlist.song_data.map((song) => {
                     this.player.add_song_to_cache(song);
                 });
+
+                await this.player.load_playlist(null, playlist, false, false);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }

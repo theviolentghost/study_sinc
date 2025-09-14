@@ -351,7 +351,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: var(--space-7);
+    padding: var(--space-4);
     background-color: var(--color-background);
     box-shadow: 0 0 10px 10px var(--color-background);
     margin: var(--space-6) 0;
@@ -428,7 +428,7 @@
     z-index: 1;
     background-color: var(--color-background);
 }
-.shuffle-play {
+.shuffle-play, .dj-play {
     width: 100%;
     display: flex;
     align-items: center;
@@ -444,7 +444,7 @@
     gap: var(--space-2);
     margin-top: var(--space-4);
 }
-.shuffle-play .icon {
+.shuffle-play .icon, .dj-play .icon {
     width: var(--space-5);
     height: var(--space-5);
     mask-image: var(--mask);
@@ -673,7 +673,7 @@
     opacity: 1;
 }
 
-.sticky-actions .shuffle-play {
+.sticky-actions .shuffle-play, .sticky-actions .dj-play {
     height: var(--space-6);
     min-width: 120px;
     padding: var(--space-1) var(--space-3);
@@ -686,11 +686,11 @@
     transition: filter 0.15s ease-in-out;
 }
 
-.sticky-actions .shuffle-play:hover {
+.sticky-actions .shuffle-play:hover, .sticky-actions .dj-play:hover {
     filter: brightness(0.9);
 }
 
-.sticky-actions .shuffle-play .icon {
+.sticky-actions .shuffle-play .icon, .sticky-actions .dj-play .icon {
     width: var(--space-4);
     height: var(--space-4);
     background-color: var(--color-background);

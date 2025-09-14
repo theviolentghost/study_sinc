@@ -110,15 +110,14 @@
 .media-info-background.swipe-left::after {
     background-color: var(--color-primary);
     mask-image: url('/music/player-skip-forward.svg');
-    right: 0px;
+    left: 100%;
     animation: come-from-right 0.3s ease-out;
 }
 
 .media-info-background.swipe-right::after {
     background-color: var(--color-primary);
     mask-image: url('/music/player-skip-back.svg');
-    left: 0px;
-    right: auto;
+    right: 100%;
     animation: come-from-left 0.3s ease-out;
 }
 

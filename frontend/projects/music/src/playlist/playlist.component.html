@@ -28,19 +28,27 @@
             <div *ngIf="how_many_songs_in_playlist_download_queue() > 0" class="download-count" [style.--color]="get_playlist_primary_color()">{{ how_many_songs_in_playlist_download_queue() }}</div>
         </div>
     </div>
-    <button class="shuffle-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()">
+    <button *ngIf="prefers_shuffle_play_over_dj_play" class="shuffle-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()">
         <div class="icon" [style.--mask]="'url(\'arrows-shuffle.svg\')'"></div>
         Shuffle Play
+    </button>
+    <button *ngIf="!prefers_shuffle_play_over_dj_play" class="dj-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()">
+        <div class="icon" [style.--mask]="'url(\'disco-ball-fill.svg\')'"></div>
+        DJ Mix
     </button>
 </div>
 <div class="sticky-actions" [ngClass]="{ 'visible': !is_header_visible }">
-    <button class="shuffle-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()" [style.margin-top.px]="10">
+    <button *ngIf="prefers_shuffle_play_over_dj_play" class="shuffle-play" (click)="shuffle_play()" [style.--primary]="get_playlist_primary_color()" [style.margin-top.px]="10">
         <div class="icon" [style.--mask]="'url(\'arrows-shuffle.svg\')'"></div>
         Shuffle Play
     </button>
+    <button *ngIf="!prefers_shuffle_play_over_dj_play" class="dj-play" (click)="dj_play()" [style.--primary]="get_playlist_primary_color()" [style.margin-top.px]="10">
+        <div class="icon" [style.--mask]="'url(\'disco-ball-fill.svg\')'"></div>
+        DJ Mix
+    </button>
 </div>
 <div class="result-videos" #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top" [style.padding-bottom]="padding_bottom">
-    <div class="result video disable-select" style="overflow: hidden;" *ngFor="let video of visible_videos" >
+    <div class="result video disable-select" style="overflow: hidden; aspect-ratio: auto; padding: 0;" *ngFor="let video of visible_videos" >
         <button 
             class="result video" 
             [ngClass]="{selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(video?.id)}" 

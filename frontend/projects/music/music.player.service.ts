@@ -794,7 +794,7 @@ export class MusicPlayerService {
             return;
         }
 
-        await this.load_and_play_track(next_song_key);
+        this.load_and_play_track(next_song_key);
         this.preload_next_track(); // preload the next track after this one
 
         // add to history
@@ -819,7 +819,7 @@ export class MusicPlayerService {
 
         const current_song_key = this.media.song_key(this.audio_data.current.identifier);
         const previous_song_key = this.playlist.history_stack.pop();
-        await this.load_and_play_track(previous_song_key);
+        this.load_and_play_track(previous_song_key);
         // add current to front of queue
         this.playlist.queue.unshift(current_song_key);
         this.skipping_to_previous = false;
@@ -908,9 +908,27 @@ export class MusicPlayerService {
     public unshuffle_playlist(): void {
         const original_songs = Array.from(this.playlist.data.songs.values());
 
-        if(this.playlist.data.song_added_timestamps.size === 0) {
+        if(!this.playlist.data?.song_added_timestamps || this.playlist.data?.song_added_timestamps?.size === 0) {
             // using third party playlist without timestamps, cannot unshuffle
-            console.warn('Cannot unshuffle playlist without song added timestamps.');
+            console.warn('Cannot unshuffle playlist without song added timestamps. Using order given as in in .songs');
+            // make sure it only contains songs currently in queue
+            const current_song_key = this.audio_data.current.identifier ? this.media.song_key(this.audio_data.current.identifier) : null;
+            const queue_keys = new Set(this.playlist.queue);
+            
+            // Filter original songs to only include those in current queue
+            const filtered_songs = original_songs.filter(song => queue_keys.has(this.media.song_key(song)));
+            
+            // If current song exists and is in the filtered list, place it at the beginning
+            if (current_song_key && filtered_songs.some(song => this.media.song_key(song) === current_song_key)) {
+                const current_index = filtered_songs.findIndex(song => this.media.song_key(song) === current_song_key);
+                if (current_index > 0) {
+                    // Move current song to front
+                    const current_song = filtered_songs.splice(current_index, 1)[0];
+                    filtered_songs.unshift(current_song);
+                }
+            }
+            
+            this.playlist.queue = filtered_songs.map(identifier => this.media.song_key(identifier));
             return;
         }
 

@@ -827,12 +827,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         }
         
         // Visual feedback
-        const headerElement = document.querySelector('.media-header') as HTMLElement;
+        // const headerElement = document.querySelector('.media-header') as HTMLElement;
         const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
         
-        if (headerElement) {
-            headerElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
-            headerElement.style.transition = 'none';
+        if (backgroundElement) {
+            backgroundElement.style.transform = `translateX(${this.horizontalDragOffset}px)`;
+            backgroundElement.style.transition = 'none';
         }
         
         if (backgroundElement) {
@@ -859,12 +859,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const isDrag = this.headerHasMoved && Math.abs(this.horizontalDragOffset) > this.clickThreshold;
         
         // Reset visual feedback
-        const headerElement = document.querySelector('.media-header') as HTMLElement;
+        // const headerElement = document.querySelector('.media-header') as HTMLElement;
         const backgroundElement = document.querySelector('.media-info-background') as HTMLElement;
         
-        if (headerElement) {
-            headerElement.style.transform = '';
-            headerElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
+        if (backgroundElement) {
+            backgroundElement.style.transform = '';
+            backgroundElement.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)';
         }
         
         if (backgroundElement) {

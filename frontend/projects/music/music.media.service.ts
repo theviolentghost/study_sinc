@@ -1,8 +1,7 @@
 import { Injectable, Injector, Output, EventEmitter } from '@angular/core';
 import { set, get } from 'idb-keyval';
 import { lastValueFrom } from 'rxjs';
-
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpContextToken } from '@angular/common/http';
 import { AuthService } from '../../src/app/auth.service';
 import { MusicPlayerService } from './music.player.service';
 import { PlaylistsService } from './playlists.service';
@@ -520,21 +519,24 @@ export class MusicMediaService {
         return (await this.get_hls_stream(key))?.playlist_url || null;
     }
 
-    async get_hls_stream(key: string): Promise<any | null> {
-        // returns hls data for the song
+    async get_hls_stream(key: string, abortSignal?: AbortSignal): Promise<any | null> {
         const video_id = key.split(':').pop() || '';
         let response: any;
         try {
-            response = ((await lastValueFrom(
+            response = await lastValueFrom(
                 this.http.get(
                     `/stream?video_id=${encodeURIComponent(video_id)}`,
+                    
                 )
-            )) as any);
+            );
         } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('Request aborted for HLS stream:', video_id);
+                return null;
+            }
             console.error('Error fetching HLS stream:', error);
             return null;
         }
-        // console.log('HLS stream response:', response);
         return response || null;
     }
 
