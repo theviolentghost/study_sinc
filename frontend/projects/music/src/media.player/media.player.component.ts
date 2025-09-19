@@ -15,6 +15,7 @@ import { HotActionComponent } from '../hot.action/hot.action.component';
 import { HotActionService } from '../../hot.action.service';
 import { QuickActionComponent } from '../quick.action/quick.action.component';
 import { QuickActionService } from '../../quick.action.service';
+import { SettingsService } from '../../settings.service';
 
 @Component({
   selector: 'media-player',
@@ -164,8 +165,21 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.media.download_progress(video_id); // return the current download progress
     }
     get preloaded_next_song(): boolean {
+        // return false;
         return this.player.preloaded_next_song;
     }
+    get previous_song_exists(): boolean {
+        // return true;
+        return this.player.previous_song_exists;
+    }
+    get prefers_shuffle_play_over_dj_play(): boolean {
+        return this.settings.prefers_shuffle_play_over_dj_play;
+    }
+    get is_desired_play_method_active(): boolean {
+        // if prefers shuffle and shuffle is active, or prefers dj play and disco mode is active
+        return (this.settings.prefers_shuffle_play_over_dj_play && this.player.shuffle) || (!this.settings.prefers_shuffle_play_over_dj_play && this.player.disco_mode);
+    }
+
     audio_current_time = 0;
     audio_duration = 0;
     player_error: Player_Error | null = null; // Error message if any
@@ -179,10 +193,13 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         private player: MusicPlayerService, 
         private playlists: PlaylistsService, 
         private hot_action: HotActionService,
-        private quick_action: QuickActionService
+        private quick_action: QuickActionService,
+        private settings: SettingsService
     ) {
         // Initialize orientation detection
         this.setupOrientationDetection();
+
+        // this.visibility_status = 'visible';
         
         // check if the user has internet connection
         window.addEventListener('online', () => {
@@ -534,6 +551,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     toggle_shuffle(): void {
         this.player.shuffle = !this.player.shuffle;
     }
+    toggle_disco(): void {
+        // nothin
+    }
+    toggle_desired_play_method(): void {
+        // Toggle between shuffle and disco mode based on user preference
+        if (this.settings.prefers_shuffle_play_over_dj_play) {
+            this.toggle_shuffle();
+        } else {
+            this.toggle_disco_mode();
+        }
+    }
     get shuffle(): boolean {
         return this.player.shuffle;
     }
@@ -553,10 +581,72 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.player.toggle_play();
     }
     previous(): void {
+        const next_exists = this.player.preloaded_next_song;
+        // should right fade
+        if(!this.previous_song_exists) return;
         this.player.skip_to_previous();
+
+        // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
+
+        // do animation
+        if(next_exists) {
+            document.getElementById('bar-main-right')?.classList.add('is-next');
+            document.getElementById('bar-main-right-merger')?.classList.add('is-next');
+            document.getElementById('bar-main-right-temp')?.classList.add('is-next');
+            setTimeout(() => {
+                document.getElementById('bar-main-right')?.classList.remove('is-next');
+                document.getElementById('bar-main-right-merger')?.classList.remove('is-next');
+                document.getElementById('bar-main-right-temp')?.classList.remove('is-next');
+            }, 350); // Match the duration of the CSS animation
+        }
+        document.getElementById('bar-main-left')?.classList.add('skip-previous');
+        document.getElementById('bar-main-left-merger')?.classList.add('skip-previous');
+        document.getElementById('bar-main-left-temp')?.classList.add('skip-previous');
+        document.getElementById('bar-main-right')?.classList.add('skip-previous');
+        document.getElementById('bar-main-right-merger')?.classList.add('skip-previous');
+        document.getElementById('bar-main-right-temp')?.classList.add('skip-previous');
+
+        setTimeout(() => {
+            document.getElementById('bar-main-left')?.classList.remove('skip-previous');
+            document.getElementById('bar-main-left-merger')?.classList.remove('skip-previous');
+            document.getElementById('bar-main-left-temp')?.classList.remove('skip-previous');
+            document.getElementById('bar-main-right')?.classList.remove('skip-previous');
+            document.getElementById('bar-main-right-merger')?.classList.remove('skip-previous');
+            document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
+        }, 350);
     }
     next(): void {
+        const previous_exists = this.previous_song_exists;
         this.player.skip_to_next(true);
+
+        // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
+        // do animation
+        if(!previous_exists) {
+            document.getElementById('bar-main-left')?.classList.add('no-previous');
+            document.getElementById('bar-main-left-merger')?.classList.add('no-previous');
+            document.getElementById('bar-main-left-temp')?.classList.add('no-previous');
+            setTimeout(() => {
+                document.getElementById('bar-main-left')?.classList.remove('no-previous');
+                document.getElementById('bar-main-left-merger')?.classList.remove('no-previous');
+                document.getElementById('bar-main-left-temp')?.classList.remove('no-previous');
+            }, 350); // Match the duration of the CSS animation
+        }
+        document.getElementById('bar-main-left')?.classList.add('skip-next');
+        document.getElementById('bar-main-left-merger')?.classList.add('skip-next');
+        document.getElementById('bar-main-left-temp')?.classList.add('skip-next');
+        document.getElementById('bar-main-right')?.classList.add('skip-next');
+        document.getElementById('bar-main-right-merger')?.classList.add('skip-next');
+        document.getElementById('bar-main-right-temp')?.classList.add('skip-next');
+
+        setTimeout(() => {
+            document.getElementById('bar-main-left')?.classList.remove('skip-next');
+            document.getElementById('bar-main-left-merger')?.classList.remove('skip-next');
+            document.getElementById('bar-main-left-temp')?.classList.remove('skip-next');
+            document.getElementById('bar-main-right')?.classList.remove('skip-next');
+            document.getElementById('bar-main-right-merger')?.classList.remove('skip-next');
+            document.getElementById('bar-main-right-temp')?.classList.remove('skip-next');
+        }, 350); // Match the duration of the CSS animation
+
     }
     async get_song_artwork(song: Song_Data | null): Promise<string | null> {
         if (!song) return null;
@@ -992,7 +1082,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private updateOrientation(): void {
         // Method 1: Use screen.orientation (modern browsers)
         if (screen.orientation) {
-            this._isLandscape = screen.orientation.angle === 90 || screen.orientation.angle === -90;
+            this._isLandscape = screen.orientation.angle === 90 || screen.orientation.angle === -90 || screen.orientation.angle === 270;
         }
         // Method 2: Use window.orientation (older browsers)
         else if (typeof (window as any).orientation !== 'undefined') {

@@ -623,6 +623,7 @@ export class QuickActionComponent {
                 this.moveFromPlaylistToPlayNext(event.previousIndex, event.currentIndex);
             }
         }
+        this.player.preload_next_track();
         
         // Reset any active swipe state after drag operation
         this.resetSwipeState();

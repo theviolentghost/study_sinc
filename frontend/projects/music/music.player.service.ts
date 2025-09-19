@@ -101,6 +101,10 @@ export class MusicPlayerService {
         return this.audio_data.next.loaded;
     }
 
+    get previous_song_exists(): boolean {
+        return this.playlist.history_stack.length > 0;
+    }
+
     get playlist_identifier(): Song_Playlist_Identifier | null {
         return this.playlist.identifier;
     }
@@ -716,7 +720,24 @@ export class MusicPlayerService {
             const next_key = this.playlist.queue[0];
             return this.media.parse_song_key(next_key);
         }
+        
+        // if gets to here try refilling playlist queue from playlist data
+        if(this.playlist.data) {
+            this.refill_playlist_queue_from_playlist_data();
+            if(this.playlist.queue.length > 0) {
+                const next_key = this.playlist.queue[0];
+                return this.media.parse_song_key(next_key);
+            }
+        }
+
         return null; // no next track
+    }
+
+    private is_next_track_preloaded_in_play_next_queue(): boolean {
+        if(this.playlist.play_next.length === 0) return false;
+        const next_key = this.playlist.play_next[0];
+        const next_identifier = this.media.parse_song_key(next_key);
+        return this.is_track_the_same_as_preloaded(next_identifier);
     }
 
     private is_next_track_preloaded(): boolean {
@@ -727,13 +748,14 @@ export class MusicPlayerService {
         return (track_identifier.video_id === this.audio_data.next.identifier.video_id);
     }
 
-    private async preload_next_track(): Promise<void> {
+    public async preload_next_track(): Promise<void> {
         let next_identifier = this.get_next_track_identifier();
-        if(!next_identifier) {
+        console.log("next track", next_identifier);
+        if(!next_identifier || next_identifier.video_id === null) {
             // try refilling playlist and try again
             this.refill_playlist_queue_from_playlist_data();
             next_identifier = this.get_next_track_identifier();
-            if(!next_identifier) return; // no next track
+            if(!next_identifier || next_identifier.video_id === null) return; // no next track
         }
         if(this.is_track_the_same_as_preloaded(next_identifier)) return console.warn('Next track is already preloaded:', next_identifier); // already preloaded
 
@@ -816,11 +838,16 @@ export class MusicPlayerService {
             this.play();
             return;
         }
-        if(this.playlist.history_stack.length === 0) {
+        if(!this.previous_song_exists) {
             console.warn('No previous song in history to skip to.');
             return;
         }
         this.skipping_to_previous = true;
+
+        // set current track to preloaded track if it exists
+        if(this.audio_data.current.loaded) {
+            this.audio_data.next = {...this.audio_data.current};
+        }
 
         const current_song_key = this.media.song_key(this.audio_data.current.identifier);
         const previous_song_key = this.playlist.history_stack.pop();
@@ -870,6 +897,10 @@ export class MusicPlayerService {
 
         if(!preserve_history) this.playlist.history_stack = [];
         if(auto_play && this.playlist.queue.length > 0) {
+            if(!this.is_next_track_preloaded_in_play_next_queue()) {
+                // the next preloaded track is not the next in the play next queue, so we need to remove it because the preloaded track is from the previous playlist
+                this.audio_data.next = {identifier: null, data: null, loaded: false, audio_source: null, source_type: null};
+            }
             this.skip_to_next();
         } else {
             this.preload_next_track();
