@@ -12,10 +12,16 @@ import { WatchHistoryService } from './watch-history.service';
   providedIn: 'root'
 })
 export class YoutubeService {
+    isLoggingIn = false;
     private loginSessionIdSubject = new BehaviorSubject<string | null>(null);
     loginSessionId$: Observable<string | null> = this.loginSessionIdSubject.asObservable();
     private loginImageSubject = new BehaviorSubject<string | null>(null);
     loginImage$: Observable<string | null> = this.loginImageSubject.asObservable();
+
+    private nextHomePageToken: string = '';
+    private homepageVideosList: PlaylistVideo[] = [];
+    private homepageVideosSubject = new BehaviorSubject<PlaylistVideo[] | null>(null);
+    homepageVideosData$: Observable<PlaylistVideo[] | null> = this.homepageVideosSubject.asObservable();
 
     private _currentSearchQuery: string;
     private nextSearchPageToken: string;
@@ -46,9 +52,9 @@ export class YoutubeService {
     constructor(private http: HttpClient,
         private router: Router,
         private watchHistoryService: WatchHistoryService
-    ) { }
+    ) {}
 
-    searchVideos(query: string, nextPageToken: string): Observable<any> {
+    private searchVideos(query: string, nextPageToken: string): Observable<any> {
         let params = new HttpParams()
             .set('q', query)
             .set('nextPageToken', nextPageToken);
@@ -56,7 +62,7 @@ export class YoutubeService {
         return this.http.get<YouTubeSearchResponse>(`/youtube_search`, { params });
     }
 
-    getFullSearchSuggestions(query: string): Observable<any> {
+    private getFullSearchSuggestions(query: string): Observable<any> {
         let params = new HttpParams()
             .set('q', query);
 
@@ -78,31 +84,60 @@ export class YoutubeService {
         return this.http.get<YouTubeSearchResponse>(`/youtube_get_playlist_videos`, { params });
     }
 
-    getFullVideoData(videoId: string): Observable<any>{
+    private getFullVideoData(videoId: string): Observable<any>{
         let params = new HttpParams()
             .set('videoId', videoId);
 
         return this.http.get<FullVideoData>(`/youtube_get_video_data`, { params });
     }
 
-    youtubeInitializeLogin(): Observable<any>{
+    private getFullHomepage(accountId, nextPageToken): Observable<any>{
+        if(!accountId) accountId = '';
+        if(!nextPageToken) nextPageToken = '';
+        let params = new HttpParams()
+            .set('accountId', accountId)
+            .set('nextPageToken', nextPageToken);
+
+        return this.http.get<any>(`/youtube_get_homepage`, { params });
+    }
+
+    private youtubeInitializeLogin(): Observable<any>{
         let params = new HttpParams();
         console.log('logging');
 
         return this.http.get<any>(`/start_youtube_login`, { params });
     }
 
-    startLoginStream(id: string): Observable<any>{
+    private startLoginStream(id: string): Observable<any>{
         let params = new HttpParams();
         console.log('streaming');
 
         return this.http.get<Blob>(`/stream_youtube_login/${id}`, { params, responseType: 'blob' as 'json' });
     }
 
-    isLoginSessionActive(id: string): Observable<any>{
+    private loginClick(id: string, xPercentage: number, yPercentage: number): Observable<any>{
+        let params = new HttpParams();
+        console.log('click ' + xPercentage + ' ' + yPercentage);
+
+        return this.http.post<any>(`/login_click/${id}?xPercentage=${xPercentage}&yPercentage=${yPercentage}`, { params });
+    }
+
+    private loginType(id: string, input: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.post<any>(`/login_type/${id}?input=${input}`, { params });
+    }
+
+    private isLoginSessionActive(id: string): Observable<any>{
         let params = new HttpParams();
 
         return this.http.get<any>(`/is_session_active/${id}`, { params });
+    }
+
+    private isAccountLoggedIn(id: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.get<any>(`/is_youtube_account_logged_in/${id}`, { params });
     }
 
     get isDisplayingVideo(): boolean{
@@ -130,37 +165,85 @@ export class YoutubeService {
     }
 
     youtubeFullLogin(): void{
+        if(this.isLoggingIn) return;
         let id;
         this.youtubeInitializeLogin()
-        .pipe(take(1))
-        .subscribe(data => {
-            id = data.id
-            console.log(data);
-            this.loginSessionIdSubject.next(id);
+            .pipe(take(1))
+            .subscribe(data => {
+                id = data.id
+                console.log(data);
+                this.loginSessionIdSubject.next(id);
 
-            this.makeLoginStream(id);
+                this.makeLoginStream(id);
         });
+        this.isLoggingIn = true;
+    }
+
+    waitForSuccessfulLogin(id: string): void{
+        let loginChecker = setInterval(() => {
+            this.isAccountLoggedIn(id)
+                .pipe(take(1))
+                .subscribe((data) => {
+                    if(!data.isLoggedIn) return; 
+
+                    this.isLoggingIn = false;
+                    this.navigateToHome();
+                    clearInterval(loginChecker);
+            });
+            this.getLoginFrame(id);
+        } , 500);
     }
 
     makeLoginStream(id: string): void{
         
-        let sessionChecker = setInterval(() => {
-            this.isLoginSessionActive(id)
-                .pipe(take(1))
-                .subscribe(isReady => {
-                    if(!isReady) return;
+        try{
+            let sessionChecker = setInterval(() => {
+                this.isLoginSessionActive(id)
+                    .pipe(take(1))
+                    .subscribe(isReady => {
+                        if(!isReady) return;
 
-                    clearInterval(sessionChecker);
-                    this.startLoginStream(id)
-                        .pipe(take(1))
-                        .subscribe(data => {
-                            const objectUrl = URL.createObjectURL(data);
-                            this.loginImageSubject.next(objectUrl);
+                        clearInterval(sessionChecker);
+                        this.getLoginFrame(id);
+                        this.waitForSuccessfulLogin(id);
                 });
-            });
-        }, 500);
+            }, 500);
+        }catch{
+            console.log('timeout');
+            return;
+        }
+    }
+    saveAccountId(id: string){
 
-        
+    }
+
+    getLoginFrame(id: string): void{
+        this.startLoginStream(id)
+            .pipe(take(1))
+            .subscribe(data => {
+                const objectUrl = URL.createObjectURL(data);
+                this.loginImageSubject.next(objectUrl);
+        });
+    }
+
+    attemptLoginClick(xPercentage, yPercentage){
+        let id = this.loginSessionIdSubject.value;
+        this.loginClick(id, xPercentage, yPercentage)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+        });
+        this.getLoginFrame(id);
+    }
+
+    attemptLoginType(input: string){
+        let id = this.loginSessionIdSubject.value;
+        this.loginType(id, input)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+        });
+        this.getLoginFrame(id);
     }
 
     public minimizePlayer(){
@@ -238,6 +321,26 @@ export class YoutubeService {
         });
     }
 
+    addToHomepage(){
+        this.getFullHomepage(this.loginSessionIdSubject.value, this.nextHomePageToken)
+            .pipe(take(1))
+            .subscribe(data => {
+                if(!data) return;
+                this.nextHomePageToken = data.nextPageToken;
+                let videoIdList = data.data;
+                if(!videoIdList) return;
+
+                for(let video = 0; video < videoIdList.length; video++){
+                    this.getFullVideoData(videoIdList[video])
+                        .pipe(take(1))
+                        .subscribe(data => {
+                            this.homepageVideosList.push(data.basicVideoData);
+                            if(this.homepageVideosList.length == videoIdList.length)this.homepageVideosSubject.next(this.homepageVideosList);
+                        });
+                }
+            });
+    }
+
     saveCurrentChannel(channel: YouTubeChannel){
         this.channelSubject.next(channel);
     }
@@ -293,7 +396,14 @@ export class YoutubeService {
                 youtube: ['player'] 
             } 
         }], { skipLocationChange: true });
+    }
 
+    public navigateToHome(): void {
+        this.router.navigate(['/youtube', { 
+            outlets: { 
+                youtube: ['select'] 
+            } 
+        }], { skipLocationChange: true });
     }
 
     public timeAgo(isoDate) {

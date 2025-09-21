@@ -1,10 +1,11 @@
 
 import 'dotenv/config';
 import { Innertube } from 'youtubei.js';
+import youtubeAccount from './youtube-account.js';
 
 const yt = await Innertube.create();
 
-async function search(query, nextPageToken) {
+async function search(query, nextPageToken, accountId) {
     if (!query || query.trim() === '') {
         console.error('Query must be a non-empty string');
         return {
@@ -14,7 +15,7 @@ async function search(query, nextPageToken) {
     }
 
     try {
-        return await youtubeSearch(query, nextPageToken);
+        return await youtubeSearch(query, nextPageToken, accountId);
     } catch (error) {
         console.error('Error searching YouTube:', error);
         return { 
@@ -24,7 +25,8 @@ async function search(query, nextPageToken) {
     }
 }
 
-async function youtubeSearch(query, nextPageToken) {
+async function youtubeSearch(query, nextPageToken, accountId) {
+  let yt = youtubeAccount.getAccountInstance(accountId);
   let searchData;
   let results;
   let newNextPageToken;

@@ -1,16 +1,16 @@
-<div class="youtube_video_grid">
-    <a class="video" (click)="playNewVideo(null)" *ngFor="let video of videos">
-        <div class="thumbnail">
-            <div class="video_time_display"><div class="video_time_text">0:00:00</div></div>
-            <div class="video_progress_bar" *ngIf="wasWatched('')" [style.width.%]="getVideoProgressPercent('')"></div>
+<div id="youtube_video_grid" class="youtube_video_grid">
+    <a class="video" #videoItem (click)="playNewVideo(video)" *ngFor="let video of homepageVideos">
+        <div class="thumbnail" [attr.background-url]="video.videoThumbnailUrl" [ngStyle]="{'background-image': 'url(' + video.videoThumbnailUrl + ')'}">
+            <div class="video_time_display"><div class="video_time_text">{{formatDuration(video.duration)}}</div></div>
+            <div class="video_progress_bar" *ngIf="wasWatched(video.id)" [style.width.%]="getVideoProgressPercent(video.id)"></div>
         </div>
 
         <div class="video_details">
-            <button class="video_channel_icon" (click)="navigateToChannel()"></button>
+            <button class="video_channel_icon" (click)="navigateToChannel(video.channelId)" [ngStyle]="{'background-image': 'url(' + video.channelThumbnailUrl + ')'}"></button>
             <div class="video_text">
-                <p class="video_title">title</p>
-                <p class="video_caption">channel name</p>
-                <p class="video_caption"> views and date</p>
+                <p class="video_title">{{video.title}}</p>
+                <p class="video_caption">{{video.channelTitle}}</p>
+                <p class="video_caption"> {{video.viewCount}} - {{video.uploadDate}}</p>
             </div>
         </div>
     </a>

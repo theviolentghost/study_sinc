@@ -18,6 +18,7 @@ import multer from 'multer';
 import youtubeAccount from './youtube-account.js';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
+import youtubeHomepage from './youtube-homepage.js';
 const upload = multer();
 
 const app = Express();
@@ -480,12 +481,14 @@ app.put('/user/file/:fileId',
 app.get('/youtube_search', async (req, res) => {
     const query = req.query.q;
     const nextPageToken = req.query.nextPageToken;
+    let accountId = req.query.accountId;
+    if(!accountId) accountId = '';
 
     if (!query) {
         return res.status(400).json({ error: 'Search query is required' });
     }
     try {
-        const results = await youtubeSearch.search(query, nextPageToken);
+        const results = await youtubeSearch.search(query, nextPageToken, accountId);
 
         res.json(results);
     } catch (error) {
@@ -501,7 +504,7 @@ app.get('/youtube_full_channel', async (req, res) => {
         return res.status(400).json({ error: 'id is required' });
     }
     try {
-        const results = await youtubeChannelSearch.getFullChannel(id);;
+        const results = await youtubeChannelSearch.getFullChannel(id);
 
         res.json(results);
     } catch (error) {
@@ -574,6 +577,22 @@ app.get('/youtube_get_video_data', async (req, res) => {
     }
 });
 
+app.get('/youtube_get_homepage', async (req, res) => {
+    let accountId = req.query.accountId;
+    let nextPageToken = req.query.nextPageToken;
+    if(!accountId) accountId = '';
+    if(!nextPageToken) nextPageToken = '';
+
+    try{
+        const results = await youtubeHomepage.getHompage(accountId, nextPageToken);
+
+        res.json(results);
+    }catch(error){
+        console.error('error getting homepage', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 app.get('/start_youtube_login', async (req, res) => {
     const id = crypto.randomUUID();
     res.status(200).json({id: id});
@@ -582,7 +601,7 @@ app.get('/start_youtube_login', async (req, res) => {
     const browserInfo = await youtubeAccount.initializeLogin();
 
     youtubeLoginSessions[id] = { browser: browserInfo.browser, page: browserInfo.page, interval: null };
-    youtubeAccount.awaitLogin(page);
+    youtubeAccount.awaitLogin(browserInfo.page, id);
 });
 
 app.get('/is_session_active/:id', async (req, res) => {
@@ -596,24 +615,61 @@ app.get('/stream_youtube_login/:id', async (req, res) => {
     const session = youtubeLoginSessions[id];
     if (!session) return res.status(404).send('Session not found');
 
+    res.status(200);
     const page = session.page;
+    if(!page) return res.status(410).send('session ended');
 
     try {
-        console.log('screenshotting');
-        const buffer = await page.screenshot({ type: 'jpeg', quality: 80 });
+        const client = await page.target().createCDPSession();
+
+        const { data } = await client.send('Page.captureScreenshot', { fromSurface: true });
+
+        const buffer = Buffer.from(data, 'base64');
+
         res.writeHead(200, {
-            'Content-Type': 'image/jpeg',
-            'Content-Length': buffer.length,
-            'Cache-Control': 'no-cache',
+        'Content-Type': 'image/png',
+        'Content-Length': buffer.length,
+        'Cache-Control': 'no-cache',
         });
         res.end(buffer);
     } catch (err) {
-        console.log(err);
+        res.status(410);
     }
-
 });
 
+app.post('/login_click/:id', async (req, res) => {
+    const { id } = req.params;
+    const xPercentage = req.query.xPercentage;
+    const yPercentage = req.query.yPercentage;
 
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    youtubeAccount.login_click(session.page, xPercentage, yPercentage);
+    res.status(200).send({data:'clicked'});
+});
+
+app.post('/login_type/:id', async (req, res) => {
+    const { id } = req.params;
+    const input = req.query.input;
+
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    youtubeAccount.login_type(session.page, input);
+    res.status(200).send({data:'typed ' + input});
+});
+
+app.get('/is_youtube_account_logged_in/:id', async (req, res) => {
+    const { id } = req.params;
+
+    let response = youtubeAccount.isLoggedIn(id);
+    res.status(200).json({isLoggedIn: response});
+    if(response) {
+        await youtubeLoginSessions[id].browser.close();
+        delete youtubeLoginSessions[id];
+    }
+});
 
 // app.post('/newton/chat',
 //     Authentication.newton.validateChatAuthorization,

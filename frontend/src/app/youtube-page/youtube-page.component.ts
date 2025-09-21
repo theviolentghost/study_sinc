@@ -68,11 +68,7 @@ export class YoutubePageComponent {
   }
 
   public navigateToHome(): void {
-    this.router.navigate(['/youtube', { 
-        outlets: { 
-            youtube: ['select'] 
-        } 
-    }], { skipLocationChange: true });
+    this.youtubeService.navigateToHome();
   }
 
   public navigateToSubscriptionPage(): void {

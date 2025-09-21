@@ -21,6 +21,14 @@ export class YoutubeLoginComponent {
   imageUrlSub;
   imageUrl: string;
 
+  loginTypeFunction = (event) => {
+    console.log(`Key pressed: ${event.key}`);
+    if(!this.imageUrl) return;
+    if(event.key == 'shift') return;
+
+    this.youtubeService.attemptLoginType(event.key);
+  };
+
   ngOnInit(){
     this.sessionSub = this.youtubeService.loginSessionId$.subscribe(id => {
       if(!id) id = '';
@@ -32,10 +40,27 @@ export class YoutubeLoginComponent {
       this.imageUrl = url;
       console.log(url);
     });
+
+    document.addEventListener('keydown', this.loginTypeFunction);
   }
 
   ngOnDestroy(){
     this.sessionSub.unsubscribe();
     this.imageUrlSub.unsubscribe();
+    document.removeEventListener('keydown', this.loginTypeFunction);
+  }
+
+  loginClick(event: MouseEvent, element: HTMLElement){
+    console.log(event);
+    let x = event.offsetX;
+    let y = event.offsetY;
+
+    let width = element.offsetWidth;
+    let height = element.offsetHeight;
+
+    let xPercentage = x / width;
+    let yPercentage = y / height;
+
+    this.youtubeService.attemptLoginClick(xPercentage, yPercentage);
   }
 }

@@ -2,12 +2,10 @@
 import 'dotenv/config';
 
 import { Innertube } from 'youtubei.js';
-
-const yt = await Innertube.create();
-
-console.log(Object.getOwnPropertyNames(Object.getPrototypeOf(yt)));
+import youtubeAccount from './youtube-account.js';
 
 async function getVideoData(videoId){
+  let yt = youtubeAccount.getAccountInstance('');
   let data = await yt.getInfo(videoId);
   
   let basicVideoData = {
@@ -41,7 +39,7 @@ async function getVideoData(videoId){
         channelThumbnailUrl: videoData.metadata.image.avatar.image[0].url,
         videoThumbnailUrl: videoData.content_image.image[0].url,
         description: '',
-        uploadDate: videoData.metadata.metadata.metadata_rows[1].metadata_parts[1].text?.text | '',
+        uploadDate: videoData.metadata.metadata.metadata_rows?.[1].metadata_parts?.[1].text?.text | '',
       };
       nextVideos.push(videoObject);
     }catch(err){
@@ -54,6 +52,7 @@ async function getVideoData(videoId){
 } 
 
 async function getPlaylistVideos(playlistId, nextPageToken){
+  let yt = youtubeAccount.getAccountInstance('');
   let playlistData;
   let results;
   let newNextPageToken;
