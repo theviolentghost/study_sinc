@@ -27,35 +27,41 @@ export class MusicPlayerService {
     set_audio_element(element: HTMLAudioElement | null): void {
         this.audio_element = element;
 
-        // Initialize audio context for iOS
-        if (this.is_ios_safari && element && !this.audio_context) {
-            this.initialize_audio_context();
-        }
-
+        // Don't initialize audio context on load - it interferes with iOS media controls
+        // We'll create it on-demand when needed for recovery
+        
         this.setup_media_session_action_handlers();
         this.setup_audio_event_listeners();
         this.setup_visibility_change_listeners();
     }
 
     private initialize_audio_context(): void {
+        // Only initialize if not already created
+        if (this.audio_context || !this.audio_element) return;
+        
         try {
             // Create audio context for iOS audio session management
             this.audio_context = new (window.AudioContext || (window as any).webkitAudioContext)();
             
             // Create a media element source and connect it to destination
             // This keeps the audio pipeline active on iOS
-            if (this.audio_element && !this.audio_source_node) {
+            if (!this.audio_source_node) {
                 this.audio_source_node = this.audio_context.createMediaElementSource(this.audio_element);
                 this.audio_source_node.connect(this.audio_context.destination);
             }
 
-            console.log('Audio context initialized for iOS:', this.audio_context.state);
+            console.log('Audio context initialized on-demand for iOS recovery:', this.audio_context.state);
         } catch (error) {
             console.error('Error initializing audio context:', error);
         }
     }
 
     private async resume_audio_context(): Promise<void> {
+        // Create context if it doesn't exist yet
+        if (!this.audio_context && this.is_ios_safari) {
+            this.initialize_audio_context();
+        }
+        
         if (this.audio_context && this.audio_context.state === 'suspended') {
             try {
                 await this.audio_context.resume();
@@ -265,11 +271,9 @@ export class MusicPlayerService {
         console.log('starting visualizer');
         this.start_visualizer(); // temp
 
-        // Resume audio context if suspended (iOS fix)
-        if (this.is_ios_safari && this.audio_context) {
-            await this.resume_audio_context();
-        }
-
+        // Don't create audio context on regular play - only for recovery
+        // This prevents iOS lock screen controls from being disabled
+        
         if(this.playing_silent_audio) {
             // playing silent audio, switch back to real audio
             await this.switch_from_silent_audio_to_real_audio();
@@ -788,9 +792,11 @@ export class MusicPlayerService {
     private async handle_return_to_foreground(): Promise<void> {
         console.log('Returning to foreground, was playing before:', this.was_playing_before_background);
         
-        // Resume audio context if it was suspended
-        if (this.is_ios_safari && this.audio_context) {
-            await this.resume_audio_context();
+        // Only resume audio context if it already exists (don't create it)
+        // Creating it interferes with iOS media controls
+        if (this.is_ios_safari && this.audio_context && this.audio_context.state === 'suspended') {
+            await this.audio_context.resume();
+            console.log('Audio context resumed on return to foreground');
         }
 
         // Check if HLS needs to be recovered
@@ -824,6 +830,16 @@ export class MusicPlayerService {
                     this.update_playback_state();
                 } catch (error) {
                     console.error('Error resuming playback:', error);
+                    // Only create audio context as last resort for recovery
+                    if (this.is_ios_safari) {
+                        console.log('Attempting audio context recovery');
+                        await this.resume_audio_context();
+                        try {
+                            await this.audio_element.play();
+                        } catch (retryError) {
+                            console.error('Audio context recovery failed:', retryError);
+                        }
+                    }
                 }
             } else {
                 // Audio element thinks it's playing but might have no output
