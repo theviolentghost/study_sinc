@@ -18,6 +18,10 @@ import { InViewDirective } from './in-view.directive';
 export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     ngOnInit(): void {
         this.load_search_history();
+        // Preload colors for first few visible albums after a short delay
+        setTimeout(() => {
+            this.preload_visible_album_colors();
+        }, 100);
     }
     
     ngOnDestroy(): void {
@@ -552,24 +556,56 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     private primary_colors: Map<string, string> = new Map(); // source to primary color mapping
+    private color_loading: Set<string> = new Set(); // Track which colors are currently loading
+    
     public get_album_primary_color(source: string): string {
         if (this.primary_colors.has(source)) {
             return this.primary_colors.get(source)!;
         }
-        this.load_album_primary_color(source);
         
-        return 'white';
+        // Only start loading if not already loading
+        if (!this.color_loading.has(source)) {
+            this.load_album_primary_color(source);
+        }
+        
+        // Return a neutral color while loading
+        return 'rgba(255, 255, 255, 0.1)';
     }
+    
     private async load_album_primary_color(source: string): Promise<void> {
-        const color = await this.media.get_primary_color_from_artwork(source);
-        this.primary_colors.set(source, color);
+        if (this.color_loading.has(source)) return;
+        
+        this.color_loading.add(source);
+        try {
+            const color = await this.media.get_primary_color_from_artwork(source);
+            this.primary_colors.set(source, color);
+        } catch (error) {
+            console.error('Error loading album color:', error);
+            this.primary_colors.set(source, 'rgba(255, 255, 255, 0.1)');
+        } finally {
+            this.color_loading.delete(source);
+        }
+    }
+
+    private async preload_visible_album_colors(): Promise<void> {
+        // Preload colors for the first 5 albums (initially visible)
+        const releases = this.top_releases.slice(0, 5);
+        for (const album of releases) {
+            const imageUrl = album.images?.[0]?.url;
+            if (imageUrl && !this.primary_colors.has(imageUrl)) {
+                // Load colors asynchronously without waiting
+                this.load_album_primary_color(imageUrl);
+                // Add a small delay between requests to avoid blocking
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
     }
 
     on_album_view_change(index: number, event: { ratio: number; distance: number }): void {
         // Store the distance for this album
         this.album_distances.set(index, event.distance);
         
-        // Debounce to avoid too many updates
+        // Debounce to avoid too many updates - increased from 50ms to 150ms
         if (this.update_viewing_timer) {
             clearTimeout(this.update_viewing_timer);
         }
@@ -589,12 +625,14 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
             // Only update if it's a different album
             if (this.viewing_album_index !== closestIndex) {
                 this.viewing_album_index = closestIndex;
-                // Reset all states
-                this.album_viewing_states = [false, false, false, false, false];
+                // Reset all states to false
+                this.album_viewing_states.fill(false);
                 // Set only the closest one
-                this.album_viewing_states[closestIndex] = true;
+                if (closestIndex < this.album_viewing_states.length) {
+                    this.album_viewing_states[closestIndex] = true;
+                }
             }
-        }, 50); // 50ms debounce
+        }, 150); // Increased debounce to 150ms for better performance
     }
 
     track_by_index(index: number): number {

@@ -27,9 +27,43 @@ export class MusicPlayerService {
     set_audio_element(element: HTMLAudioElement | null): void {
         this.audio_element = element;
 
+        // Initialize audio context for iOS
+        if (this.is_ios_safari && element && !this.audio_context) {
+            this.initialize_audio_context();
+        }
+
         this.setup_media_session_action_handlers();
         this.setup_audio_event_listeners();
         this.setup_visibility_change_listeners();
+    }
+
+    private initialize_audio_context(): void {
+        try {
+            // Create audio context for iOS audio session management
+            this.audio_context = new (window.AudioContext || (window as any).webkitAudioContext)();
+            
+            // Create a media element source and connect it to destination
+            // This keeps the audio pipeline active on iOS
+            if (this.audio_element && !this.audio_source_node) {
+                this.audio_source_node = this.audio_context.createMediaElementSource(this.audio_element);
+                this.audio_source_node.connect(this.audio_context.destination);
+            }
+
+            console.log('Audio context initialized for iOS:', this.audio_context.state);
+        } catch (error) {
+            console.error('Error initializing audio context:', error);
+        }
+    }
+
+    private async resume_audio_context(): Promise<void> {
+        if (this.audio_context && this.audio_context.state === 'suspended') {
+            try {
+                await this.audio_context.resume();
+                console.log('Audio context resumed:', this.audio_context.state);
+            } catch (error) {
+                console.error('Error resuming audio context:', error);
+            }
+        }
     }
 
     set_thumbnail_element(element: HTMLImageElement | null): void {
@@ -182,8 +216,13 @@ export class MusicPlayerService {
     private thumbnail_element: HTMLImageElement | null = null;
     private hls: Hls | null = null;
     private readonly hls_supported: boolean = Hls.isSupported();
+    private audio_context: AudioContext | null = null;
+    private audio_source_node: MediaElementAudioSourceNode | null = null;
 
     private is_ios_safari = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) && /safari/.test(navigator.userAgent.toLowerCase()) && !/crios|fxios|edgios|opr\//.test(navigator.userAgent.toLowerCase());
+    private was_playing_before_background: boolean = false;
+    private last_time_update: number = 0;
+    private stall_check_interval: any = null;
 
     // outside paramaters
     private _shuffle: boolean = false;
@@ -225,6 +264,11 @@ export class MusicPlayerService {
 
         console.log('starting visualizer');
         this.start_visualizer(); // temp
+
+        // Resume audio context if suspended (iOS fix)
+        if (this.is_ios_safari && this.audio_context) {
+            await this.resume_audio_context();
+        }
 
         if(this.playing_silent_audio) {
             // playing silent audio, switch back to real audio
@@ -582,10 +626,18 @@ export class MusicPlayerService {
         this.audio_element.addEventListener('play', () => {
             this.update_playback_state();
             this.start_visualizer();
+            // Start monitoring for stalls on iOS
+            if (this.is_ios_safari) {
+                this.start_stall_detection();
+            }
         });
         this.audio_element.addEventListener('pause', () => {
             this.update_playback_state();
             this.stop_visualizer();
+            // Stop monitoring when paused
+            if (this.is_ios_safari) {
+                this.stop_stall_detection();
+            }
         });
         this.audio_element.addEventListener('ended', () => {
             this.skip_to_next();
@@ -602,26 +654,196 @@ export class MusicPlayerService {
     }
 
     private setup_visibility_change_listeners(): void {
-        document.addEventListener('visibilitychange', () => {
-            this.is_app_in_foreground = document.visibilityState === 'visible';
-            console.log('App is in foreground:', this.is_app_in_foreground);
+        document.addEventListener('visibilitychange', async () => {
+            const is_visible = document.visibilityState === 'visible';
+            const was_in_foreground = this.is_app_in_foreground;
+            this.is_app_in_foreground = is_visible;
+            
+            console.log('App visibility changed:', is_visible ? 'foreground' : 'background');
+            
+            if (is_visible && !was_in_foreground) {
+                // Coming back to foreground
+                await this.handle_return_to_foreground();
+            } else if (!is_visible && was_in_foreground) {
+                // Going to background
+                this.handle_going_to_background();
+            }
         });
-        (document as any).addEventListener('webkitvisibilitychange', () => {
-            this.is_app_in_foreground = document.visibilityState === 'visible';
+        
+        (document as any).addEventListener('webkitvisibilitychange', async () => {
+            const is_visible = document.visibilityState === 'visible';
+            const was_in_foreground = this.is_app_in_foreground;
+            this.is_app_in_foreground = is_visible;
+            
+            if (is_visible && !was_in_foreground) {
+                await this.handle_return_to_foreground();
+            } else if (!is_visible && was_in_foreground) {
+                this.handle_going_to_background();
+            }
         });
-        window.addEventListener('focus', () => {
-            this.is_app_in_foreground = true;
+        
+        window.addEventListener('focus', async () => {
+            if (!this.is_app_in_foreground) {
+                this.is_app_in_foreground = true;
+                await this.handle_return_to_foreground();
+            }
         });
+        
         window.addEventListener('blur', () => {
-            this.is_app_in_foreground = false;
+            if (this.is_app_in_foreground) {
+                this.is_app_in_foreground = false;
+                this.handle_going_to_background();
+            }
         });
+        
         window.addEventListener('pagehide', (e) => {
             this.is_app_in_foreground = false;
+            this.handle_going_to_background();
         }, { capture: true });
 
-        window.addEventListener('pageshow', (e) => {
-            this.is_app_in_foreground = true;
+        window.addEventListener('pageshow', async (e) => {
+            if (!this.is_app_in_foreground) {
+                this.is_app_in_foreground = true;
+                await this.handle_return_to_foreground();
+            }
         }, { capture: true });
+    }
+
+    private handle_going_to_background(): void {
+        // Track if audio was playing when going to background
+        this.was_playing_before_background = this.player_status === 'playing' && !this.playing_silent_audio;
+        console.log('Going to background, was playing:', this.was_playing_before_background);
+    }
+
+    private start_stall_detection(): void {
+        // Clear any existing interval
+        this.stop_stall_detection();
+        
+        this.last_time_update = this.audio_element?.currentTime || 0;
+        
+        // Check every 2 seconds if audio is actually progressing
+        this.stall_check_interval = setInterval(() => {
+            if (!this.audio_element || this.audio_element.paused || this.playing_silent_audio) {
+                return;
+            }
+            
+            const current_time = this.audio_element.currentTime;
+            
+            // If time hasn't changed in 2 seconds and we're supposed to be playing
+            if (current_time === this.last_time_update && !this.audio_element.paused) {
+                console.warn('Audio stall detected on iOS! Attempting to recover...');
+                this.recover_from_stall();
+            }
+            
+            this.last_time_update = current_time;
+        }, 2000);
+    }
+
+    private stop_stall_detection(): void {
+        if (this.stall_check_interval) {
+            clearInterval(this.stall_check_interval);
+            this.stall_check_interval = null;
+        }
+    }
+
+    private async recover_from_stall(): Promise<void> {
+        if (!this.audio_element) return;
+        
+        console.log('Attempting to recover from stalled audio...');
+        
+        const currentTime = this.audio_element.currentTime;
+        const wasPlaying = !this.audio_element.paused;
+        
+        try {
+            // Resume audio context first
+            if (this.audio_context) {
+                await this.resume_audio_context();
+            }
+            
+            // Force audio element refresh
+            this.audio_element.pause();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Check and fix volume/mute
+            if (this.audio_element.muted) {
+                this.audio_element.muted = false;
+            }
+            if (this.audio_element.volume === 0) {
+                this.audio_element.volume = 1;
+            }
+            
+            // Restore position and play if it was playing
+            this.audio_element.currentTime = currentTime;
+            if (wasPlaying) {
+                await this.audio_element.play();
+                console.log('Successfully recovered from stall');
+            }
+            
+            this.update_playback_state();
+        } catch (error) {
+            console.error('Failed to recover from stall:', error);
+        }
+    }
+
+    private async handle_return_to_foreground(): Promise<void> {
+        console.log('Returning to foreground, was playing before:', this.was_playing_before_background);
+        
+        // Resume audio context if it was suspended
+        if (this.is_ios_safari && this.audio_context) {
+            await this.resume_audio_context();
+        }
+
+        // Check if HLS needs to be recovered
+        if (this.hls && this.is_ios_safari && this.audio_data.current.source_type === 'm3u8') {
+            // HLS might have lost connection, check if it needs recovery
+            if (this.hls.media && this.hls.media.error) {
+                console.warn('HLS has error after background, attempting recovery');
+                this.hls.recoverMediaError();
+            }
+        }
+
+        // If we were playing before going to background, try to resume
+        if (this.was_playing_before_background && this.audio_element && !this.playing_silent_audio) {
+            console.log('Attempting to resume playback after returning to foreground');
+            
+            // Double-check volume and mute state
+            if (this.audio_element.muted) {
+                console.warn('Audio was muted on return, unmuting');
+                this.audio_element.muted = false;
+            }
+            if (this.audio_element.volume === 0) {
+                console.warn('Volume was 0 on return, resetting');
+                this.audio_element.volume = 1;
+            }
+
+            // If audio element thinks it's paused, try to play
+            if (this.audio_element.paused) {
+                console.log('Audio element is paused, attempting to resume');
+                try {
+                    await this.audio_element.play();
+                    this.update_playback_state();
+                } catch (error) {
+                    console.error('Error resuming playback:', error);
+                }
+            } else {
+                // Audio element thinks it's playing but might have no output
+                // Force a reload by pausing and playing again
+                console.log('Audio element reports playing, forcing refresh');
+                const currentTime = this.audio_element.currentTime;
+                this.audio_element.pause();
+                await new Promise(resolve => setTimeout(resolve, 50));
+                this.audio_element.currentTime = currentTime;
+                try {
+                    await this.audio_element.play();
+                    this.update_playback_state();
+                } catch (error) {
+                    console.error('Error forcing audio refresh:', error);
+                }
+            }
+        }
+        
+        // Reset the flag
+        this.was_playing_before_background = false;
     }
 
     private is_string(data: any): data is string {

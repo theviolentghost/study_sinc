@@ -225,13 +225,13 @@
                     <div class="albums">
                         <div class="album" 
                              *ngFor="let album of top_releases.slice(0, 5); let i = index; trackBy: track_by_index" 
-                             [style.--color]="get_album_primary_color(album.images?.[0]?.url)" 
+                             [style.--color]="get_album_primary_color(album.images?.[0]?.url)"
                              (click)="spotify_open_album(album)"
                              [ngClass]="{ viewing: album_viewing_states[i] }"
                              inView
                              (inView)="on_album_view_change(i, $event)">
                             <div class="thumbnail">
-                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" />
+                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" decoding="async" />
                             </div>
                             <div class="info">
                                 <div class="title">{{ album?.name }}</div>
@@ -258,12 +258,12 @@
                         <div class="album" 
                              *ngFor="let album of top_releases.slice(6); let i = index; trackBy: track_by_index" 
                              [style.--color]="get_album_primary_color(album.images?.[0]?.url)" 
-                             [ngClass]="{ viewing: album_viewing_states[i] }"
+                             [ngClass]="{ viewing: album_viewing_states[i + 6] }"
                              (click)="spotify_open_album(album)"
                              inView
-                             (inView)="on_album_view_change(i, $event)">
+                             (inView)="on_album_view_change(i + 6, $event)">
                             <div class="thumbnail">
-                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" />
+                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" decoding="async" />
                             </div>
                             <div class="info">
                                 <div class="title">{{ album?.name }}</div>
