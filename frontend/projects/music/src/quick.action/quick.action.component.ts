@@ -1,7 +1,8 @@
-import { Component, HostListener } from '@angular/core';
+import { Component, HostListener, HostBinding } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BehaviorSubject } from 'rxjs';
 import { DragDropModule, CdkDragDrop, moveItemInArray, transferArrayItem } from '@angular/cdk/drag-drop';
+import { FormsModule } from '@angular/forms';
 
 import { QuickActionService } from '../../quick.action.service';
 import { PlaylistsService } from '../../playlists.service';
@@ -12,11 +13,15 @@ import { HotActionService } from '../../hot.action.service';
 
 @Component({
   selector: 'quick-action',
-  imports: [CommonModule, DragDropModule],
+  imports: [CommonModule, DragDropModule, FormsModule],
   templateUrl: './quick.action.component.html',
   styleUrl: './quick.action.component.css'
 })
 export class QuickActionComponent {
+    @HostBinding('class.dragged') get is_dragged(): boolean {
+        return this.header_drag_active;
+    }
+
     get action(): string {
         return this.quick_action.action;
     }
@@ -36,6 +41,16 @@ export class QuickActionComponent {
 
     get playlist_view_color(): string {
         return this.quick_action.playlist_view_color || this.playlists.selected_playlist_identifier?.colors?.primary || '';
+    }
+
+    get playlist_contrast_color(): string {
+        // returns a color that contrasts with the playlist view color for better accessibility
+        return this.quick_action.get_contrast_color(this.playlist_view_color);
+    }
+
+    get playlist_text_contrast_color(): string {
+        // Returns pure black or white for maximum text readability on playlist backgrounds
+        return this.quick_action.get_text_contrast_color(this.playlist_view_color);
     }
 
     // get visible_videos(): (Song_Data | null)[] {
@@ -705,6 +720,88 @@ export class QuickActionComponent {
         this.dragging = false;
     }
 
+    // Header drag properties
+    header_drag_active = false;
+    header_drag_start_y = 0;
+    header_drag_y = 0;
+    header_drag_threshold = 100; // Distance to pull down before closing
+    get header_transform(): string {
+        return this.header_drag_y > 0 ? `translateY(${this.header_drag_y}px)` : '';
+    }
+
+    header_on_drag_start(event: TouchEvent | MouseEvent): void {
+        let clientY: number;
+        
+        if (event instanceof TouchEvent) {
+            clientY = event.touches[0].clientY;
+        } else {
+            clientY = event.clientY;
+        }
+
+        this.header_drag_active = true;
+        this.header_drag_start_y = clientY;
+        this.header_drag_y = 0;
+
+        event.stopPropagation();
+    }
+
+    header_on_drag_move(event: TouchEvent | MouseEvent): void {
+        if (!this.header_drag_active) return;
+        
+        let clientY: number;
+        
+        if (event instanceof TouchEvent) {
+            clientY = event.touches[0].clientY;
+        } else {
+            clientY = event.clientY;
+        }
+
+        const deltaY = clientY - this.header_drag_start_y;
+        
+        // Only allow downward drag (positive deltaY)
+        this.header_drag_y = Math.max(0, deltaY);
+
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    header_on_drag_end(event: TouchEvent | MouseEvent): void {
+        if (!this.header_drag_active) return;
+
+        const should_close = this.header_drag_y > this.header_drag_threshold;
+
+        if (should_close) {
+            // Animate to fully closed position
+            this.animate_header_close();
+        } else {
+            // Snap back to original position
+            this.animate_header_value(this.header_drag_y, 0);
+        }
+
+        this.header_drag_active = false;
+        event.stopPropagation();
+    }
+
+    private animate_header_value(from: number, to: number, duration: number = 200): void {
+        this.animateValue(from, to, duration, this.easeOutCubic).subscribe(value => {
+            this.header_drag_y = value;
+        });
+    }
+
+    private animate_header_close(): void {
+        const distance = window.innerHeight - this.header_drag_y;
+        this.animateValue(this.header_drag_y, window.innerHeight, 300, this.easeOutCubic).subscribe({
+            next: (value) => {
+                this.header_drag_y = value;
+            },
+            complete: () => {
+                // Close the quick action after animation
+                this.quick_action_open = false;
+                this.header_drag_y = 0;
+            }
+        });
+    }
+
     remove_from_play_next(video: Song_Data | null, index: number, delete_from: string = "play_next") {
         if (!video) return;
 
@@ -728,5 +825,92 @@ export class QuickActionComponent {
         this.hot_action.open_hot_action(video, 'spotify');
         this.hot_action.action = 'add_to_playlist';
         this.swipe_x = 0;
+    }
+
+    // remove 'Alphabetical' from sort options for now
+    public sort_options = ['Title', 'Artist', 'Recently Added (Oldest)', 'Recently Added (Newest)'];
+    public is_sort_option_selected(option: string): boolean {
+        switch(this.playlists.selected_playlist?.sorting_method) {
+            case 'alphabetical': return option === 'Alphabetical';
+            case 'title': return option === 'Title';
+            case 'artist': return option === 'Artist';
+            case 'old_to_recent': return option === 'Recently Added (Oldest)';
+            case 'recent_to_old': return option === 'Recently Added (Newest)';
+            default: return false;
+        }
+    }
+
+    public select_sort_option(option: string): void {
+        if (!this.playlists.selected_playlist) return;
+        switch(option) {
+            case 'Alphabetical': this.playlists.set_playlist_sorting_method(this.playlists.selected_playlist, 'alphabetical'); break;
+            case 'Title': this.playlists.set_playlist_sorting_method(this.playlists.selected_playlist, 'title'); break;
+            case 'Artist': this.playlists.set_playlist_sorting_method(this.playlists.selected_playlist, 'artist'); break;
+            case 'Recently Added (Oldest)': this.playlists.set_playlist_sorting_method(this.playlists.selected_playlist, 'old_to_recent'); break;
+            case 'Recently Added (Newest)': this.playlists.set_playlist_sorting_method(this.playlists.selected_playlist, 'recent_to_old'); break;
+            default: break;
+        }
+        this.quick_action.quick_action_open = false;
+    }
+
+    get is_default_playlist(): boolean {
+        if (!this.playlists.selected_playlist_identifier) return false;
+        return this.playlists.selected_playlist_identifier.default || false;
+    }
+    public playlist_options = [
+        // true or false is whether to allow for default playlists
+        ['Playlist Color', 'palette.svg', '#playlist_color', "true"],
+        ['Download Playlist', 'download.svg', 'var(--color-text)', "true"],
+        ['Sort Playlist', 'arrows-sort.svg', 'var(--color-text)', "true"],
+        ['Edit Name', 'edit.svg', 'var(--color-text)', "false"],
+        ['Delete Playlist', 'trash.svg', 'var(--color-deny)', "false"]
+    ];
+    public select_playlist_option(option: string, allow: boolean = true): void {
+        if (!allow) return;
+        switch(option) {
+            case 'Playlist Color':this.quick_action.action = 'pick_playlist_color'; break;
+            case 'Download Playlist': this.quick_action.action = 'download_playlist'; break;
+            case 'Sort Playlist': this.quick_action.action = 'playlist_sort_options'; break;
+            case 'Edit Name': 
+                this.quick_action.action = 'rename_playlist';
+                this.new_playlist_name = this.playlists.selected_playlist?.name || '';
+                break;
+            case 'Delete Playlist': 
+               this.remove_playlist();
+               this.quick_action.quick_action_open = false;
+               break;
+            default: break;
+        }
+    }
+
+    private remove_playlist(): void {
+        if (!this.playlists.selected_playlist_identifier) return;
+        this.playlists.delete_playlist(this.playlists.selected_playlist_identifier);
+    }
+
+    public is_playlist_name_valid(): boolean {
+        if (!this.new_playlist_name.trim()) return false; // Prevent empty names
+        if (!this.playlists.selected_playlist) return false;
+        return true;
+    }
+
+    get current_playlist_name(): string {
+        return this.playlists.selected_playlist?.name || '';
+    }
+
+    public new_playlist_name: string = '';
+    public confirm_rename_playlist(): void {
+        if (!this.is_playlist_name_valid()) return;
+        if (this.new_playlist_name.trim() === this.playlists.selected_playlist.name) {
+            this.quick_action.quick_action_open = false;
+            return; // No change
+        }
+
+        this.playlists.selected_playlist_identifier.name = this.new_playlist_name.trim();
+        this.playlists.selected_playlist.name = this.new_playlist_name.trim();
+        this.playlists.save_playlists();
+        this.playlists.save_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist);
+
+        this.quick_action.quick_action_open = false;
     }
 }

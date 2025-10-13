@@ -1,4 +1,4 @@
-import { Component, ViewChild, ElementRef, AfterViewInit, OnInit } from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewInit, OnInit, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
@@ -6,19 +6,45 @@ import { Router } from '@angular/router';
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Search_Result, Song_Source} from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
-import { query } from 'express';
+import { GlobalInfoService } from '../../global.info.service';
+import { InViewDirective } from './in-view.directive';
 
 @Component({
   selector: 'media-search',
-  imports: [FormsModule, CommonModule],
+  imports: [FormsModule, CommonModule, InViewDirective],
   templateUrl: './search.component.html',
   styleUrl: './search.component.css'
 })
-export class SearchComponent implements AfterViewInit, OnInit {
+export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     ngOnInit(): void {
         this.load_search_history();
     }
+    
+    ngOnDestroy(): void {
+        if (this.update_viewing_timer) {
+            clearTimeout(this.update_viewing_timer);
+        }
+        if (this.debounce_input_timeout) {
+            clearTimeout(this.debounce_input_timeout);
+        }
+    }
     @ViewChild('searchInput', { static: false }) searchInput!: ElementRef<HTMLInputElement>;
+
+    album_viewing_states: boolean[] = [ 
+        true, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+        false, false, false, false, false,
+    ]; // Track which albums are in view
+    viewing_album_index: number = 0; // Track the single album that should be viewing
+    album_distances: Map<number, number> = new Map(); // Track distance from center for each album
+    update_viewing_timer?: any;
 
     search_source: Song_Source = 'spotify'; // default search source
     search_query: string = '';
@@ -36,8 +62,8 @@ export class SearchComponent implements AfterViewInit, OnInit {
     source_dropdown_open: boolean = false;
     source_dropdown_options: {source: Song_Source, color: string}[] = [{source: 'spotify', color: "#1cd760"}, {source: 'youtube', color: "#ff0033"}];
 
-    mood_categories: {params: string, title: string}[] = [];
-    mood_playlists: any[] = [];
+    // mood_categories: {params: string, title: string}[] = [];
+    // mood_playlists: any[] = [];
 
     toggle_source_dropdown(): void {
         this.source_dropdown_open = !this.source_dropdown_open;
@@ -126,7 +152,7 @@ export class SearchComponent implements AfterViewInit, OnInit {
         }
     }
 
-    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router) {}
+    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router, private global: GlobalInfoService) {}
 
     ngAfterViewInit(): void {
         // Auto-focus the search input when component loads
@@ -136,12 +162,12 @@ export class SearchComponent implements AfterViewInit, OnInit {
         
         // clear local storage search history
         // localStorage.removeItem('search_history');
-        this.media.get_mood_categories().then(categories => {
-            this.mood_categories = categories;
-            console.log('Mood categories:', this.mood_categories);
-        }).catch(error => {
-            console.error('Error fetching mood categories:', error);
-        });
+        // this.media.get_mood_categories().then(categories => {
+        //     this.mood_categories = categories;
+        //     console.log('Mood categories:', this.mood_categories);
+        // }).catch(error => {
+        //     console.error('Error fetching mood categories:', error);
+        // });
     }
 
     clear_input(): void {
@@ -460,5 +486,122 @@ export class SearchComponent implements AfterViewInit, OnInit {
                 source: 'spotify'
             }
         });
+    }
+
+    spotify_open_album(album: any): void {
+        const album_id = album.id;
+        if (!album_id) return;
+
+        this.router.navigate(['/album', album_id], { 
+            queryParams: {
+                source: 'spotify'
+            }
+        });
+        this.add_album_to_collection(album);
+    }
+
+    spotify_open_playlist(playlist: any): void {
+        const playlist_id = playlist.id;
+        if (!playlist_id) return;
+
+        // console.log('Opening playlist:', playlist);
+        // // Navigate to playlist view or handle playlist selection
+        // // this.router.navigate(['/playlist', playlist_id], { 
+        // //     queryParams: {
+        // //         source: 'spotify'
+        // //     }
+        // // });
+
+        // // For now, you could add the playlist to collection
+        // this.add_playlist_to_collection(playlist);
+    }
+
+    is_album_saved(album_id: string): boolean {
+        // Check if album is in user's collection
+        // Implement your logic here
+        return false;
+    }
+
+    is_playlist_saved(playlist_id: string): boolean {
+        // Check if playlist is in user's collection
+        // Implement your logic here
+        return false;
+    }
+
+    add_album_to_collection(album: any): void {
+        // Add all tracks from the album to the user's collection
+        console.log('Adding album to collection:', album);
+        
+        // You can fetch album tracks and add them
+        // For now, just log
+        // TODO: Implement album track fetching and addition to collection
+    }
+
+    add_playlist_to_collection(playlist: any): void {
+        // Add all tracks from the playlist to the user's collection
+        console.log('Adding playlist to collection:', playlist);
+        
+        // You can fetch playlist tracks and add them
+        // For now, just log
+        // TODO: Implement playlist track fetching and addition to collection
+    }
+
+    get top_releases(): any[] {
+        // Example: returns a cleaned array of top releases (albums)
+        return this.global.top_releases;
+    }
+
+    private primary_colors: Map<string, string> = new Map(); // source to primary color mapping
+    public get_album_primary_color(source: string): string {
+        if (this.primary_colors.has(source)) {
+            return this.primary_colors.get(source)!;
+        }
+        this.load_album_primary_color(source);
+        
+        return 'white';
+    }
+    private async load_album_primary_color(source: string): Promise<void> {
+        const color = await this.media.get_primary_color_from_artwork(source);
+        this.primary_colors.set(source, color);
+    }
+
+    on_album_view_change(index: number, event: { ratio: number; distance: number }): void {
+        // Store the distance for this album
+        this.album_distances.set(index, event.distance);
+        
+        // Debounce to avoid too many updates
+        if (this.update_viewing_timer) {
+            clearTimeout(this.update_viewing_timer);
+        }
+        
+        this.update_viewing_timer = setTimeout(() => {
+            // Find the album closest to center
+            let closestIndex = 0;
+            let closestDistance = Infinity;
+            
+            this.album_distances.forEach((distance, idx) => {
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestIndex = idx;
+                }
+            });
+            
+            // Only update if it's a different album
+            if (this.viewing_album_index !== closestIndex) {
+                this.viewing_album_index = closestIndex;
+                // Reset all states
+                this.album_viewing_states = [false, false, false, false, false];
+                // Set only the closest one
+                this.album_viewing_states[closestIndex] = true;
+            }
+        }, 50); // 50ms debounce
+    }
+
+    track_by_index(index: number): number {
+        return index;
+    }
+
+    get mood_categories(): {params: string, title: string}[] {
+        return this.global.mood_genres;
     }
 }

@@ -106,6 +106,7 @@ async function setup_spotify_auth(retry_depth = 0) {
         const creds = await spotify_api.clientCredentialsGrant();
         spotify_api.setAccessToken(creds.body.access_token);
         console.log('Spotify authentication set up successfully');
+        console.log('Token:', creds.body.access_token)
         return true;
     } catch (error) {
         console.error('Error setting up Spotify authentication');
@@ -362,13 +363,32 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
             spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results })
         );
 
-        request_embedding_for_spotify_items(data.body.tracks.items);
+        // Filter out null/undefined items from each array
+        const filteredData = {
+            tracks: {
+                ...data.body.tracks,
+                items: (data.body.tracks?.items || []).filter(item => item != null)
+            },
+            artists: {
+                ...data.body.artists,
+                items: (data.body.artists?.items || []).filter(item => item != null)
+            },
+            albums: {
+                ...data.body.albums,
+                items: (data.body.albums?.items || []).filter(item => item != null)
+            },
+            playlists: {
+                ...data.body.playlists,
+                items: (data.body.playlists?.items || []).filter(item => item != null)
+            }
+        };
 
-        // return data.body;
-        // return a sorted cobined list of tracks and artists as well called catelog soprted by popularity
+        request_embedding_for_spotify_items(filteredData.tracks.items);
+
+        // return a sorted combined list of tracks, artists, albums, and playlists sorted by relevance
         return {
-            ...data.body,
-            catalog: spotify_generate_catalog(data.body)
+            ...filteredData,
+            catalog: spotify_generate_catalog(filteredData, query)
         }
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -376,11 +396,226 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
     }
 }
 
-function spotify_generate_catalog(spotify_data) {
-    const { tracks, artists} = spotify_data;
-    let catalog = [...tracks.items, ...artists.items];
-    // catalog.sort((a, b) => b.popularity - a.popularity);
+function spotify_generate_catalog(spotify_data, query = '') {
+    const { tracks, artists, albums, playlists } = spotify_data;
+    let catalog = [
+        ...(tracks?.items || []),
+        ...(artists?.items || []),
+        ...(albums?.items || []),
+        ...(playlists?.items || [])
+    ];
+    
+    // Filter out null/undefined items
+    catalog = catalog.filter(item => item != null);
+    
+    // If no query provided, just return unsorted catalog
+    if (!query || query.trim() === '') {
+        return catalog;
+    }
+    
+    // Sort by relevance to query
+    catalog.sort((a, b) => {
+        // Safety checks for null items
+        if (!a && !b) return 0;
+        if (!a) return 1;
+        if (!b) return -1;
+        
+        const scoreA = calculate_relevance_score(a, query);
+        const scoreB = calculate_relevance_score(b, query);
+        
+        // Higher scores come first
+        return scoreB - scoreA;
+    });
+    
     return catalog;
+}
+
+/**
+ * Calculate relevance score for a catalog item based on query
+ * Higher score = more relevant
+ */
+function calculate_relevance_score(item, query) {
+    // Safety check for null/undefined item
+    if (!item) return 0;
+    
+    const queryLower = query.toLowerCase().trim();
+    let score = 0;
+    
+    // Get item name based on type
+    const itemName = (item.name || '').toLowerCase();
+    const itemType = item.type;
+    
+    // Check for exact artist match first (highest priority)
+    let hasExactArtistMatch = false;
+    if (itemType === 'track' || itemType === 'album') {
+        const artists = item.artists || [];
+        for (const artist of artists) {
+            if (!artist) continue;
+            const artistName = (artist.name || '').toLowerCase();
+            if (artistName === queryLower) {
+                hasExactArtistMatch = true;
+                break;
+            }
+        }
+    }
+    
+    // 1. EXACT ARTIST MATCH (ultimate priority) - 50000 points
+    // This ensures all songs by an exact matching artist appear together at the top
+    if (hasExactArtistMatch) {
+        score += 50000;
+    }
+    
+    // 2. EXACT NAME MATCH - 10000 points (reduced for albums)
+    if (itemName === queryLower) {
+        score += itemType === 'album' ? 5000 : 10000;
+    }
+    
+    // 3. STARTS WITH QUERY - 5000 points (reduced for albums)
+    else if (itemName.startsWith(queryLower)) {
+        score += itemType === 'album' ? 2500 : 5000;
+    }
+    
+    // 4. CONTAINS QUERY AS SUBSTRING - 2000 points (reduced for albums)
+    else if (itemName.includes(queryLower)) {
+        score += itemType === 'album' ? 1000 : 2000;
+        
+        // Bonus if it's near the start of the string
+        const position = itemName.indexOf(queryLower);
+        score += Math.max(0, (itemType === 'album' ? 250 : 500) - (position * 10));
+    }
+    
+    // 5. ARTIST TYPE PRIORITY
+    if (itemType === 'artist') {
+        // Artists get bonus if they match
+        if (itemName === queryLower) {
+            score += 30000; // Exact artist match gets huge boost
+        } else if (itemName.includes(queryLower)) {
+            score += 3000; // Extra boost for matching artists
+        }
+    }
+    
+    // 6. CHECK IF ARTIST MATCHES (for tracks and albums) - non-exact matches
+    if ((itemType === 'track' || itemType === 'album') && !hasExactArtistMatch) {
+        const artists = item.artists || [];
+        
+        for (const artist of artists) {
+            // Safety check for null/undefined artist
+            if (!artist) continue;
+            
+            const artistName = (artist.name || '').toLowerCase();
+            
+            // Artist starts with query
+            if (artistName.startsWith(queryLower)) {
+                score += 1000;
+                break;
+            }
+            // Artist contains query
+            else if (artistName.includes(queryLower)) {
+                score += 500;
+                break;
+            }
+        }
+    }
+    
+    // 7. FUZZY MATCHING - Word boundary matches
+    const queryWords = queryLower.split(/\s+/);
+    const itemWords = itemName.split(/\s+/);
+    
+    for (const queryWord of queryWords) {
+        for (const itemWord of itemWords) {
+            // Word starts with query word
+            if (itemWord.startsWith(queryWord)) {
+                score += 300;
+            }
+            // Partial word match
+            else if (itemWord.includes(queryWord)) {
+                score += 100;
+            }
+            // Fuzzy match - calculate similarity
+            else {
+                const similarity = calculate_string_similarity(queryWord, itemWord);
+                if (similarity > 0.7) {
+                    score += Math.floor(similarity * 200);
+                }
+            }
+        }
+    }
+    
+    // 8. ALBUM OWNER MATCH (for playlists)
+    if (itemType === 'playlist') {
+        const ownerName = (item.owner?.display_name || '').toLowerCase();
+        if (ownerName.includes(queryLower)) {
+            score += 200;
+        }
+    }
+    
+    // 9. ALBUM ARTIST MATCH (for albums) - non-exact matches
+    if (itemType === 'album' && !hasExactArtistMatch) {
+        const albumArtists = item.artists || [];
+        for (const artist of albumArtists) {
+            // Safety check for null/undefined artist
+            if (!artist) continue;
+            
+            const artistName = (artist.name || '').toLowerCase();
+            if (artistName.includes(queryLower)) {
+                score += 400;
+            }
+        }
+    }
+    
+    // 10. POPULARITY BONUS (scaled down to not override relevance)
+    if (item.popularity !== undefined && item.popularity !== null) {
+        score += Math.floor(item.popularity * 50);
+    }
+    
+    return score;
+}
+
+/**
+ * Calculate string similarity using Levenshtein distance
+ * Returns value between 0 and 1 (1 = identical)
+ */
+function calculate_string_similarity(str1, str2) {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const distance = levenshtein_distance(longer, shorter);
+    return (longer.length - distance) / longer.length;
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshtein_distance(str1, str2) {
+    const matrix = [];
+    
+    // Initialize matrix
+    for (let i = 0; i <= str2.length; i++) {
+        matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+        matrix[0][j] = j;
+    }
+    
+    // Fill in the rest of the matrix
+    for (let i = 1; i <= str2.length; i++) {
+        for (let j = 1; j <= str1.length; j++) {
+            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+    
+    return matrix[str2.length][str1.length];
 }
 
 async function search(query = 'NoCopyrightSounds', source = 'spotify') {
@@ -1068,6 +1303,66 @@ async function get_recommendations(youtube_video_id) {
     }
 }
 
+async function spotify_get_album_details(album_id) {
+    try {
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getAlbum(album_id)
+        );
+        return data.body;
+    } catch (error) {
+        console.error('Error fetching album details:', error);
+        return null;
+    }
+}
+
+async function spotify_get_album_tracks(album_id, total_results = 50) {
+    try {
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getAlbumTracks(album_id, { limit: total_results })
+        );
+        return data.body.items;
+    } catch (error) {
+        console.error('Error fetching album tracks:', error);
+        return [];
+    }
+}
+
+async function spotify_get_playlist_details(playlist_id) {
+    try {
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getPlaylist(playlist_id)
+        );
+        return data.body;
+    } catch (error) {
+        console.error('Error fetching playlist details:', error);
+        return null;
+    }
+}
+
+async function spotify_get_playlist_tracks(playlist_id, total_results = 100) {
+    try {
+        const data = await spotify_api_with_retry(() => 
+            spotify_api.getPlaylistTracks(playlist_id, { limit: total_results })
+        );
+        return data.body.items;
+    } catch (error) {
+        console.error('Error fetching playlist tracks:', error);
+        return [];
+    }
+}
+
+async function spotify_get_top_releases(total_results = 50) {
+    try {
+        const data = await spotify_api_with_retry(() =>
+            spotify_api.getNewReleases({ limit: total_results })
+        );
+        return data.body.albums.items;
+    } catch (error) {
+        console.error('Error fetching top releases:', error);
+        return [];
+    }
+}
+
 export default {
     get: get_audio_file,
     youtube: {
@@ -1089,13 +1384,13 @@ export default {
         get_artist_top_tracks: spotify_get_artist_top_tracks,
         get_artist: spotify_get_artist,
         get_artist_albums: spotify_get_artist_albums,
+        get_album_details: spotify_get_album_details,
+        get_album_tracks: spotify_get_album_tracks,
+        get_playlist_details: spotify_get_playlist_details,
+        get_playlist_tracks: spotify_get_playlist_tracks,
+        get_top_releases: spotify_get_top_releases,
     },
     search,
-    get_search_recommendations: get_search_recommendations,
-    get_top_charts: get_top_charts,
-    get_mood_categories: get_mood_categories,
-    get_mood_playlists: get_mood_playlists,
-    get_watch_playlist: get_watch_playlist,
     get_search_recommendations: get_search_recommendations,
     get_top_charts: get_top_charts,
     get_mood_categories: get_mood_categories,

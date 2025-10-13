@@ -1,12 +1,43 @@
-<div class="header">
-    <button class="close" (click)="cancel()">Cancel</button>
-    <h3 class="label">{{title}}</h3>
-</div>
-<div [style.--primary]="playlist_view_color || 'var(--color-primary)'" class="backdrop"></div>
-
+<div class="dimmer"
+    (click)="quick_action_open = false"
+></div>
+<ng-template #colored_header>
+    <div 
+        class="header" 
+        [style.--color-contrast]="playlist_contrast_color || 'var(--color-neutral)'"
+        (touchstart)="header_on_drag_start($event)"
+        (touchmove)="header_on_drag_move($event)"
+        (touchend)="header_on_drag_end($event)"
+        (mousedown)="header_on_drag_start($event)"
+        (mousemove)="header_on_drag_move($event)"
+        (mouseup)="header_on_drag_end($event)"
+        (mouseleave)="header_on_drag_end($event)"
+    >
+        <!-- a visual showing that the user can drag to close -->
+        <div class="dragging-pill"></div>
+    </div>
+</ng-template>
+<ng-template #normal_header>
+    <div 
+        class="header" 
+        [style.--color-contrast]="'white'"
+        (touchstart)="header_on_drag_start($event)"
+        (touchmove)="header_on_drag_move($event)"
+        (touchend)="header_on_drag_end($event)"
+        (mousedown)="header_on_drag_start($event)"
+        (mousemove)="header_on_drag_move($event)"
+        (mouseup)="header_on_drag_end($event)"
+        (mouseleave)="header_on_drag_end($event)"
+    >
+        <div class="dragging-pill"></div>
+    </div>
+</ng-template>
+<div class="content-wrapper" [style.transform]="header_transform">
 <ng-container [ngSwitch]="action">
     <!-- Add to Playlist Template -->
     <ng-container *ngSwitchCase="'pick_playlist_color'">
+        <ng-container [ngTemplateOutlet]="colored_header"></ng-container>
+        <div [style.--primary]="playlist_view_color || 'var(--color-primary)'" class="backdrop"></div>
         <div class="color-grid">
             <div
                 class="color-column"
@@ -24,12 +55,13 @@
             </div>
         </div>
         <div class="finish-container" [ngClass]="{'hide': false}">
-            <button class="finish" [style.background-color]="playlist_view_color" (click)="set_playlist_color()">{{is_playlist_view_color_the_same_as_selected_playlist ? 'Keep' : 'Confirm'}}</button>
+            <button class="finish" [style.background-color]="playlist_view_color" [style.color]="playlist_text_contrast_color" (click)="set_playlist_color()">{{is_playlist_view_color_the_same_as_selected_playlist ? 'Keep' : 'Confirm'}}</button>
         </div>
     </ng-container>
 
     <!-- Download confirmation -->
     <ng-container *ngSwitchCase="'download_playlist'">
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
         <div class="download-confirmation">
             <div class="confirmation">
                 <p>Are you sure you want to download the playlist <br><strong [style.color]="get_playlist_color()">{{playlist_identifier?.name}}</strong></p>
@@ -43,6 +75,7 @@
 
     <!-- Queue Template -->
     <ng-container *ngSwitchCase="'queue_management'">
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
         <div class="queue-management">
             <!-- #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top" -->
             <div class="result-videos hide-scrollbar" #resultVideos (scroll)="on_scroll($event)" >
@@ -205,9 +238,50 @@
         </div>
     </ng-container>
 
+    <!-- playlist options -->
+    <ng-container *ngSwitchCase="'playlist_options'">
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
+        <div class="playlist_options">
+            <div class="option title">Playlist Options</div>
+            <div class="option" *ngFor="let option of playlist_options" (click)="select_playlist_option(option[0], !(option[3] === 'false' && is_default_playlist))" [ngClass]="{disabled: option[3] === 'false' && is_default_playlist}">
+                <div class="icon" [style.--mask]="'url(\'' + option[1] + '\')'" [style.--color]="option[2] === '#playlist_color' ? playlist_view_color || 'var(--color-primary)' : option[2]"></div>
+                <span [style.color]="option[0] === 'Delete Playlist' ? 'var(--color-deny)' : 'inherit'">{{ option[0] }}</span>
+            </div>
+        </div>
+    </ng-container>
+
+    <!-- playlist sort options -->
+    <ng-container *ngSwitchCase="'playlist_sort_options'">
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
+        <div class="sort_options">
+            <div class="option disabled">Sort By</div>
+            <div class="option" *ngFor="let option of sort_options" [ngClass]="{selected: is_sort_option_selected(option)}" (click)="select_sort_option(option)">
+                <span>{{ option }}</span>
+                <div class="icon" [style.--mask]="'url(\'check.svg\')'"></div>
+            </div>
+        </div>
+    </ng-container>
+
+    <!-- rename playlist -->
+    <ng-container *ngSwitchCase="'rename_playlist'">
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
+        <div class="rename_playlist">
+            <input type="text" [(ngModel)]="new_playlist_name" placeholder="Enter new playlist name" /> 
+            <button (click)="confirm_rename_playlist()" [style.--color]="playlist_view_color || 'var(--color-primary)'" [disabled]="!is_playlist_name_valid()">{{ current_playlist_name === this.new_playlist_name ? 'Keep' : 'Rename' }}</button>
+        </div>
+    </ng-container>
+
+    <!-- delete playlist -->
+    <!-- <ng-container *ngSwitchCase="'delete_playlist'">
+        
+    </ng-container> -->
+
     <!-- Default/Fallback Template -->
     <ng-container *ngSwitchDefault>
+        <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
         <p>no gud option</p>
     </ng-container>
     
 </ng-container>
+
+</div> <!-- Close content-wrapper -->

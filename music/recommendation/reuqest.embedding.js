@@ -2,18 +2,23 @@ import music from '../music.js'
 
 
 async function request_embedding(song_id) {
-    console.log(`Requesting embedding for song ID JAVASCRIPT: ${song_id}...`);
-    const response = await fetch('http://localhost:54321/request_embedding', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ song_id: song_id }),
-    });
-    const data = await response.json();
-    console.log('Success:', data);
-    if (!response.ok) {
-        throw new Error(data.error || 'Unknown error');
+
+    try {
+        const response = await fetch('http://localhost:54321/request_embedding', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ song_id: song_id }),
+        });
+        const data = await response.json();
+        console.log('Success:', data);
+        if (!response.ok) {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        return;
     }
 }
 

@@ -8,6 +8,7 @@ import { AuthService } from '../../../../src/app/auth.service';
 import { MusicMediaService, DownloadQuality } from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { VersionService } from '../../version.service';
+import { GlobalInfoService } from '../../global.info.service';
 
 @Component({
     selector: 'app-root',
@@ -31,7 +32,7 @@ export class AppComponent implements OnInit, OnDestroy {
         {
             url: 'playlists',
             label: 'Playlists',
-            icon: 'music.svg'
+            icon: 'library.svg'
         },
         {
             url: 'searches',
@@ -56,10 +57,12 @@ export class AppComponent implements OnInit, OnDestroy {
         private router: Router,
         private player: MusicPlayerService,
         private version_service: VersionService,
+        private global: GlobalInfoService,
     ) {
         this.player.open_player.subscribe(() => {
             this.is_music_idle = false;
         });
+        this.global.load_global_info();
         localStorage.removeItem('search_history');
     }
 

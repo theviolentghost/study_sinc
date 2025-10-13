@@ -72,7 +72,7 @@ class Adaptive_Stream {
         }
     };
     static profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
-    get_requested_profiles(target_profile = 'medium') {
+    get_requested_profiles(target_profile = 'ultra-high') {
         const target_index = Adaptive_Stream.profile_progression.indexOf(target_profile);
         if (target_index === -1) return [];
 
@@ -113,7 +113,7 @@ class Adaptive_Stream {
         // Standard adaptive quality stream
         app.get('/stream', async (req, res) => {
             const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'medium';
+            const target_quality = req.query.quality || 'ultra-high';
 
             if (!video_id) {
                 return res.status(400).json({ 
@@ -165,7 +165,7 @@ class Adaptive_Stream {
 
         app.get('/stream/preload', async (req, res) => {
             const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'medium';
+            const target_quality = req.query.quality || 'ultra-high';
 
             if (!video_id) {
                 return res.status(400).json({ 
@@ -236,7 +236,7 @@ class Adaptive_Stream {
 
         app.get('/stream/keepalive', async (req, res) => {
             const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'medium';
+            const target_quality = req.query.quality || 'ultra-high';
             // to implement
         });
 
@@ -378,7 +378,7 @@ class Adaptive_Stream {
         return is_in_queue;
     }
 
-    async stream(video_id, target_quality = 'medium', fast_startup = true) {
+    async stream(video_id, target_quality = 'ultra-high', fast_startup = true) {
         // console.time('dir check');
         console.log(`Starting stream for video ${video_id} with quality ${target_quality}`);
 
@@ -695,7 +695,7 @@ class Adaptive_Stream {
         };
     }
 
-    async preload(video_id, target_quality = 'medium') {
+    async preload(video_id, target_quality = 'ultra-high') {
         return this.stream(video_id, target_quality, false); // Start streaming without fast startup
     }
 
@@ -738,7 +738,7 @@ class Adaptive_Stream {
         return master_path;
     }
 
-    async create_hls_stream(input_source, session_directory, target_quality = 'medium', fast_startup = false, requested_profiles) {
+    async create_hls_stream(input_source, session_directory, target_quality = 'ultra-high', fast_startup = false, requested_profiles) {
         const profiles = requested_profiles || this.get_requested_profiles(target_quality);
         if (profiles.length === 0) {
             throw new Error('No valid profiles found for target quality: ' + target_quality);

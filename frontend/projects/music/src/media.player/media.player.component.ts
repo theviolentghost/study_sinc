@@ -231,7 +231,8 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             console.error('Player error:', error);
             this.player_error = error;
         });
-        this.player.hls_level_changed.subscribe((level: {index: number, details: any}) => {
+        this.player.hls_level_changed.subscribe((level: {index: number, details: any, levels: number}) => {
+            this.total_hls_levels = level.levels;
             clearTimeout(this.player_quality_timeout);
             if(level.index !== this.player_hls_level) {
                 this.player_quality_timeout = setTimeout(()=>{
@@ -242,6 +243,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.player_hls_level = level.index;
             console.log('HLS level changed to:', level.index);
             console.log('HLS level details:', level.details);
+            console.log('HLS level total levels:', level.levels);
         });
     }
 
@@ -275,7 +277,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         if( !this.user_has_internet ) return 'antenna-bars-off.svg'; // Default icon for no internet
         if( this.player_error !== null ) return 'antenna-bars-1.svg'; // Default icon for errors
         if( this.player_hls_level === -1 ) return 'antenna-bars-5.svg';
-        if( typeof this.player_hls_level === 'number' ) return `antenna-bars-${this.player_hls_level+2}.svg`;
+        if( typeof this.player_hls_level === 'number' ) return `antenna-bars-${this.player_hls_level+2 - this.minimum_hls_level}.svg`;
         return 'antenna-bars-1.svg'; 
     }
 
@@ -1142,5 +1144,35 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     // Method to get orientation-specific CSS classes
     get orientation_class(): string {
         return this._isLandscape ? 'landscape' : 'portrait';
+    }
+
+    public minimum_hls_level: number = 1;
+    public total_hls_levels: number = 0;
+    public quality_selection_open: boolean = false;
+    public all_qualities: string[] = ['ultra-low', 'low', 'medium', 'high', 'ultra-high', 'auto',];
+    get available_qualities(): string[] {
+        const qualities = ['ultra-low', 'low', 'medium', 'high', 'ultra-high'];
+        let available = qualities.slice(this.minimum_hls_level, this.total_hls_levels);
+        available.push('auto');
+        return available;
+    }
+    get current_quality(): string {
+        switch(this.player.audio_quality) {
+            case -1: return 'auto';
+            case 0: return 'ultra-low';
+            case 1: return 'low';
+            case 2: return 'medium';
+            case 3: return 'high';
+            case 4: return 'ultra-high';
+            default: return 'unknown';
+        }
+    }
+    set_quality(quality: string): void {
+        this.quality_selection_open = false;
+        if(quality === 'auto') {
+            this.player.audio_quality = -1;
+            return;
+        }
+        this.player.audio_quality = this.all_qualities.indexOf(quality);
     }
 }

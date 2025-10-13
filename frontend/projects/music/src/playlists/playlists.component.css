@@ -1,3 +1,13 @@
+.dot {
+    --size: 4px;
+    height: var(--size);
+    width: var(--size);
+    background-color: var(--color-text);
+    border-radius: 50%;
+    display: inline-block;
+    margin: var(--space-1);
+}
+
 .playlists-container {
     position: relative;
     width: 100%;
@@ -101,10 +111,10 @@
     border-bottom: solid 1px var(--color-background-200);
     width: 100%;
     aspect-ratio: 16 / 16;
-    max-height: var(--space-9);
+    max-height: 90px;
     align-items: center;
     gap: var(--space-4);
-    border-radius: var(--space-4);
+    border-radius: var(--space-2);
     overflow: hidden;
 }
 .playlist.last {
@@ -116,8 +126,8 @@
     bottom: 0;
     left: 0;
     aspect-ratio: 2;
-    height: 90%;
-    background: radial-gradient(at bottom left, var(--primary) 000px, transparent 50%);
+    height: 120%;
+    background: radial-gradient(at bottom left, var(--primary) 0px, transparent 50%);
     opacity: 0.3;
     transition: opacity 0.15s ease-in-out;
     z-index: -1;
@@ -197,14 +207,12 @@
     gap: var(--space-1);
     white-space: nowrap;
     position: relative;
-    margin-left: auto;
     overflow: hidden;
     text-align: left;
-    align-items: flex-end;
+    align-items: flex-start;
 }
 .playlist .name {
     font-size: calc(1 * var(--font-size-base));
-    font-weight: 500;
     color: var(--color-text);
     display: -webkit-box;           /* REQUIRED */
     line-clamp: 2;
@@ -214,6 +222,19 @@
     text-overflow: ellipsis;
     white-space: normal;
     font-weight: 600;
+}
+.playlist .details {
+    font-size: calc(.8 * var(--font-size-base));
+    font-weight: 400;
+    color: var(--color-neutral);
+    text-overflow: ellipsis;
+    white-space: normal;
+
+    .dot {
+        --size: 3px;
+        margin: 0 2px;
+        background-color: var(--color-neutral);
+    }
 }
 .playlist.playing .name {
     color: var(--primary);

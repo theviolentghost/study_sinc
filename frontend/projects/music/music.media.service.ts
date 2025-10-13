@@ -1,5 +1,5 @@
 import { Injectable, Injector, Output, EventEmitter } from '@angular/core';
-import { set, get } from 'idb-keyval';
+import { set, get, del } from 'idb-keyval';
 import { lastValueFrom } from 'rxjs';
 import { HttpClient, HttpContext, HttpContextToken } from '@angular/common/http';
 import { AuthService } from '../../src/app/auth.service';
@@ -46,6 +46,7 @@ export interface Song_Data {
     lyrics?: Song_Lyrics,
     id: Song_Identifier; // the where this song was downloaded
     liked?: boolean; // whether the song is liked by the user
+    explicit?: boolean; // whether the song is marked as explicit
 }
 
 export interface Song_Identifier {
@@ -67,13 +68,16 @@ export interface Song_Playlist_Identifier {
     images?: string[]; // array of image URLs for the playlist (max 4)
     colors?: {
         primary?: string | null; 
-    }
+    },
+    playlist_type: 'album' | 'playlist' | 'artist';
+    created_by: 'user' | 'system' | 'imported' | string;
+    created_at: number;
 }
 
 export interface Song_Playlist {
     songs: Map<string, Song_Identifier>;
-    song_added_timestamps: Map<string, number>; // song key -> timestamp
-    sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical';
+    song_added_timestamps: Map<string, number>; // song key -> timestamp added
+    sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical' | 'title' | 'artist';
     name: string; 
     default?: boolean; // whether this is a default playlist
 }
@@ -605,7 +609,7 @@ export class MusicMediaService {
                     let default_playlist = this.DEFAULT_PLAYLISTS.find(p => p.id === playlist_identifier.id);
                     if (!default_playlist) {
                         console.warn(`Default playlist not found for identifier: ${playlist_identifier.id}`);
-                        default_playlist = { id: playlist_identifier.id, name: playlist_identifier.name, default: true, duration: 0, track_count: 0, images: [] };
+                        default_playlist = { id: playlist_identifier.id, name: playlist_identifier.name, default: true, duration: 0, track_count: 0, images: [], playlist_type: 'playlist', created_by: 'system', created_at: Date.now()  };
                     }
 
                     var playlist_data: Song_Playlist = { songs: new Map(), name: default_playlist?.name, default: true, song_added_timestamps: new Map(), sorting_method: 'recent_to_old' };
@@ -639,6 +643,15 @@ export class MusicMediaService {
         }
     }
 
+    async delete_playlist_from_indexDB(playlist_identifier: Song_Playlist_Identifier): Promise<void> {
+        try {
+            await del(`#playlist_${playlist_identifier.id}`);
+            console.log('Playlist deleted from IndexedDB:', playlist_identifier.id);
+        } catch (error) {
+            console.error('Error deleting playlist from IndexedDB:', error);
+        }
+    }
+
     readonly DEFAULT_PLAYLISTS: Song_Playlist_Identifier[] = [
         {
             id: '#favorites',
@@ -649,7 +662,10 @@ export class MusicMediaService {
             images: [], 
             colors: {
                 primary: 'hsl(342deg 82% 50%)'
-            }
+            },
+            playlist_type: 'playlist',
+            created_by: 'system',
+            created_at: Date.now()
         },
         {
             id: '#downloads',
@@ -660,7 +676,10 @@ export class MusicMediaService {
             images: [],
             colors: {
                 primary: 'hsl(33, 72%, 50%)'
-            }
+            },
+            playlist_type: 'playlist',
+            created_by: 'system',
+            created_at: Date.now()
         },
         {
             id: '#recently_played',
@@ -671,7 +690,10 @@ export class MusicMediaService {
             images: [],
             colors: {
                 primary: 'hsl(218, 79%, 65%)'
-            }
+            },
+            playlist_type: 'playlist',
+            created_by: 'system',
+            created_at: Date.now()
         },
         {
             id: '#recently_added',
@@ -682,7 +704,10 @@ export class MusicMediaService {
             images: [],
             colors: {
                 primary: 'hsl(150, 84%, 65%)'
-            }
+            },
+            playlist_type: 'playlist',
+            created_by: 'system',
+            created_at: Date.now()
         },
     ];
     async get_all_playlist_identifiers_from_indexDB(): Promise<Song_Playlist_Identifier[]> {
@@ -1298,6 +1323,18 @@ export class MusicMediaService {
         ) as Promise<{params: string, title: string}[]>;
     }
 
+    public async get_playlist_for_mood(mood_id: string): Promise<any> {
+        return lastValueFrom(
+            this.http.get(`/music/mood_playlist/${mood_id}`)
+        ) as Promise<any>;
+    }
+
+    public async get_top_releases(): Promise<any> {
+        return lastValueFrom(
+            this.http.get(`/music/top_releases`)
+        ) as Promise<any>;
+    }
+
     public async get_all_song_data(video_id: string): Promise<any> {
         return lastValueFrom(
             this.http.get(`/music/song_data/${video_id}`)
@@ -1313,4 +1350,10 @@ export class MusicMediaService {
     // public async get_recommended_songs_from_playlist (): Promise<Song_Data[]> {
         
     // }
+
+    public async spotify_get_album(album_id: string): Promise<any> {
+        return lastValueFrom(
+            this.http.get(`/spotify/album/${album_id}`)
+        ) as Promise<any>;
+    }
 }

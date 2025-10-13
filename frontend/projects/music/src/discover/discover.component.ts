@@ -71,39 +71,49 @@ export class DiscoverComponent implements AfterViewInit {
         // just use first song in playlist for recommendations
         this.discover_cards = (await this.media.get_recommended_songs_for_song_using_musik(Array.from(playlist_details.songs.values())[0]?.video_id))?.similar_songs;
         console.log('Raw discover cards:', this.discover_cards);
-        this.discover_cards = await Promise.all(
+        
+        // Use Promise.allSettled to handle failures gracefully
+        const results = await Promise.allSettled(
             this.discover_cards.map(async (data) => {
                 const song_data = await this.media.get_all_song_data(data.song_id);
                 return {
                     // return song data object here
                     original_song_name: song_data.title,
                     original_artists: [{name: song_data.uploader, id: song_data.channel_id, source: 'musix'}],
-                song_name: song_data.title,
-                downloaded: false,
-                download_audio_blob: null,
-                download_artwork_blob: null,
-                url: {
-                    audio: null,
-                    artwork: {
-                        low: null,
-                        high: null
-                    }
-                },
-                colors: {
-                    primary: null,
-                    common: null
-                },
-                video_duration: song_data.duration * 1000,
-                lyrics: null,
-                id: {
-                    video_id: data.song_id,
-                    source_id: '',
-                    source: 'youtube'
-                },
-                liked: false,
-                date_added: new Date()
-            }
-        }));
+                    song_name: song_data.title,
+                    downloaded: false,
+                    download_audio_blob: null,
+                    download_artwork_blob: null,
+                    url: {
+                        audio: null,
+                        artwork: {
+                            low: null,
+                            high: null
+                        }
+                    },
+                    colors: {
+                        primary: null,
+                        common: null
+                    },
+                    video_duration: song_data.duration * 1000,
+                    lyrics: null,
+                    id: {
+                        video_id: data.song_id,
+                        source_id: '',
+                        source: 'youtube'
+                    },
+                    liked: false,
+                    date_added: new Date()
+                };
+            })
+        );
+        
+        // Filter out failed promises and only keep successful ones
+        this.discover_cards = results
+            .filter(result => result.status === 'fulfilled')
+            .map(result => (result as PromiseFulfilledResult<any>).value);
+        
+        console.log(`Successfully loaded ${this.discover_cards.length} cards (${results.length - this.discover_cards.length} failed)`);
         this.update_background_cards();
         console.log('Discover cards:', this.discover_cards);
     }

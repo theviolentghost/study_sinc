@@ -353,6 +353,11 @@ class File_Manager {
             // Store in IndexedDB
             this.store_file(url.pathname, 'updated');
 
+            // Clean up old versions of hashed files (Angular build files with hash in filename)
+            if (this.is_hashed_file(url.pathname)) {
+                await this.cleanup_old_hashed_files(url.pathname);
+            }
+
             // If this is a critical JS file update, notify clients to reload
             if (is_critical) {
                 pending_critical_update = true;
@@ -510,6 +515,85 @@ class File_Manager {
                 reject(transaction.error);
             }
         });
+    }
+
+    // Check if a file is a hashed build file (e.g., main-ABCD1234.js, polyfills-WXYZ5678.js)
+    is_hashed_file(pathname) {
+        const filename = pathname.split('/').pop();
+        // Match Angular hashed files: name-HASH.extension
+        const hashed_pattern = /^(main|polyfills|runtime|vendor|scripts|chunk-|styles)-[A-Z0-9]{8,}\.(js|css)$/i;
+        return hashed_pattern.test(filename);
+    }
+
+    // Get the base name from a hashed file (e.g., "main" from "main-ABCD1234.js")
+    get_hashed_file_base(pathname) {
+        const filename = pathname.split('/').pop();
+        const match = filename.match(/^(main|polyfills|runtime|vendor|scripts|chunk-\w+|styles)-[A-Z0-9]{8,}\.(js|css)$/i);
+        if (match) {
+            return match[1]; // Return the base name (e.g., "main", "polyfills")
+        }
+        return null;
+    }
+
+    // Clean up old versions of hashed files, keeping only the newest one
+    async cleanup_old_hashed_files(new_pathname) {
+        try {
+            const base_name = this.get_hashed_file_base(new_pathname);
+            if (!base_name) return;
+
+            const cache = await caches.open(CURRENT_CACHE_NAME);
+            const cached_keys = await cache.keys();
+            
+            // Find all cached files with the same base name
+            const old_versions = cached_keys.filter(request => {
+                const url = new URL(request.url);
+                if (url.pathname === new_pathname) return false; // Don't delete the new version
+                
+                const cached_base = this.get_hashed_file_base(url.pathname);
+                return cached_base === base_name;
+            });
+
+            // Delete old versions from cache
+            for (const request of old_versions) {
+                const url = new URL(request.url);
+                await cache.delete(request);
+                if (LOGGING_ENABLED) console.log('🗑️ Deleted old hashed file from cache:', url.pathname);
+                
+                // Also delete from IndexedDB
+                await this.delete_file(url.pathname);
+            }
+
+            if (old_versions.length > 0) {
+                console.log(`🧹 Cleaned up ${old_versions.length} old version(s) of ${base_name}`);
+            }
+        } catch (error) {
+            console.error('Error cleaning up old hashed files:', error);
+        }
+    }
+
+    // Delete a file from IndexedDB
+    async delete_file(url) {
+        try {
+            const db = await this.open_database();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(File_Manager.store_name, 'readwrite');
+                const store = transaction.objectStore(File_Manager.store_name);
+                const request = store.delete(url);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+
+                transaction.oncomplete = () => {
+                    if (LOGGING_ENABLED) console.log('File deleted from IndexedDB:', url);
+                    db.close();
+                }
+                transaction.onerror = () => {
+                    console.error('Transaction error:', transaction.error);
+                    reject(transaction.error);
+                }
+            });
+        } catch (error) {
+            console.warn('Error deleting file from IndexedDB:', error);
+        }
     }
 }
 
@@ -694,8 +778,16 @@ self.addEventListener('fetch', (event) => {
     // Skip non-GET requests
     if (request.method !== 'GET') return;
 
-    // Only intercept requests for our own domain/app
-    if (!url.pathname.startsWith('/music/')) return; // Let external requests (like YouTube thumbnails) pass through
+    // Skip external requests (YouTube thumbnails, Spotify images, etc.)
+    // Only intercept requests from our own origin
+    const is_same_origin = url.origin === self.location.origin;
+    const is_music_path = url.pathname.startsWith('/music/');
+    
+    if (!is_same_origin || !is_music_path) {
+        // Let external requests pass through - browser's HTTP cache will handle them
+        if (LOGGING_ENABLED) console.log('⏭️ Skipping service worker cache for external/non-music resource:', url.href);
+        return;
+    }
 
     // Handle version.txt requests specially
     if (url.pathname === VERSION_URL) {
@@ -703,7 +795,7 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // For all other requests, use cache first strategy
+    // For all other local requests, use our caching strategy
     event.respondWith(
         file_manager.handle_fetch_request(request)
     );
@@ -892,6 +984,72 @@ self.addEventListener('message', (event) => {
           }
         });
       }
+      break;
+
+    case "CLEANUP_OLD_HASHED_FILES":
+      // Manually trigger cleanup of all old hashed files
+      event.waitUntil(
+        (async () => {
+          try {
+            const cache = await caches.open(CURRENT_CACHE_NAME);
+            const cached_keys = await cache.keys();
+            
+            // Group files by their base name
+            const file_groups = new Map();
+            
+            for (const request of cached_keys) {
+              const url = new URL(request.url);
+              if (file_manager.is_hashed_file(url.pathname)) {
+                const base_name = file_manager.get_hashed_file_base(url.pathname);
+                if (!file_groups.has(base_name)) {
+                  file_groups.set(base_name, []);
+                }
+                file_groups.get(base_name).push({ request, url, pathname: url.pathname });
+              }
+            }
+            
+            let total_deleted = 0;
+            
+            // For each group, keep only the most recent one (last in array) and delete the rest
+            for (const [base_name, files] of file_groups) {
+              if (files.length > 1) {
+                // Sort by pathname to ensure consistent ordering
+                files.sort((a, b) => a.pathname.localeCompare(b.pathname));
+                
+                // Keep the last one, delete all others
+                for (let i = 0; i < files.length - 1; i++) {
+                  const file = files[i];
+                  await cache.delete(file.request);
+                  await file_manager.delete_file(file.pathname);
+                  total_deleted++;
+                  if (LOGGING_ENABLED) console.log('🗑️ Deleted old hashed file:', file.pathname);
+                }
+              }
+            }
+            
+            console.log(`🧹 Cleanup complete: Deleted ${total_deleted} old hashed file(s)`);
+            
+            if (event.source && event.source.postMessage) {
+              event.source.postMessage({
+                type: "cleanup_complete",
+                payload: {
+                  deleted_count: total_deleted
+                }
+              });
+            }
+          } catch (error) {
+            console.error('❌ Cleanup failed:', error);
+            if (event.source && event.source.postMessage) {
+              event.source.postMessage({
+                type: "cleanup_error",
+                payload: {
+                  error: error.message
+                }
+              });
+            }
+          }
+        })()
+      );
       break;
       
     default:

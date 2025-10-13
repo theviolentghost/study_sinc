@@ -10,6 +10,7 @@ import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
 import { HotActionService } from '../../hot.action.service';
 import { SettingsService } from '../../settings.service';
+import { NotificationService, Notification } from '../../notification.service';
 
 @Component({
     selector: 'app-playlist',
@@ -26,11 +27,41 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     search_query: string = '';
     filtered_videos: (Song_Data | null)[] = [];
     use_playlist_color_for_main: boolean = true;
+    is_actions_sticky: boolean = false;
 
     order_type: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
+    scrollbar_text: string = '';
+
+    // Notification properties
+    notification_message: string = '';
+    notification_visible: boolean = false;
+
+    // Custom scrollbar properties
+    scrollbar_visible: boolean = false;
+    scrollbar_dragging: boolean = false;
+    scrollbar_transform: string = 'translateX(12px) translateZ(0)';
+    private scrollbar_drag_start_y: number = 0;
+    private scrollbar_drag_start_scroll: number = 0;
+    private scrollbar_hide_timeout?: number;
+    private scrollbar_update_frame?: number;
+    private last_scrollbar_y: number = 0;
+    
+    // Aggressive text update throttling (250ms = 4 times per second)
+    private scrollbar_text_update_interval: number = 250;
+    private last_text_update_time: number = 0;
+    private pending_text_update: boolean = false;
+    private text_update_timeout?: number;
 
     get prefers_shuffle_play_over_dj_play(): boolean {
         return this.settings.prefers_shuffle_play_over_dj_play;
+    }
+
+    get shuffle(): boolean {
+        return this.player.shuffle;
+    }
+
+    public toggle_shuffle(): void {
+        this.player.shuffle = !this.player.shuffle;
     }
 
     ngOnInit(): void {
@@ -45,6 +76,12 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
             document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
         });
+
+        // Subscribe to notification service
+        this.notification_service.notification$.subscribe((notification: Notification) => {
+            this.notification_message = notification.message;
+            this.notification_visible = notification.visible;
+        });
     }
 
     ngAfterViewInit(): void {
@@ -52,6 +89,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.auto_scroll_past_search_filter();
         this.loaded = true;
         this.update_main_color();
+        this.update_container_height();
     }
 
     update_main_color(): void {
@@ -67,6 +105,17 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     ngOnDestroy(): void {
         // Reset primary color on destroy
         document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
+        
+        // Cleanup scrollbar resources
+        if (this.scrollbar_hide_timeout) {
+            clearTimeout(this.scrollbar_hide_timeout);
+        }
+        if (this.scrollbar_update_frame) {
+            cancelAnimationFrame(this.scrollbar_update_frame);
+        }
+        if (this.text_update_timeout) {
+            clearTimeout(this.text_update_timeout);
+        }
     }
 
     private auto_scroll_past_search_filter(smooth: boolean = false): void {
@@ -90,8 +139,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
                     const scroll_container = host_element as HTMLElement;
                     if (scroll_container && scroll_container.scrollTo) {
                         scroll_container.scrollTo({
-                            top: total_height + 15, // for box shadow
-                            behavior: smooth ? 'smooth' : 'instant' // Change to 'smooth' if you want a smooth scroll
+                            top: total_height, 
+                            behavior: smooth ? 'smooth' : 'instant'
                         });
                     }
                 } else {
@@ -99,8 +148,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
                     const scroll_container = host_element as HTMLElement;
                     if (scroll_container && scroll_container.scrollTo) {
                         scroll_container.scrollTo({
-                            top: 60, // Approximate height
-                            behavior: smooth ? 'smooth' : 'instant' // Change to 'smooth' if you want a smooth scroll
+                            top: 52, // Approximate height
+                            behavior: smooth ? 'smooth' : 'instant' 
                         });
                     }
                 }
@@ -114,12 +163,18 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     videos: (Song_Data | null)[] = [];
     loaded_videos: Map<number, Song_Data | null> = new Map();
     
+    // Cached sorted videos to avoid re-sorting on every render
+    private sorted_videos_cache: (Song_Data | null)[] = [];
+    private last_sort_method: string = '';
+    private last_source_length: number = 0;
+    private cache_timestamp: number = 0;
+    private last_cache_timestamp: number = 0;
     
     // Virtual scrolling properties
     significant_change_size = 5; // how many elements you have to scroll past before loading new ones
     visible_start_index = 0;
     visible_end_index = 75; // Show 75 items initially
-    buffer_size = 25; // Load 25 extra items after visible area
+    buffer_size = 25; // Load 100 extra items after visible area
     item_height = 60; // Height of each playlist item in pixels
     container_height = 1000; // Height of scrollable container
 
@@ -429,6 +484,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         return this.playlists.selected_playlist_identifier?.colors?.primary || 'var(--color-primary)';
     }
 
+    get_text_contrast_color(bg_color: string): string {
+        return this.quick_action.get_contrast_color(bg_color);
+    }
+
     get playlist() {
         return this.playlists.selected_playlist;
     }
@@ -454,12 +513,13 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         public quick_action: QuickActionService,
         public hot_action: HotActionService,
         public settings: SettingsService,
+        private notification_service: NotificationService,
     ) {
         this.route.paramMap.subscribe(async params => {
             const playlist_id = params.get('playlist_id');
             if (playlist_id) {
                 // Wait for playlist to load if it's async
-                await this.playlists.load_playlist({id: playlist_id, name: '', track_count: 0, default: false});
+                await this.playlists.load_playlist({id: playlist_id, name: '', track_count: 0, default: false, images: [], playlist_type: 'playlist', created_by: 'user', created_at: Date.now()  });
                 await this.load_videos();
             } else {
                 this.videos = [];
@@ -578,11 +638,14 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     async load_videos() {
         // Don't load all videos at once, just prepare the array
         this.videos = new Array(this.playlists.selected_playlist_video_identifiers.length).fill(null);
-        // this.videos = [];
         this.loaded_videos.clear();
         
+        // Clear the cache when loading new playlist
+        this.sorted_videos_cache = [];
+        this.cache_timestamp = 0;
+        
         // Load initial batch
-        await this.load_videos_in_range(0, Math.min(this.visible_end_index + this.buffer_size, this.videos.length));
+        await this.load_videos_in_range(0, this.videos.length);
         
         // Initialize filtered videos
         this.filtered_videos = [...this.videos];
@@ -592,41 +655,86 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         // Use filtered videos if search is active, otherwise use regular videos
         const source_videos = this.search_query ? this.filtered_videos : this.videos;
         const playlist = this.playlists.selected_playlist;
-        if(!playlist) return source_videos;
-        if(playlist.song_added_timestamps.size !== playlist.songs.size) {
-            console.warn('Playlist song_added_timestamps size does not match songs size. Not sorting.');
-            return source_videos;
+
+        if(!playlist) {
+            return [...source_videos].slice(this.visible_start_index, this.visible_end_index);
         }
 
-        // Sort the videos based on the selected order type
-        source_videos.sort((a, b) => {
-            if (!a || !b) return 0;
+        const sort_method = playlist.sorting_method || 'recent_to_old';
+        
+        // Check if we need to re-sort (cache invalidation)
+        const needs_resort = 
+            this.last_sort_method !== sort_method || 
+            this.last_source_length !== source_videos.length ||
+            this.sorted_videos_cache.length === 0 ||
+            this.cache_timestamp !== this.last_cache_timestamp;
 
-            switch (playlist.sorting_method || 'recent_to_old') {
-                case 'recent_to_old':
-                    return (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0) - (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0);
-                case 'old_to_recent':
-                    return (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0) - (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0);
-                case 'alphabetical':
-                    return (a?.song_name || '').localeCompare(b?.song_name || '');
-                default:
-                    return 0;
+        if (needs_resort) {
+            // Create a copy and sort it
+            this.sorted_videos_cache = [...source_videos];
+            
+            this.sorted_videos_cache.sort((a, b) => {
+                if (!a || !b) return 0;
+
+                switch (sort_method) {
+                    case 'recent_to_old':
+                        return (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0) - 
+                               (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0);
+                    case 'old_to_recent':
+                        return (playlist.song_added_timestamps.get(this.media.song_key(a.id)) || 0) - 
+                               (playlist.song_added_timestamps.get(this.media.song_key(b.id)) || 0);
+                    case 'title':
+                    case 'alphabetical':
+                        return this.custom_alpha_sort(a?.song_name || '', b?.song_name || '');
+                    case 'artist':
+                        return this.custom_alpha_sort(
+                            a?.original_artists?.[0]?.name || '',
+                            b?.original_artists?.[0]?.name || ''
+                        );
+                    default:
+                        return 0;
                 }
-        });
+            });
+            
+            // Update cache metadata
+            this.last_sort_method = sort_method;
+            this.last_source_length = source_videos.length;
+            this.last_cache_timestamp = this.cache_timestamp;
+        }
 
-        return source_videos.slice(this.visible_start_index, this.visible_end_index);
+        // Return only the visible slice for virtual scrolling optimization
+        return this.sorted_videos_cache.slice(this.visible_start_index, this.visible_end_index);
+    }
+
+    private custom_alpha_sort(a: string, b: string): number {
+        const getFirst = (str: string) => str.trim()[0]?.toUpperCase() || '';
+        const isAlpha = (char: string) => /^[A-Z]$/.test(char);
+
+        const aFirst = getFirst(a);
+        const bFirst = getFirst(b);
+
+        const aIsAlpha = isAlpha(aFirst);
+        const bIsAlpha = isAlpha(bFirst);
+
+        if (!aIsAlpha && bIsAlpha) return -1; // a is non-letter, b is letter
+        if (aIsAlpha && !bIsAlpha) return 1;  // a is letter, b is non-letter
+        // Both are same type, sort normally
+        return a.localeCompare(b);
     }
 
     get padding_top(): string {
         return `${this.visible_start_index * this.item_height}px`;
     }
     get padding_bottom(): string {
-        const remaining_items = this.videos.length - this.visible_end_index;
+        // Use the actual source videos length (filtered or regular)
+        const source_videos = this.search_query ? this.filtered_videos : this.videos;
+        const remaining_items = source_videos.length - this.visible_end_index;
         return `${remaining_items * this.item_height}px`;
     }
 
     async load_videos_in_range(start: number, end: number) {
         const promises = [];
+        const initial_loaded_count = this.loaded_videos.size;
         
         for (let i = start; i < end; i++) {
             if (!this.loaded_videos.has(i) && i < this.playlists.selected_playlist_video_identifiers.length) {
@@ -643,6 +751,11 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         await Promise.all(promises);
         
+        // Only invalidate cache if we actually loaded new videos
+        if (this.loaded_videos.size > initial_loaded_count) {
+            this.cache_timestamp = Date.now();
+        }
+        
         // Update filtered videos after loading new data
         this.apply_search_filter();
     }
@@ -652,12 +765,65 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.loaded_videos.set(index, video);
         this.videos[index] = video;
     }
+
+    private update_container_height(): void {
+        // if (this.result_videos_ref?.nativeElement) {
+            // const element = this.result_videos_ref.nativeElement;
+            this.container_height = window.innerHeight || 1000; // Fallback to 1000 if not available
+        // }
+    }
+
+    private check_actions_sticky(): void {
+        const host_element = this.result_videos_ref?.nativeElement?.closest('app-playlist') as HTMLElement;
+        const actions_element = host_element?.querySelector('.actions') as HTMLElement;
+        const result_videos_element = this.result_videos_ref?.nativeElement;
+        
+        if (!actions_element || !result_videos_element || !host_element) {
+            return;
+        }
+
+        // Get bounding rectangles
+        const actions_rect = actions_element.getBoundingClientRect();
+        const result_videos_rect = result_videos_element.getBoundingClientRect();
+        const host_rect = host_element.getBoundingClientRect();
+
+        // Check if actions is overlapping with result-videos
+        // Actions is sticky when its bottom edge is touching or below the top of result-videos
+        // and it's at the top of the viewport (or close to it)
+        const is_overlapping = actions_rect.bottom >= result_videos_rect.top && 
+                              actions_rect.top <= host_rect.top + 50; // 50px threshold for "stuck at top"
+
+        // Update state and DOM only if changed
+        if (this.is_actions_sticky !== is_overlapping) {
+            this.is_actions_sticky = is_overlapping;
+            
+            if (this.is_actions_sticky) {
+                actions_element.classList.add('sticky');
+            } else {
+                actions_element.classList.remove('sticky');
+            }
+        }
+    }
         
 
     @HostListener('scroll', ['$event'])
     on_scroll(event: Event) {
         const target = event.target as HTMLElement;
         const scrollTop = target.scrollTop;
+        
+        // Update scrollbar position (throttled with RAF)
+        if (!this.scrollbar_dragging && !this.scrollbar_update_frame) {
+            this.scrollbar_update_frame = requestAnimationFrame(() => {
+                this.update_scrollbar_position(target);
+                this.scrollbar_update_frame = undefined;
+            });
+        }
+        
+        // Update container height in case of resize
+        this.update_container_height();
+        
+        // Check if .actions is sticky (overlapping with .result-videos)
+        this.check_actions_sticky();
         
         // Check header visibility - header has height: 50vh + padding + margins
         // Approximate total height considering 50vh + space-7 padding + space-6 margin
@@ -666,12 +832,6 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         const was_header_visible = this.is_header_visible;
         this.is_header_visible = scrollTop < header_height;
         
-        // If visibility changed, trigger change detection
-        if (was_header_visible !== this.is_header_visible) {
-            // Optional: Add any additional logic when visibility changes
-            console.log('Header visibility changed:', this.is_header_visible);
-        }
-        
         // Calculate visible range based on scroll position
         const new_start = Math.floor(scrollTop / this.item_height);
         const new_end = Math.min(
@@ -679,8 +839,12 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             this.videos.length
         );
 
+        // console.log('new end', new_end)
+
         const buffered_start = Math.max(0, new_start - this.buffer_size);
         const buffered_end = Math.min(this.videos.length, new_end + this.buffer_size);
+
+        // console.log(`ScrollTop: ${scrollTop}, New Range: ${new_start}-${new_end}, Buffered Range: ${buffered_start}-${buffered_end}`);
 
         if (Math.abs(buffered_start - this.visible_start_index) > this.significant_change_size || 
             Math.abs(buffered_end - this.visible_end_index) > this.significant_change_size) {
@@ -692,6 +856,265 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             this.load_videos_in_range(buffered_start, buffered_end);
         }
     }
+
+    @HostListener('window:resize', ['$event'])
+    on_window_resize(event?: Event): void {
+        this.update_container_height();
+    }
+    
+    private update_scrollbar_position(scroll_container: HTMLElement): void {
+        const scroll_height = scroll_container.scrollHeight - scroll_container.clientHeight;
+        if (scroll_height <= 0) return;
+        
+        const scroll_percentage = scroll_container.scrollTop / scroll_height;
+        
+        // Map to viewport range (10% - 90%)
+        const viewport_height = window.innerHeight;
+        const range_start = viewport_height * 0.0 + 40;
+        const range_end = viewport_height * 1.0 - 40;
+        const scrollbar_y = range_start + (scroll_percentage * (range_end - range_start));
+        
+        // Always update position and show scrollbar immediately
+        this.last_scrollbar_y = scrollbar_y;
+        this.scrollbar_transform = `translateX(12px) translateY(${scrollbar_y}px) translateZ(0)`;
+        this.scrollbar_visible = true;
+        
+        // Throttle text updates to 4 times per second (250ms)
+        const now = Date.now();
+        const time_since_last_update = now - this.last_text_update_time;
+        
+        if (time_since_last_update >= this.scrollbar_text_update_interval) {
+            // Enough time has passed, update immediately
+            this.update_scrollbar_text();
+            this.last_text_update_time = now;
+            this.pending_text_update = false;
+        } else if (!this.pending_text_update) {
+            // Schedule an update for later
+            this.pending_text_update = true;
+            const delay = this.scrollbar_text_update_interval - time_since_last_update;
+            
+            if (this.text_update_timeout) {
+                clearTimeout(this.text_update_timeout);
+            }
+            
+            this.text_update_timeout = window.setTimeout(() => {
+                this.update_scrollbar_text();
+                this.last_text_update_time = Date.now();
+                this.pending_text_update = false;
+            }, delay);
+        }
+        
+        this.schedule_scrollbar_hide();
+    }
+    
+    private update_scrollbar_text(): void {
+        if (!this.result_videos_ref) {
+            this.scrollbar_text = '';
+            return;
+        }
+        
+        const video_elements = this.result_videos_ref.nativeElement.querySelectorAll('.result.video');
+        if (video_elements.length === 0) {
+            this.scrollbar_text = '';
+            return;
+        }
+        
+        // Find closest element to scrollbar position (bidirectional search)
+        const scrollbar_y = this.last_scrollbar_y;
+        let closest_index = -1;
+        let closest_distance = Infinity;
+        
+        // Binary search for approximate starting point
+        let left = 0;
+        let right = video_elements.length - 1;
+        while (left <= right) {
+            const mid = Math.floor((left + right) / 2);
+            const rect = video_elements[mid].getBoundingClientRect();
+            const center_y = rect.top + rect.height / 2;
+            
+            if (center_y < scrollbar_y) {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+        
+        // Check nearby elements (limited radius)
+        const start_index = Math.max(0, Math.min(left, video_elements.length - 1));
+        const max_radius = 20;
+        
+        for (let offset = 0; offset <= max_radius; offset++) {
+            // Check forward
+            const forward_index = start_index + offset;
+            if (forward_index < video_elements.length) {
+                const rect = video_elements[forward_index].getBoundingClientRect();
+                const distance = Math.abs((rect.top + rect.height / 2) - scrollbar_y);
+                if (distance < closest_distance) {
+                    closest_distance = distance;
+                    closest_index = forward_index;
+                }
+            }
+            
+            // Check backward
+            if (offset > 0) {
+                const backward_index = start_index - offset;
+                if (backward_index >= 0) {
+                    const rect = video_elements[backward_index].getBoundingClientRect();
+                    const distance = Math.abs((rect.top + rect.height / 2) - scrollbar_y);
+                    if (distance < closest_distance) {
+                        closest_distance = distance;
+                        closest_index = backward_index;
+                    }
+                }
+            }
+        }
+        
+        if (closest_index === -1 || closest_index >= this.visible_videos.length) {
+            this.scrollbar_text = '';
+            return;
+        }
+        
+        const current_video = this.visible_videos[closest_index];
+        if (!current_video) {
+            this.scrollbar_text = '';
+            return;
+        }
+        
+        // Update text based on sorting method
+        const sorting_method = this.playlists.selected_playlist?.sorting_method;
+        switch(sorting_method) {
+            case 'alphabetical':
+            case 'title':
+                const first_letter = current_video.song_name?.[0]?.toUpperCase() || '';
+                const is_letter = /^[A-Z]$/i.test(first_letter);
+                this.scrollbar_text = is_letter ? `'${first_letter}'` : (first_letter ? `'#'` : '');
+                break;
+            case 'artist':
+                const artist_letter = current_video.original_artists?.[0]?.name?.[0]?.toUpperCase() || '';
+                const is_artist_letter = /^[A-Z]$/i.test(artist_letter);
+                this.scrollbar_text = is_artist_letter ? `'${artist_letter}'` : (artist_letter ? `'#'` : '');
+                break;
+            case 'old_to_recent':
+            case 'recent_to_old':
+            default:
+                // Calculate the actual song number in the full sorted list
+                // const actual_index = this.visible_start_index + closest_index;
+                // this.scrollbar_text = `'${actual_index + 1}'`;
+                const video = this.visible_videos[closest_index];
+                if(video) {
+                    // get date and return MM YYYY format
+                    const added_timestamp = this.playlists.selected_playlist?.song_added_timestamps.get(this.media.song_key(video.id)) || 0;
+                    const date = new Date(added_timestamp);
+                    const month = date.toLocaleString('default', { month: 'short' });
+                    const year = date.getFullYear();
+                    this.scrollbar_text = `'${month} ${year}'`;
+                }
+                break;
+        }
+    }
+    
+    private schedule_scrollbar_hide(): void {
+        if (this.scrollbar_hide_timeout) {
+            clearTimeout(this.scrollbar_hide_timeout);
+        }
+        
+        this.scrollbar_hide_timeout = window.setTimeout(() => {
+            this.scrollbar_visible = false;
+            this.scrollbar_text = '';
+        }, 1500);
+    }
+    
+    scrollbar_on_drag_start(event: MouseEvent | TouchEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+        
+        this.scrollbar_dragging = true;
+        const client_y = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
+        this.scrollbar_drag_start_y = client_y;
+        
+        const host_element = this.result_videos_ref.nativeElement.closest('app-playlist') as HTMLElement;
+        if (host_element) {
+            this.scrollbar_drag_start_scroll = host_element.scrollTop;
+        }
+        
+        if (this.scrollbar_hide_timeout) {
+            clearTimeout(this.scrollbar_hide_timeout);
+        }
+        
+        // Add global listeners
+        document.addEventListener('mousemove', this.scrollbar_on_drag_move_bound);
+        document.addEventListener('mouseup', this.scrollbar_on_drag_end_bound);
+        document.addEventListener('touchmove', this.scrollbar_on_drag_move_bound, { passive: false });
+        document.addEventListener('touchend', this.scrollbar_on_drag_end_bound);
+        
+        document.body.style.userSelect = 'none';
+    }
+    
+    private scrollbar_on_drag_move_bound = this.scrollbar_on_drag_move.bind(this);
+    private scrollbar_on_drag_end_bound = this.scrollbar_on_drag_end.bind(this);
+    
+    scrollbar_on_drag_move(event: MouseEvent | TouchEvent): void {
+        if (!this.scrollbar_dragging || !this.result_videos_ref) return;
+        
+        event.preventDefault();
+        
+        const client_y = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
+        const host_element = this.result_videos_ref.nativeElement.closest('app-playlist') as HTMLElement;
+        if (!host_element) return;
+        
+        // Calculate delta
+        const delta_y = client_y - this.scrollbar_drag_start_y;
+        
+        // Calculate scroll position
+        // const viewport_height = window.innerHeight;
+        const viewport_height = host_element.clientHeight;
+        const range_start = viewport_height * 0.0 + 40;
+        const range_end = viewport_height * 1.0 - 40;
+        const range_height = range_end - range_start;
+        
+        const scroll_height = host_element.scrollHeight - host_element.clientHeight;
+        const scroll_delta = (delta_y / range_height) * scroll_height;
+        
+        host_element.scrollTop = this.scrollbar_drag_start_scroll + scroll_delta;
+        
+        // Update scrollbar position immediately
+        const new_scrollbar_y = range_start + ((host_element.scrollTop / scroll_height) * range_height);
+        this.last_scrollbar_y = new_scrollbar_y;
+        this.scrollbar_transform = `translateX(12px) translateY(${new_scrollbar_y}px) translateZ(0)`;
+        
+        // During drag, update text more frequently but still throttled (every 100ms instead of 250ms)
+        const now = Date.now();
+        const drag_throttle_interval = 100; // Faster during drag for better UX
+        
+        if (now - this.last_text_update_time >= drag_throttle_interval) {
+            this.update_scrollbar_text();
+            this.last_text_update_time = now;
+        }
+    }
+    
+    scrollbar_on_drag_end(event: MouseEvent | TouchEvent): void {
+        if (!this.scrollbar_dragging) return;
+        
+        this.scrollbar_dragging = false;
+        
+        if (this.scrollbar_update_frame) {
+            cancelAnimationFrame(this.scrollbar_update_frame);
+            this.scrollbar_update_frame = undefined;
+        }
+        
+        // Remove global listeners
+        document.removeEventListener('mousemove', this.scrollbar_on_drag_move_bound);
+        document.removeEventListener('mouseup', this.scrollbar_on_drag_end_bound);
+        document.removeEventListener('touchmove', this.scrollbar_on_drag_move_bound);
+        document.removeEventListener('touchend', this.scrollbar_on_drag_end_bound);
+        
+        document.body.style.userSelect = '';
+        
+        this.update_scrollbar_text();
+        this.schedule_scrollbar_hide();
+    }
+    
+    // ==================== END CUSTOM SCROLLBAR METHODS ====================
 
     async play(track_data: Song_Data | null) {
         if (!track_data) return;
@@ -706,16 +1129,31 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.player.remove_track_from_playlist_queue(this.media.song_key(track_data.id));
     }
 
-    ms_to_time(ms: number): string {
+    public ms_to_time(ms: number, format: string = 'concise'): string {
         const totalSeconds = Math.floor(ms / 1000);
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
 
-        if (hours > 0) {
-            return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        } else {
-            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        switch(format) {
+            case 'concise':
+                if (hours > 0) {
+                    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                } else {
+                    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                }
+            case 'verbose':
+                const parts = [];
+                if (hours > 0) parts.push(`${hours} hr`);
+                if (minutes > 0) parts.push(`${minutes} min`);
+                if (seconds > 0 || parts.length === 0) parts.push(`${seconds} sec`);
+                return parts.join(' ');
+            case 'date':
+                // return in Sep 12, 2023 format
+                const date = new Date(ms);
+                return `${date.toLocaleString('default', { month: 'short' })} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
+            default:
+                return '';
         }
     }
 
@@ -724,19 +1162,40 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         return this.media.bare_song_key(identifier);
     }
 
-    shuffle_play(): void {
+    get is_current_playlist_playing(): boolean {
+        // Check if the current playlist is loaded in the player and is playing
+        return this.player.playlist_identifier?.id === this.playlists.selected_playlist_identifier?.id &&
+               this.player.player_status === 'playing';
+    }
+
+    get playlist_play_pause_icon(): string {
+        return this.is_current_playlist_playing ? 'player-pause' : 'player-play';
+    }
+
+    play_playlist (): void {
         if(!this.playlists.selected_playlist) return;
         if(this.playlists.selected_playlist.songs.size === 0) return;
-        this.player.shuffle = true;
-        this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
-        this.player.open_player.emit();
+
+        // Check if this playlist is already loaded and playing/paused
+        if (this.player.playlist_identifier?.id === this.playlists.selected_playlist_identifier?.id) {
+            // Same playlist is loaded, toggle play/pause
+            if (this.player.player_status === 'playing') {
+                this.player.pause();
+            } else {
+                this.player.play();
+            }
+        } else {
+            // Different playlist or no playlist loaded, load and play
+            this.player.open_player.emit();
+            this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
+        }
     }
 
     dj_play(): void {
 
     }
 
-    close(to_top: boolean): void {
+    close(to_top: boolean = false): void {
         if(to_top) {
             // const host_element = this.result_videos_ref.nativeElement.closest('app-playlist') as HTMLElement;
             // if (host_element && host_element.scrollTo) {
@@ -843,6 +1302,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
     }
 
+     public async open_hot_action(video: any, source: Song_Source): Promise<void> {
+        this.hot_action.open_hot_action(video, source);
+    }
+
     toggle_like(video: Song_Data | null): void {
         if (!video) return;
         this.dont_play = true;
@@ -850,7 +1313,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         video.liked = !video.liked;
         // this.media.save_song_to_indexDB(this.current_song_data.id.video_id, this.current_song_data);
         if(video.liked) {
-            console.log('Adding song to favorites:', video);
+            // console.log('Adding song to favorites:', video);
             this.playlists.add_to_favorites(video);
         } else {
             this.playlists.remove_from_favorites(video);
@@ -878,5 +1341,41 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.swipe_x = 0;
         
         this.media.request_download(this.media.song_key(video.id), {quality: DownloadQuality.Q0, bit_rate: '128k'});
+    }
+
+    open_more_options(): void {
+        this.quick_action.quick_action_open = true;
+        this.quick_action.action = 'playlist_options';
+    }
+
+    open_sort_options(): void {
+        this.quick_action.quick_action_open = true;
+        this.quick_action.action = 'playlist_sort_options';
+    }
+
+    get is_playlist_stored(): boolean {
+        return this.playlists.is_playlist_stored(this.playlists.selected_playlist_identifier);
+    }
+
+    get is_default_playlist(): boolean {
+        return this.playlists.selected_playlist_identifier?.default || false;
+    }
+
+    get is_playlist_download_playlist(): boolean {
+        return this.playlists.selected_playlist_identifier?.id === '#downloads';
+    }
+
+    toggle_playlist_add(): void {
+        if (!this.playlists.selected_playlist_identifier) return;
+        
+        const playlist_name = this.playlists.selected_playlist_identifier.name;
+        
+        if (this.is_playlist_stored) {
+            this.playlists.delete_playlist(this.playlists.selected_playlist_identifier);
+            this.notification_service.show_notification(`Removed "${playlist_name}"`);
+        } else {
+            this.playlists.add_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist);
+            this.notification_service.show_notification(`Added "${playlist_name}"`);
+        }
     }
 }

@@ -60,10 +60,14 @@
             <div class="thumbnail" [ngClass]="{'single': playlist.images.length === 1}">
                 <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
             </div>
-            <div class="name">{{ playlist.name }}</div>
             <div class="info">
-                <div class="count">{{ playlist.track_count || 0 }} tracks</div>
-                <div class="playlist-duration"> {{ ms_to_time(playlist?.duration || 0) }}</div>
+                <div class="name">{{ playlist.name }}</div>
+                <div class="details" style="display: flex; flex-direction: row; align-items: center; gap: var(--space-1);">
+                    <div class="type">{{ playlist.playlist_type === 'album' ? 'Album' : 'Playlist' }}</div>
+                    <div class="dot" *ngIf="playlist.created_by"></div>
+                    <!-- if created by default say track count -->
+                    <div class="created-by">{{ playlist.created_by === 'user' ? 'You' : (playlist.created_by === 'system' ? `${ playlist.track_count || 0 } songs` : playlist.created_by) }}</div>
+                </div>
             </div>
         </button>
 
@@ -80,10 +84,15 @@
             <div class="thumbnail" [ngClass]="{'single': playlist.images.length === 1}">
                 <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
             </div>
-            <div class="name">{{ playlist.name }}</div>
+            <!-- <div class="name">{{ playlist.name }}</div> -->
             <div class="info">
-                <div class="count">{{ playlist.track_count || 0 }} tracks</div>
-                <div class="playlist-duration"> {{ ms_to_time(playlist?.duration || 0) }}</div>
+                <div class="name">{{ playlist.name }}</div>
+                <div class="details" style="display: flex; flex-direction: row; align-items: center; gap: var(--space-1);">
+                    <div class="type">{{ playlist.playlist_type === 'album' ? 'Album' : 'Playlist' }}</div>
+                    <div class="dot" *ngIf="playlist.created_by"></div>
+                    <!-- if created by default say track count -->
+                    <div class="created-by">{{ playlist.created_by === 'user' ? 'You' : (playlist.created_by === 'system' ? `${ playlist.track_count || 0 } songs` : (playlist.created_by === 'imported' ? 'Imported' : playlist.created_by)) }}</div>
+                </div>
             </div>
         </button>
     </div>

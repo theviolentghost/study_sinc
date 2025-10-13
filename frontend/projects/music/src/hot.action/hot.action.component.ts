@@ -1,7 +1,8 @@
-import { Component, Output, EventEmitter } from '@angular/core';
+import { Component, Output, EventEmitter, HostBinding } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 
 import { Song_Data } from '../../music.media.service';
 import { PlaylistsService } from '../../playlists.service';
@@ -17,6 +18,10 @@ import { MusicPlayerService } from '../../music.player.service';
   styleUrl: './hot.action.component.css'
 })
 export class HotActionComponent {
+    @HostBinding('class.dragged') get is_dragged(): boolean {
+        return this.header_drag_active;
+    }
+
     @Output() close: EventEmitter<void> = new EventEmitter<void>();
     playlist_name: string = '';
     import_url: string = '';
@@ -94,7 +99,7 @@ export class HotActionComponent {
         });
     }
 
-    constructor(private playlists: PlaylistsService, private hot_action: HotActionService, private media: MusicMediaService, private player: MusicPlayerService, private router: Router) {
+    constructor(private playlists: PlaylistsService, public hot_action: HotActionService, private media: MusicMediaService, private player: MusicPlayerService, private router: Router) {
         this.hot_action.hot_action_opened.subscribe((opened: boolean) => {
             if(opened) this.update_playlist_selectors();
         });
@@ -243,6 +248,7 @@ export class HotActionComponent {
                 const playlist_indentifier = await this.playlists.create_playlist(response.name);
                 console.log('Created playlist identifier:', playlist_indentifier);
                 if(!playlist_indentifier) return;
+                playlist_indentifier.created_by = 'imported';
                 const playlist = await this.playlists.get_playlist(playlist_indentifier);
 
 
@@ -323,5 +329,123 @@ export class HotActionComponent {
         this.import_url = '';
         this.import_file = null;
         this.import_status = 'idle';
+    }
+
+    // Header drag properties
+    header_drag_active = false;
+    header_drag_start_y = 0;
+    header_drag_y = 0;
+    header_drag_threshold = 100; // Distance to pull down before closing
+    get header_transform(): string {
+        return this.header_drag_y > 0 ? `translateY(${this.header_drag_y}px)` : '';
+    }
+
+    header_on_drag_start(event: TouchEvent | MouseEvent): void {
+        let clientY: number;
+        
+        if (event instanceof TouchEvent) {
+            clientY = event.touches[0].clientY;
+        } else {
+            clientY = event.clientY;
+        }
+
+        this.header_drag_active = true;
+        this.header_drag_start_y = clientY;
+        this.header_drag_y = 0;
+
+        event.stopPropagation();
+    }
+
+    header_on_drag_move(event: TouchEvent | MouseEvent): void {
+        if (!this.header_drag_active) return;
+        
+        let clientY: number;
+        
+        if (event instanceof TouchEvent) {
+            clientY = event.touches[0].clientY;
+        } else {
+            clientY = event.clientY;
+        }
+
+        const deltaY = clientY - this.header_drag_start_y;
+        
+        // Only allow downward drag (positive deltaY)
+        this.header_drag_y = Math.max(0, deltaY);
+
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    header_on_drag_end(event: TouchEvent | MouseEvent): void {
+        if (!this.header_drag_active) return;
+
+        const should_close = this.header_drag_y > this.header_drag_threshold;
+
+        if (should_close) {
+            // Animate to fully closed position
+            this.animate_header_close();
+        } else {
+            // Snap back to original position
+            this.animate_header_value(this.header_drag_y, 0);
+        }
+
+        this.header_drag_active = false;
+        event.stopPropagation();
+    }
+
+    private animate_header_value(from: number, to: number, duration: number = 200): void {
+        this.animateValue(from, to, duration, this.easeOutCubic).subscribe(value => {
+            this.header_drag_y = value;
+        });
+    }
+
+    private animate_header_close(): void {
+        this.animateValue(this.header_drag_y, window.innerHeight, 300, this.easeOutCubic).subscribe({
+            next: (value) => {
+                this.header_drag_y = value;
+            },
+            complete: () => {
+                // Close the hot action after animation
+                this.hot_action.close_hot_action();
+                this.header_drag_y = 0;
+            }
+        });
+    }
+
+    animateValue(
+        from: number, 
+        to: number, 
+        duration: number, 
+        easing: (t: number) => number = this.linear
+    ): BehaviorSubject<number> {
+        const subject = new BehaviorSubject<number>(from);
+        const startTime = Date.now();
+        
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const easedProgress = easing(progress);
+            const currentValue = from + (to - from) * easedProgress;
+            
+            subject.next(currentValue);
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                subject.complete();
+            }
+        };
+        
+        requestAnimationFrame(animate);
+        return subject;
+    }
+    
+    // Easing functions
+    easeOutCubic(t: number): number {
+        return 1 - Math.pow(1 - t, 3);
+    }
+
+    linear(t: number): number {
+        return t;
     }
 }

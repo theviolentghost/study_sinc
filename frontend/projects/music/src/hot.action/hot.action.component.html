@@ -1,7 +1,19 @@
-<div class="header">
-    <button class="close" (click)="cancel()">Cancel</button>
-    <h3 class="label">{{title}}</h3>
-</div>
+<div class="dimmer" (click)="hot_action.close_hot_action()"></div>
+<div class="content-wrapper" [style.transform]="header_transform">
+    <div 
+        class="header"
+        (touchstart)="header_on_drag_start($event)"
+        (touchmove)="header_on_drag_move($event)"
+        (touchend)="header_on_drag_end($event)"
+        (mousedown)="header_on_drag_start($event)"
+        (mousemove)="header_on_drag_move($event)"
+        (mouseup)="header_on_drag_end($event)"
+        (mouseleave)="header_on_drag_end($event)"
+    >
+        <div class="dragging-pill"></div>
+        <!-- <button class="close" (click)="cancel()">Cancel</button> -->
+        <!-- <h3 class="label">{{title}}</h3> -->
+    </div>
 
 <ng-container [ngSwitch]="action">
     
@@ -25,7 +37,7 @@
                     <div class="name">{{ action.name }}</div>
                     <div *ngIf="!action?.no_check" class="state" [style.--mask]="'url(\'check.svg\')'"></div>
                 </button>
-                <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%; max-width: 550px;">Add To Playlists</h2>
+                <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%;">Add To Playlists</h2>
                 <button class="action playlist" *ngFor="let playlist of playlist_selectors" (click)="select_playlist(playlist)" [style.--primary]="get_playlist_primary_color(playlist.identifier)" [style.--color]="(playlist.selected ? 'var(--primary)' : 'var(--color-background-400)')" [style.--text]="(playlist.selected ? 'var(--primary)' : 'var(--color-text)')" [style.--background]="(playlist.selected ? 'var(--primary)' : 'var(--color-background)')" [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}">
                     <div class="thumbnail">
                         <!-- <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" /> -->
@@ -116,3 +128,4 @@
     </ng-container>
     
 </ng-container>
+</div>

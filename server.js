@@ -868,24 +868,33 @@ app.get('/music/recommend/:video_id', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// /spotify/album/
+app.get('/spotify/album/:album_id', async (req, res) => {
+    const album_id = req.params.album_id;
+    if (!album_id) {
+        return res.status(400).json({ error: 'Album ID is required' });
+    }
+    try {
+        const album = await Music.spotify.get_album_details(album_id);
+        if (!album) {
+            return res.status(404).json({ error: 'Album not found' });
+        }
+        res.json(album);
+    } catch (error) {
+        console.error('Error fetching album:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// /music/top_releases
+app.get('/music/top_releases', async (req, res) => {
+    try {
+        const top_releases = await Music.spotify.get_top_releases();
+        res.json(top_releases);
+    } catch (error) {
+        console.error('Error fetching top releases:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 
 

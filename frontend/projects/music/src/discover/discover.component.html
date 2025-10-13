@@ -4,7 +4,7 @@
          [class.show]="show_left_glint" 
          [style.opacity]="glint_opacity">
         <div class="glint-content">
-            <div class="glint-icon" [style.--mask]="'url(\'' + 'x.svg' + '\')'"></div>
+            <div class="glint-icon" [style.--mask]="'url(\'' + 'plus.svg' + '\')'" style="transform: rotate(45deg);"></div>
             <div class="glint-text">REJECT</div>
         </div>
     </div>
@@ -12,7 +12,7 @@
          [class.show]="show_right_glint" 
          [style.opacity]="glint_opacity">
         <div class="glint-content">
-            <div class="glint-icon" [style.--mask]="'url(\'' + 'heart.svg' + '\')'"></div>
+            <div class="glint-icon" [style.--mask]="'url(\'' + 'plus.svg' + '\')'"></div>
             <div class="glint-text">ADD</div>
         </div>
     </div>
@@ -25,6 +25,8 @@
             <div class="playlist-name">{{ selected_playlist?.name || 'Playlist To Add Songs To' }}</div>
         </div>
         <div class="playlist-dropdown" [class.open]="is_playlist_dropdown_open">
+            <div class="playlist" [ngClass]="{'selected': selected_playlist?.id === '#my_taste'}" [style.--color]="'white'">My Taste</div>
+
             <div class="playlist" [ngClass]="{'selected': selected_playlist?.id === playlist.id}" *ngFor="let playlist of playlists" [style.--color]="playlist?.colors?.primary" (click)="select_playlist(playlist)">{{ playlist.name }}</div>
         </div>
     </div>
@@ -92,7 +94,7 @@
                         <span *ngIf="!isLast">, </span>
                     </div>
                 </div>
-                <button class="play" (click)="play_song(current_card?.id, current_card)">Play</button>
+                <!-- <button class="play" (click)="play_song(current_card?.id, current_card)">Play</button> -->
             </div>
         </div>
     </div>
@@ -100,12 +102,20 @@
 
 <!-- Action buttons for accessibility -->
 <div class="action-buttons">
-    <button class="action-btn reject-btn" (click)="reject_card()" [disabled]="is_dragging">
+    <!-- <button class="action-btn reject-btn" (click)="reject_card()" [disabled]="is_dragging">
         <span class="btn-icon">✕</span>
         <span class="btn-text">Reject</span>
     </button>
     <button class="action-btn accept-btn" (click)="accept_card()" [disabled]="is_dragging">
         <span class="btn-icon">♡</span>
         <span class="btn-text">Add</span>
+    </button> -->
+    <button class="action reject" (click)="reject_card()" [disabled]="is_dragging">
+        <div class="label">REJECT</div>
+        <div class="icon" [style.--mask]="'url(\'' + 'plus.svg' + '\')'" style="transform: rotate(45deg);"></div>
+    </button>
+    <button class="action add" (click)="accept_card()" [disabled]="is_dragging">
+        <div class="label">ADD</div>
+        <div class="icon" [style.--mask]="'url(\'' + 'plus.svg' + '\')'"></div>
     </button>
 </div>

@@ -1,1 +1,65 @@
-<p>album works!</p>
+<div class="panel">
+    <div class="backdrop" [style.--color]="primary_color">
+        <div class="thumbnail">
+            <img [src]="album_details?.images[0]?.url || 'music.svg'" alt="Album cover" />
+        </div>
+    </div>
+    <div class="album-info">
+        <div class="title">{{ album_details?.name }}</div>
+        <div style="display: flex; flex-direction: row; flex-wrap: wrap;">
+            <div 
+                class="artist"
+                *ngFor="let artist of album_details?.artists; let isLast = last"
+            >
+                <!-- <img [src]="artist?.images?.[0]?.url || 'user.svg'" *ngIf="artist?.images?.length > 0" /> -->
+                <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
+                <span *ngIf="!isLast">, </span>
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: row; flex-wrap: wrap;">
+            <div class="type">{{ album_details?.album_type[0]?.toUpperCase() + album_details?.album_type?.slice(1) }}</div>
+            <div class="dot" *ngIf="album_details?.release_date"></div>
+            <div class="date">{{ parse_year(album_details?.release_date) }} </div>
+            <div class="dot" *ngIf="album_details?.total_tracks"></div>
+            <div class="songs-count">{{ album_details?.total_tracks }} songs</div>
+            <div class="dot" *ngIf="album_details?.total_tracks"></div>
+            <div class="songs-count">{{ get_album_duration(album_details?.tracks?.items) }}</div>
+        </div>
+    </div>
+    <div class="actions">
+        <div class="action add" [style.--mask]="'url(\'plus.svg\')'"></div>
+        <div class="action download" [style.--mask]="'url(\'download.svg\')'"></div>
+        <div class="action more" [style.--mask]="'url(\'dots.svg\')'"></div>
+        <div class="action play" [style.--mask]="'url(\'' + this.playing_icon + '.svg\')'"></div>
+    </div>
+    <div class="list">
+        <button
+            *ngFor="let item of album_details?.tracks?.items; let i = index"
+            (click)="spotify_play(item)"
+            class="search-result video disable-select"
+            [ngClass]="{
+                saved: is_song_in_collection(item, 'spotify'),
+                selected: get_bare_song_key(current_song_identifier) === get_bare_song_key(get_video_identifier(item, 'spotify'))
+            }"
+        >
+            <div class="info">
+                <div class="title">{{ item?.name }} <div class="dot"></div><div class="duration">{{ ms_to_time(item?.duration_ms) }}</div></div>
+                <div style="display: flex; flex-direction: row; align-items: center;">
+                    <div class="explicit" [style.--mask]="'url(\'explicit.svg\')'" *ngIf="item?.explicit"></div>
+                    <div 
+                        class="artist"
+                        *ngFor="let artist of item?.artists; let isLast = last"
+                    >
+                        <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
+                        <span *ngIf="!isLast">, </span>
+                    </div>
+                </div>
+            </div>
+            <div class="extra-info-alignment">
+                <button class="hot-action" [style.--mask]="'url(\'' + 'dots.svg' + '\')'" (click)="open_hot_action(item, 'spotify'); $event.stopPropagation();">
+                    <div class="indicator" *ngIf="is_song_in_collection(item, 'spotify')"></div>
+                </button>
+            </div>
+        </button>
+    </div>
+</div>

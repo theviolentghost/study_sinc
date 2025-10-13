@@ -74,6 +74,7 @@
 }
 
 .stack {
+    margin-top: auto;
     position: relative;
     width: 350px;
     height: 550px;
@@ -121,17 +122,16 @@
 }
 
 .card-content {
-    padding: var(--space-3);
     height: 100%;
     width: 100%;
     display: flex;
     flex-direction: column;
     pointer-events: auto;
-    border-radius: var(--space-4);
+    border-radius: var(--space-2);
     background-color: var(--color-background-300);
-    border: solid 1px var(--color-background-200);
+    /* border: solid 1px var(--color-background-200); */
     overflow: hidden;
-    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: transform .4s cubic-bezier(.25, .46, .45, .94);
     transform-origin: center center;
 }
 
@@ -140,8 +140,8 @@
     position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
-    background: var(--color-background-100);
-    border-radius: calc(var(--space-4) - var(--space-3) / 1.5);
+    background: var(--color-background-400);
+    /* border-radius: var(--space-0); */
     overflow: hidden;
 }
 
@@ -155,11 +155,12 @@
 .info {
     width: 100%;
     flex: 1;
+    padding: 0 var(--space-4) var(--space-2) var(--space-4);
 }
 
 .title {
-    font-size: calc(var(--font-size-base) * 1.2);
-    font-weight: 600;
+    font-size: calc(var(--font-size-base) * 1.1);
+    font-weight: 500;
     margin-top: var(--space-2);
     color: var(--color-text);
     white-space: nowrap;
@@ -168,13 +169,13 @@
 }
 
 .artist {
-    font-size: calc(var(--font-size-base) * .85);
+    font-size: calc(var(--font-size-base) * .9);
     color: var(--color-text);
     padding: 0 var(--space-1);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    filter: brightness(0.75);
+    filter: brightness(.75);
     display: flex;
     flex-direction: row;
     margin-right: 4px;
@@ -193,84 +194,61 @@
 
 .action-buttons {
     display: flex;
-    gap: 40px;
-    margin-top: 40px;
+    gap: 20px;
+    margin-top: auto;
     z-index: 100;
+    width: calc(100% - 40px);
+    margin-bottom: var(--space-4);
 }
 
-.action-btn {
+.action {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    width: 70px;
-    height: 70px;
-    border: none;
-    border-radius: 50%;
-    background: var(--color-background-300);
-    border: 2px solid var(--color-background-200);
+    justify-content: space-between;
+    border-radius: var(--space-1);
+    background: var(--color-text);
+    padding: var(--space-2) var(--space-4);
+    flex: 1;
+    opacity: 1;
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+    .label {
+        font-size: calc(var(--font-size-base) * 1.3);
+        font-weight: 600;
+        color: var(--color-background);
+        margin: 0 auto;
+    }
+
+    &.reject {
+        background: var(--color-deny);
+    }
+    &.add {
+        background: var(--color-success);
+    }
+
+    .icon {
+        width: var(--space-6);
+        height: var(--space-6);
+        mask-image: var(--mask);
+        mask-position: center;
+        mask-repeat: no-repeat;
+        mask-size: contain;
+        background-color: var(--color-background);
+    }
+
+    &[disabled] {
+        cursor: default;
+        opacity: 0;
+    }
+
+    &:active {
+        transform: scale(0.95);
+    }
 }
 
-.action-btn:hover {
-    transform: scale(1.1);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-}
-
-.action-btn:active {
-    transform: scale(0.95);
-}
-
-.action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    transform: none;
-}
-
-.reject-btn {
-    border-color: rgba(255, 59, 48, 0.3);
-    background: linear-gradient(135deg, rgba(255, 59, 48, 0.1) 0%, rgba(255, 59, 48, 0.05) 100%);
-}
-
-.reject-btn:hover {
-    border-color: rgba(255, 59, 48, 0.6);
-    background: linear-gradient(135deg, rgba(255, 59, 48, 0.2) 0%, rgba(255, 59, 48, 0.1) 100%);
-}
-
-.accept-btn {
-    border-color: rgba(52, 199, 89, 0.3);
-    background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%);
-}
-
-.accept-btn:hover {
-    border-color: rgba(52, 199, 89, 0.6);
-    background: linear-gradient(135deg, rgba(52, 199, 89, 0.2) 0%, rgba(52, 199, 89, 0.1) 100%);
-}
-
-.btn-icon {
-    font-size: 24px;
-    font-weight: bold;
-    margin-bottom: 4px;
-}
-
-.reject-btn .btn-icon {
-    color: rgba(255, 59, 48, 0.8);
-}
-
-.accept-btn .btn-icon {
-    color: rgba(52, 199, 89, 0.8);
-}
-
-.btn-text {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--color-text);
-    opacity: 0.7;
-}
 
 /* CDK Drag animations */
 .cdk-drag-animating {
@@ -336,6 +314,8 @@
 }
 
 .header {
+    margin-top: var(--space-4);
+    
     .playlist-dropdown-container {
         position: relative;
         cursor: pointer;
@@ -343,11 +323,11 @@
         flex-direction: row;
         align-items: center;
         justify-content: center;
-        width: clamp(120px, 60vw, 320px);
-        background-color: var(--color-background-200);
+        width: 90vw;
+        background-color: var(--color-background-300);
         padding: var(--space-1) var(--space-2);
         border-radius: var(--space-2);
-        border-bottom-right-radius: 0;
+        /* border-bottom-right-radius: 0; */
 
         .playlist-selected {
             display: flex;
@@ -358,8 +338,8 @@
         }
 
         .icon {
-            width: var(--space-5);
-            height: var(--space-5);
+            width: var(--space-6);
+            height: var(--space-6);
             mask-image: var(--mask);
             mask-position: center;
             mask-repeat: no-repeat;
@@ -368,7 +348,7 @@
         }
         .playlist-name {
             margin-left: var(--space-2);
-            font-size: var(--space-4);
+            font-size: 22px;
             font-weight: 500;
         }
 
@@ -377,7 +357,7 @@
             top: 100%;
             left: calc(var(--space-2) + var(--space-5));
             /* padding-left: var(--space-2); */
-            right: 0;
+            right: var(--space-2);
             height: auto;
             background-color: var(--color-background-200);
             border-bottom-left-radius: var(--space-2);
@@ -397,6 +377,7 @@
                 position: relative;
                 font-size: var(--space-4);
                 height: 32px;
+                font-size: 18px;
                 font-weight: 500;
                 overflow: hidden;
                 padding: var(--space-1) var(--space-2);
@@ -406,6 +387,7 @@
                     background-color: var(--color-background-200);
                     font-weight: 600;
                     cursor: default;
+                    color: var(--color);
 
                     &::before {
                         content: '';

@@ -94,7 +94,7 @@
                                     </div>
                                     <div class="info">
                                         <div class="title">{{ item?.name }}</div>
-                                        <div class="artist">{{ item?.artists?.[0]?.name }}</div>
+                                        <div class="artist">Song • {{ item?.artists?.[0]?.name }}</div>
                                     </div>
                                     <div class="extra-info-alignment">
                                         <button class="hot-action" [style.--mask]="'url(\'' + (is_song_in_collection(item, 'spotify') ? 'check.svg' : 'plus.svg') + '\')'" (click)="open_hot_action(item, 'spotify'); $event.stopPropagation();"></button>
@@ -118,6 +118,48 @@
                                     </div>
                                     <div class="extra-info-alignment">
                                         <button class="following" [style.--mask]="'url(\'' + (is_following_artist(item?.id) ? 'bookmark-fill.svg' : 'bookmark.svg') + '\')'" (click)="toggle_follow_artist(item); $event.stopPropagation();"></button>
+                                    </div>
+                                </button>
+
+                                <button
+                                    *ngSwitchCase="'album'"
+                                    (click)="spotify_open_album(item)"
+                                    class="search-result album disable-select"
+                                    [ngClass]="{
+                                        saved: is_album_saved(item?.id)
+                                    }"
+                                >
+                                    <div class="thumbnail">
+                                        <img [src]="item?.images?.[1]?.url || 'music.svg'" alt="Album cover" />
+                                        <!-- <div class="track-count">{{ item?.total_tracks }} tracks</div> -->
+                                    </div>
+                                    <div class="info">
+                                        <div class="title">{{ item?.name }}</div>
+                                        <div class="artist">Album • {{ item?.artists?.[0]?.name }} • {{ item?.release_date?.substring(0, 4) }}</div>
+                                    </div>
+                                    <div class="extra-info-alignment">
+                                        <button class="hot-action" [style.--mask]="'url(\'' + (is_album_saved(item?.id) ? 'bookmark-fill.svg' : 'bookmark.svg') + '\')'" (click)="add_album_to_collection(item); $event.stopPropagation();"></button>
+                                    </div>
+                                </button>
+
+                                <button
+                                    *ngSwitchCase="'playlist'"
+                                    (click)="spotify_open_playlist(item)"
+                                    class="search-result playlist disable-select"
+                                    [ngClass]="{
+                                        saved: is_playlist_saved(item?.id)
+                                    }"
+                                >
+                                    <div class="thumbnail">
+                                        <img [src]="item?.images?.[0]?.url || 'music.svg'" alt="Playlist cover" />
+                                        <div class="track-count">{{ item?.tracks?.total }} tracks</div>
+                                    </div>
+                                    <div class="info">
+                                        <div class="title">{{ item?.name }}</div>
+                                        <div class="artist">Playlist • {{ item?.owner?.display_name }}</div>
+                                    </div>
+                                    <div class="extra-info-alignment">
+                                        <button class="hot-action" [style.--mask]="'url(\'' + (is_playlist_saved(item?.id) ? 'check.svg' : 'plus.svg') + '\')'" (click)="add_playlist_to_collection(item); $event.stopPropagation();"></button>
                                     </div>
                                 </button>
 
@@ -179,18 +221,59 @@
                         </div>
                     </div> -->
 
+                    <h2 *ngIf="top_releases.length > 0">New Releases</h2>
+                    <div class="albums">
+                        <div class="album" 
+                             *ngFor="let album of top_releases.slice(0, 5); let i = index; trackBy: track_by_index" 
+                             [style.--color]="get_album_primary_color(album.images?.[0]?.url)" 
+                             (click)="spotify_open_album(album)"
+                             [ngClass]="{ viewing: album_viewing_states[i] }"
+                             inView
+                             (inView)="on_album_view_change(i, $event)">
+                            <div class="thumbnail">
+                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" />
+                            </div>
+                            <div class="info">
+                                <div class="title">{{ album?.name }}</div>
+                                <div class="artist">{{album?.album_type?.[0]?.toUpperCase() + album?.album_type?.slice(1)}} <div class="dot"></div> {{ album.artists?.[0]?.name }}</div>
+                            </div>
+                            <div class="open" [style.--mask]="'url(\'arrow-narrow-up.svg\')'"></div>
+                        </div>
+                    </div>
 
                     <h2 *ngIf="mood_categories.length > 0">Genres</h2>
                     <div class="category genres">
-                        <div class="list scroll-x hide-scrollbar">
+                        <div class="list scroll-y hide-scrollbar">
                             <div class="item no-thumbnail" *ngFor="let category of mood_categories">
-                                <div class="thumbnail">
+                                <!-- <div class="thumbnail">
                                     <img/>
-                                </div>
+                                </div> -->
                                 <div class="label">{{ category.title }}</div>
                             </div>
                         </div>
                     </div>
+
+                    <h2 *ngIf="top_releases.length > 0 && mood_categories.length > 0">More New Releases</h2>
+                    <div class="albums" style="margin-bottom: var(--space-6);">
+                        <div class="album" 
+                             *ngFor="let album of top_releases.slice(6); let i = index; trackBy: track_by_index" 
+                             [style.--color]="get_album_primary_color(album.images?.[0]?.url)" 
+                             [ngClass]="{ viewing: album_viewing_states[i] }"
+                             (click)="spotify_open_album(album)"
+                             inView
+                             (inView)="on_album_view_change(i, $event)">
+                            <div class="thumbnail">
+                                <img [src]="album.images?.[0]?.url || 'music.svg'" alt="Album cover" loading="lazy" />
+                            </div>
+                            <div class="info">
+                                <div class="title">{{ album?.name }}</div>
+                                <div class="artist">{{album?.album_type?.[0]?.toUpperCase() + album?.album_type?.slice(1)}} <div class="dot"></div> {{ album.artists?.[0]?.name }}</div>
+                            </div>
+                            <div class="open" [style.--mask]="'url(\'arrow-narrow-up.svg\')'"></div>
+                        </div>
+                    </div>
+
+
                 </div>
             </div>
         </ng-template>

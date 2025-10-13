@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 
 import { MusicMediaService, Song_Data, Song_Playlist, Song_Playlist_Identifier, Song_Identifier, DownloadQuality } from './music.media.service';
 import { MusicPlayerService } from './music.player.service';
+import { NotificationService } from './notification.service';
 
 @Injectable({
   providedIn: 'root'
@@ -20,6 +21,7 @@ export class PlaylistsService {
     selected_playlist_video_identifiers: Song_Identifier[] = [];
 
     private player?: MusicPlayerService;
+    private notification?: NotificationService;
     // sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
 
     constructor(
@@ -38,6 +40,18 @@ export class PlaylistsService {
         return this.player;
     }
 
+    private get notificationService(): NotificationService {
+        if (!this.notification) {
+            this.notification = this.injector.get(NotificationService);
+        }
+        return this.notification;
+    }
+
+    // checks to see if a playlist is stored (in playlist_identifiers or default_playlist_identifiers)
+    public is_playlist_stored(playlist_identifier: Song_Playlist_Identifier): boolean {
+        return this.all_playlist_identifiers.some(p => p.id === playlist_identifier.id);
+    }
+
     get favorite_playlist_identifier(): Song_Playlist_Identifier | null {
         return this.default_playlist_identifiers.find(p => p.name === 'Favorites') || null;
     }
@@ -49,6 +63,8 @@ export class PlaylistsService {
             console.warn(`Favorite playlist not found: ${this.favorite_playlist_identifier.name}`);
             return;
         }
+
+        song_data.liked = true; // Mark as liked
 
         this.add_song_to_playlist(song_data, this.favorite_playlist_identifier, playlist);
         this.add_to_recently_added(song_data); // Also add to Recently Added
@@ -187,13 +203,31 @@ export class PlaylistsService {
             default: false,
             colors: {
                 primary: 'hsl(33, 72%, 50%)',
-            }
+            },
+            playlist_type: 'playlist',
+            created_by: 'user',
+            created_at: Date.now()
         };
 
         this.playlist_identifiers.push(updated_indentifier);
         // this.media.add_playlist_to_cache(playlist.id);
         await this.save_playlist(updated_indentifier, new_playlist);
         return updated_indentifier;
+    }
+
+    async add_playlist(identifier: Song_Playlist_Identifier, playlist: Song_Playlist): Promise<void> {
+        if (!identifier || !playlist) return;
+
+        if (this.all_playlist_identifiers.find(p => p.id === identifier.id)) {
+            console.warn(`Playlist with id "${identifier.id}" already exists.`);
+            return;
+        }
+
+        this.playlist_identifiers.push(identifier);
+        await this.save_playlist(identifier, playlist);
+        
+        // Show notification
+        this.notificationService.show_notification(`Added "${identifier.name}"`);
     }
 
     async select_playlist(playlist: Song_Playlist_Identifier): Promise<void> {
@@ -204,8 +238,52 @@ export class PlaylistsService {
         await this.load_playlist(playlist);
     }
 
-    async delete_playlist(playlist: Song_Playlist_Identifier): Promise<void> {
+    async delete_playlist(playlist_identifier: Song_Playlist_Identifier): Promise<void> {
+        if (!playlist_identifier) return;
         
+        // Don't allow deleting default playlists
+        if (playlist_identifier.default) {
+            console.warn(`Cannot delete default playlist: ${playlist_identifier.name}`);
+            return;
+        }
+
+        const playlist_name = playlist_identifier.name;
+
+        // Get the playlist data to remove all songs from cache
+        const playlist = await this.get_playlist(playlist_identifier);
+        if (playlist) {
+            // Remove all songs from the cache for this playlist
+            const song_keys = Array.from(playlist.songs.keys());
+            for (const song_key of song_keys) {
+                const song_identifier = playlist.songs.get(song_key);
+                if (song_identifier) {
+                    this.media.remove_song_from_cache(this.media.bare_song_key(song_identifier), playlist_identifier.id);
+                }
+            }
+        }
+
+        // Remove from playlist_identifiers array
+        const index = this.playlist_identifiers.findIndex(p => p.id === playlist_identifier.id);
+        if (index !== -1) {
+            this.playlist_identifiers.splice(index, 1);
+        }
+
+        // Delete from IndexedDB
+        await this.media.delete_playlist_from_indexDB(playlist_identifier);
+
+        // Save updated playlist identifiers
+        await this.save_playlists();
+
+        // Show notification
+        this.notificationService.show_notification(`Removed "${playlist_name}"`);
+
+        // If this was the selected playlist, clear selection and navigate away
+        // if (this.selected_playlist_identifier?.id === playlist_identifier.id) {
+        //     this.selected_playlist_identifier = null;
+        //     this.selected_playlist = null;
+        //     this.selected_playlist_video_identifiers = [];
+        //     this.router.navigate(['/playlists'], { replaceUrl: true });
+        // }
     }
 
     async get_playlist(playlist_identifier: Song_Playlist_Identifier): Promise<Song_Playlist | null> {
@@ -360,5 +438,11 @@ export class PlaylistsService {
             this.media.request_download(this.media.song_key(song), {quality: DownloadQuality.Q0, bit_rate: '128k'});
         }
 
+    }
+
+    public async set_playlist_sorting_method(playlist: Song_Playlist, method: 'recent_to_old' | 'old_to_recent' | 'alphabetical' | 'title' | 'artist'): Promise<void> {
+        if (!playlist) return;
+        playlist.sorting_method = method;
+        this.save_playlist();
     }
 }
