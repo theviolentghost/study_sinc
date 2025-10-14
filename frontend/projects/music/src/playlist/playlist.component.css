@@ -542,6 +542,7 @@
     object-fit: cover;
     display: block;
     z-index: 5;
+    overflow: hidden;
 }
 .shuffle-play, .dj-play {
     width: 100%;

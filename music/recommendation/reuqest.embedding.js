@@ -2,11 +2,12 @@ import music from '../music.js'
 
 
 async function request_embedding(song_id) {
-    if (!song_id || song_id.trim() === '' || song_id === 'undefined' || song_id === 'null') {
-        console.error('No song_id provided');
-        return;
-    }
+    if(!song_id) return;
     try {
+        if (!song_id || song_id.trim() === '' || song_id === 'undefined' || song_id === 'null') {
+            console.error('No song_id provided');
+            return;
+        }
         const response = await fetch('http://localhost:54321/request_embedding', {
             method: 'POST',
             headers: {

@@ -65,6 +65,17 @@
     padding: 0;
     border: none;
     -webkit-font-smoothing: antialiased;
+    
+    /* Disable text selection on all elements */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    
+    /* Disable zoom and touch actions */
+    touch-action: manipulation;
+    -ms-touch-action: manipulation;
+    -webkit-touch-callout: none; /* iOS Safari */
 }
 
 *:focus {
@@ -92,8 +103,9 @@ body {
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
-    /* -webkit-touch-callout: none; iOS Safari */
+    -webkit-touch-callout: none; /* iOS Safari */
 }
+
 .enable-select {
     -webkit-user-select: text;
     -moz-user-select: text;
@@ -101,16 +113,19 @@ body {
     user-select: text;
     -webkit-touch-callout: default; /* iOS Safari */
 }
+
 .disable-zoom {
     touch-action: manipulation;
     -ms-touch-action: manipulation;
-    -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-touch-callout: none;
 }
+
 .enable-zoom {
     touch-action: auto;
     -ms-touch-action: auto;
     -webkit-touch-callout: default; /* iOS Safari */
 }
+
 .hide-scrollbar {
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none; /* Firefox */
@@ -118,6 +133,7 @@ body {
 .hide-scrollbar::-webkit-scrollbar {
     display: none;
 }
+
 .show-scrollbar {
     -ms-overflow-style: auto;  /* IE and Edge */
     scrollbar-width: auto; /* Firefox */

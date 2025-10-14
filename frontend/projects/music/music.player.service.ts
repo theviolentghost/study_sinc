@@ -174,14 +174,30 @@ export class MusicPlayerService {
     }
 
     get is_silent_audio_allowed(): boolean {
+        // iOS 26+ no longer allows completely silent audio to keep PWAs alive
+        // This returns false for iOS 26+ to disable the silent audio hack
+        if (this.is_ios_26_or_later) {
+            console.warn('iOS 26+: Silent audio hack disabled due to OS restrictions');
+            return false;
+        }
         return this.is_ios_safari;
     }
 
     get use_silent_audio(): boolean {
+        // Disable silent audio on iOS 26+ as it no longer works
+        if (this.is_ios_26_or_later) {
+            return false;
+        }
         return this.use_silent_audio_to_preserve_audio_pipeline;
     }
 
     set use_silent_audio(value: boolean) {
+        // Force disable on iOS 26+
+        if (this.is_ios_26_or_later) {
+            console.warn('iOS 26+: Cannot enable silent audio, not supported by OS');
+            this.use_silent_audio_to_preserve_audio_pipeline = false;
+            return;
+        }
         this.use_silent_audio_to_preserve_audio_pipeline = value;
     }   
 
@@ -226,9 +242,20 @@ export class MusicPlayerService {
     private audio_source_node: MediaElementAudioSourceNode | null = null;
 
     private is_ios_safari = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()) && /safari/.test(navigator.userAgent.toLowerCase()) && !/crios|fxios|edgios|opr\//.test(navigator.userAgent.toLowerCase());
+    private is_ios_26_or_later = this.check_ios_version_26_or_later();
     private was_playing_before_background: boolean = false;
     private last_time_update: number = 0;
     private stall_check_interval: any = null;
+
+    private check_ios_version_26_or_later(): boolean {
+        if (!this.is_ios_safari) return false;
+        const match = navigator.userAgent.match(/OS (\d+)_/);
+        if (match && match[1]) {
+            const version = parseInt(match[1], 10);
+            return version >= 18; // iOS 18 corresponds to OS 18 in user agent
+        }
+        return false;
+    }
 
     // outside paramaters
     private _shuffle: boolean = false;
@@ -313,13 +340,56 @@ export class MusicPlayerService {
                 }
                 return false;
             }
+
+            // iOS 26 fix: Force pause/play cycle to kick the audio pipeline
+            // This works around the iOS 26 bug where next track is silent after skip
+            if (this.is_ios_26_or_later && !this.audio_element.paused) {
+                console.log('iOS 26: Forcing pause/play cycle to wake audio pipeline');
+                this.audio_element.pause();
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            // iOS 26 fix: Ensure AudioContext is resumed in user gesture context
+            // This must happen BEFORE play() to work around iOS 26 restrictions
+            if (this.is_ios_26_or_later && this.audio_context) {
+                await this.force_resume_audio_context();
+            }
             
             await this.audio_element.play();
             this.update_playback_state();
             return true;
         } catch (error) {
             console.error('Error playing audio:', error);
+            
+            // iOS 26 fallback: Try creating audio context and retrying
+            if (this.is_ios_26_or_later && !this.audio_context) {
+                console.log('iOS 26: Attempting audio context recovery after play failure');
+                await this.resume_audio_context();
+                try {
+                    await this.audio_element.play();
+                    this.update_playback_state();
+                    return true;
+                } catch (retryError) {
+                    console.error('iOS 26 recovery failed:', retryError);
+                }
+            }
+            
             return false;
+        }
+    }
+
+    private async force_resume_audio_context(): Promise<void> {
+        if (!this.audio_context) return;
+        
+        try {
+            // AudioContext states: 'suspended', 'running', 'closed'
+            if (this.audio_context.state === 'suspended') {
+                console.log('iOS 26: Forcing AudioContext resume, current state:', this.audio_context.state);
+                await this.audio_context.resume();
+                console.log('iOS 26: AudioContext resumed to state:', this.audio_context.state);
+            }
+        } catch (error) {
+            console.error('Failed to force resume audio context:', error);
         }
     }
 
@@ -571,12 +641,16 @@ export class MusicPlayerService {
     private setup_media_session_action_handlers(): void {
         if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
         
-        navigator.mediaSession.setActionHandler('play', () => {
-            // console.log('Media session play action triggered');
+        navigator.mediaSession.setActionHandler('play', async () => {
+            console.log('Media session play action triggered');
+            // iOS 26 fix: Media session actions might need audio context resume
+            if (this.is_ios_26_or_later && this.audio_context) {
+                await this.force_resume_audio_context();
+            }
             this.play();
         });
         navigator.mediaSession.setActionHandler('pause', () => {
-            // console.log('Media session pause action triggered');
+            console.log('Media session pause action triggered');
             if(this.playing_silent_audio) {
                 // account for visual mismatch
                 this.play();
@@ -584,14 +658,28 @@ export class MusicPlayerService {
             }
             this.pause();
         });
-        navigator.mediaSession.setActionHandler('previoustrack', () => {
+        navigator.mediaSession.setActionHandler('previoustrack', async () => {
+            console.log('Media session previous track triggered');
+            // iOS 26 fix: Ensure audio context is ready for skip from lock screen
+            if (this.is_ios_26_or_later && this.audio_context) {
+                await this.force_resume_audio_context();
+            }
             this.skip_to_previous();
         });
-        navigator.mediaSession.setActionHandler('nexttrack', () => {
+        navigator.mediaSession.setActionHandler('nexttrack', async () => {
+            console.log('Media session next track triggered');
+            // iOS 26 fix: Ensure audio context is ready for skip from lock screen
+            if (this.is_ios_26_or_later && this.audio_context) {
+                await this.force_resume_audio_context();
+            }
             this.skip_to_next();
         });
-        navigator.mediaSession.setActionHandler('seekto', (details) => {
+        navigator.mediaSession.setActionHandler('seekto', async (details) => {
             if(this.audio_element && details.seekTime !== undefined) {
+                // iOS 26 fix: Resume audio context before seeking
+                if (this.is_ios_26_or_later && this.audio_context) {
+                    await this.force_resume_audio_context();
+                }
                 this.seek_to(details.seekTime);
             }
         });
@@ -1126,6 +1214,13 @@ export class MusicPlayerService {
         const current_song_key = this.media.song_key(this.audio_data.current.identifier);
         const next_song_key = this.playlist.play_next.length > 0 ? this.playlist.play_next.shift() : this.playlist.queue.shift();
         // console.log('Skipping to next song:', next_song_key);
+        
+        // iOS 26 fix: Ensure audio context is ready before loading next track
+        if (this.is_ios_26_or_later && this.audio_context) {
+            console.log('iOS 26: Preparing audio context before skip');
+            await this.force_resume_audio_context();
+        }
+        
         if(this.is_next_track_preloaded()) {
             // use preloaded next track
             console.log('Using preloaded next track:', next_song_key);
@@ -1136,6 +1231,13 @@ export class MusicPlayerService {
             this.switching_from_silent = false;
             this.real_audio_timestamp = 0;
             this.real_audio_duration = 0;
+            
+            // iOS 26 fix: Double-check volume/mute before playing next track
+            if (this.is_ios_26_or_later && this.audio_element) {
+                console.log('iOS 26: Ensuring audio element is not muted before skip');
+                this.audio_element.muted = false;
+                this.audio_element.volume = 1;
+            }
             
             this.load_and_play_track(this.audio_data.next.identifier);
             // switch next audio data to current
@@ -1148,6 +1250,12 @@ export class MusicPlayerService {
             this.playlist.history_stack.push(current_song_key);
             this.skipping_to_next = false;
             return;
+        }
+
+        // iOS 26 fix: Ensure audio element is ready for new track
+        if (this.is_ios_26_or_later && this.audio_element) {
+            this.audio_element.muted = false;
+            this.audio_element.volume = 1;
         }
 
         this.load_and_play_track(next_song_key);

@@ -869,7 +869,9 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         const scroll_percentage = scroll_container.scrollTop / scroll_height;
         
         // Map to viewport range (10% - 90%)
-        const viewport_height = window.innerHeight;
+        const host_element = scroll_container.closest('app-playlist') as HTMLElement;
+        if (!host_element) return;
+        const viewport_height = host_element.clientHeight;
         const range_start = viewport_height * 0.0 + 40;
         const range_end = viewport_height * 1.0 - 40;
         const scrollbar_y = range_start + (scroll_percentage * (range_end - range_start));
@@ -1339,6 +1341,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         if (!video) return;
         this.dont_play = true;
         this.swipe_x = 0;
+
+        console.log('Requesting download for video:', video, this.media.song_key(video.id));
         
         this.media.request_download(this.media.song_key(video.id), {quality: DownloadQuality.Q0, bit_rate: '128k'});
     }
