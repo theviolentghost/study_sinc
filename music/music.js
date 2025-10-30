@@ -9,8 +9,10 @@ import SpotifyToYoutube from 'spotify-to-youtube';
 import progress_emitter from '../progress.emitter.js';
 import { spawn, exec } from 'child_process';
 import axios from 'axios';
-import Adaptive_Stream from './stream.js';
-const stream = new Adaptive_Stream();
+import stream_module from './stream_v2.js';
+const stream = new stream_module.Stream();
+stream.initialize();
+
 import { promisify } from 'util';
 import { request_embedding, request_embedding_for_spotify_items } from './recommendation/reuqest.embedding.js';
 

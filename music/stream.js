@@ -1279,4 +1279,6 @@ class Adaptive_Stream {
     }
 }
 
-export default Adaptive_Stream;
+export default {
+    Stream: Adaptive_Stream
+};

@@ -81,10 +81,10 @@ export class QuickActionComponent {
         }).filter(song_data => song_data !== null) as Song_Data[];
     }
     get current_song_identifier(): Song_Identifier | null {
-        return this.player.song_data ? this.player.song_data.id : null;
+        return this.player.current ? this.player.current.id : null;
     }
     get song_data(): Song_Data | null {
-        return this.player.song_data;
+        return this.player.current;
     }
     get play_next_queue_duration(): string {
         const songs = this.play_next_queue_with_song_data;
@@ -638,7 +638,7 @@ export class QuickActionComponent {
                 this.moveFromPlaylistToPlayNext(event.previousIndex, event.currentIndex);
             }
         }
-        this.player.preload_next_track();
+        // this.player.preload_next_track();
         
         // Reset any active swipe state after drag operation
         this.resetSwipeState();

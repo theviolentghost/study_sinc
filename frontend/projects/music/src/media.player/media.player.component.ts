@@ -9,7 +9,7 @@ import {
 } from '@angular/animations';
 
 import { MusicMediaService, Song_Data, DownloadQuality, Song_Playlist, Song_Source } from '../../music.media.service';
-import { MusicPlayerService, Player_Error } from '../../music.player.service';
+import { MusicPlayerService, Skip_Event } from '../../music.player.service';
 import { PlaylistsService } from '../../playlists.service';
 import { HotActionComponent } from '../hot.action/hot.action.component';
 import { HotActionService } from '../../hot.action.service';
@@ -82,14 +82,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         if (status === 'hidden') {
             this.dragOffset = 0; // Reset drag offset when hiding
             this.animationState = 'hidden';
-            this.player.clear_playlist_color.emit(); // Clear main color when hiding
+            // this.player.clear_playlist_color.emit(); // Clear main color when hiding
         } else if (status === 'reduced') {
             this.animationState = 'reduced';
-            this.player.clear_playlist_color.emit(); // Clear main color when reducing
+            // this.player.clear_playlist_color.emit(); // Clear main color when reducing
             return;
         } else {
             this.animationState = 'visible';
-            this.player.playlist_changed.emit(); // Refresh playlist view when expanding
+            // this.player.playlist_changed.emit(); // Refresh playlist view when expanding
         }
     }
     get visibility_status(): 'visible' | 'reduced' | 'hidden' {
@@ -147,16 +147,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
 
     get current_song_data(): Song_Data | null {
-        return this.player.song_data;
+        return this.player.current;
     }
     set current_song_data(value: Song_Data | null) {
-        this.player.song_data = value;
+        this.player.current = value;
     }
     get current_media_data(): Song_Data | null {
-        return this.player.song_data; // idk why here
+        return this.player.current; // idk why here
     }
     get current_playlist_data(): Song_Playlist | null {
-        return this.player.playlist_data;
+        // return this.player.playlist_data;
+        return null;
     }
     is_downloading(video_id: string): boolean {
         return this.media.is_downloading(video_id);
@@ -177,12 +178,13 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     get is_desired_play_method_active(): boolean {
         // if prefers shuffle and shuffle is active, or prefers dj play and disco mode is active
-        return (this.settings.prefers_shuffle_play_over_dj_play && this.player.shuffle) || (!this.settings.prefers_shuffle_play_over_dj_play && this.player.disco_mode);
+        return false;
+        // return (this.settings.prefers_shuffle_play_over_dj_play && this.player.shuffle) || (!this.settings.prefers_shuffle_play_over_dj_play && this.player.disco_mode);
     }
 
     audio_current_time = 0;
     audio_duration = 0;
-    player_error: Player_Error | null = null; // Error message if any
+    player_error: string | null = null; // Error message if any
     player_hls_level = 0;
     player_quality_update: 'up' | 'down' | 'none' = 'none';
     player_quality_timeout = null;
@@ -199,7 +201,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         // Initialize orientation detection
         this.setupOrientationDetection();
 
-        // this.visibility_status = 'visible';
+        this.visibility_status = 'visible';
         
         // check if the user has internet connection
         window.addEventListener('online', () => {
@@ -216,35 +218,35 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.visibility_status = 'reduced';
             this.animationState = 'reduced';
         });
-        this.player.track_loaded.subscribe(() => {
-            if(this.player.song_data?.liked != this.buffer_like && this.buffer_like_clicked) this.toggle_like(); // sync like button state with song data after loading
-            this.buffer_like = false;
-            this.buffer_like_clicked = false;
-            this.player_error = null; // Reset player error on track load
-        });
-        this.player.song_changed.subscribe(() => {
-            this.buffer_like = false; 
-            this.buffer_like_clicked = false;
-            this.player_error = null; // Reset player error on song change
-        });
-        this.player.song_error.subscribe((error: Player_Error) => {
-            console.error('Player error:', error);
-            this.player_error = error;
-        });
-        this.player.hls_level_changed.subscribe((level: {index: number, details: any, levels: number}) => {
-            this.total_hls_levels = level.levels;
-            clearTimeout(this.player_quality_timeout);
-            if(level.index !== this.player_hls_level) {
-                this.player_quality_timeout = setTimeout(()=>{
-                    this.player_quality_update = 'none';
-                }, 5 * 1000); // 5 sec
-                this.player_quality_update = this.player_hls_level > level.index ? 'down' : 'up';
-            }
-            this.player_hls_level = level.index;
-            console.log('HLS level changed to:', level.index);
-            console.log('HLS level details:', level.details);
-            console.log('HLS level total levels:', level.levels);
-        });
+        // this.player.track_loaded.subscribe(() => {
+        //     if(this.player.song_data?.liked != this.buffer_like && this.buffer_like_clicked) this.toggle_like(); // sync like button state with song data after loading
+        //     this.buffer_like = false;
+        //     this.buffer_like_clicked = false;
+        //     this.player_error = null; // Reset player error on track load
+        // });
+        // this.player.song_changed.subscribe(() => {
+        //     this.buffer_like = false; 
+        //     this.buffer_like_clicked = false;
+        //     this.player_error = null; // Reset player error on song change
+        // });
+        // this.player.song_error.subscribe((error: Player_Error) => {
+        //     console.error('Player error:', error);
+        //     this.player_error = error;
+        // });
+        // this.player.hls_level_changed.subscribe((level: {index: number, details: any, levels: number}) => {
+        //     this.total_hls_levels = level.levels;
+        //     clearTimeout(this.player_quality_timeout);
+        //     if(level.index !== this.player_hls_level) {
+        //         this.player_quality_timeout = setTimeout(()=>{
+        //             this.player_quality_update = 'none';
+        //         }, 5 * 1000); // 5 sec
+        //         this.player_quality_update = this.player_hls_level > level.index ? 'down' : 'up';
+        //     }
+        //     this.player_hls_level = level.index;
+        //     console.log('HLS level changed to:', level.index);
+        //     console.log('HLS level details:', level.details);
+        //     console.log('HLS level total levels:', level.levels);
+        // });
     }
 
     get player_status(): 'loading' | 'playing' | 'paused' | 'stopped' {
@@ -257,25 +259,26 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.player.player_status === 'loading' || this.audio_duration <= 0 || !this.current_song_data;
     }
     get audio_started(): boolean {
-        return this.player.loaded_current_song;
+        // return this.player.loaded_current_song;
+        return true;
     }
     get play_button_icon(): string {
-        if( this.player_error ) {
-            switch(this.player_error) {
-                case Player_Error.NO_AUDIO:
-                case Player_Error.COULD_NOT_LOAD:
-                    return 'alert-triangle.svg';
-                case Player_Error.AUDIO_TIMED_OUT:
-                    return 'reload.svg';
-            }
-        }
+        // if( this.player_error ) {
+        //     switch(this.player_error) {
+        //         case Player_Error.NO_AUDIO:
+        //         case Player_Error.COULD_NOT_LOAD:
+        //             return 'alert-triangle.svg';
+        //         case Player_Error.AUDIO_TIMED_OUT:
+        //             return 'reload.svg';
+        //     }
+        // }
         if (this.player_status === 'loading') return 'loader.svg';
         return this.player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg';
     }
 
     get get_quality_icon(): string {
         if( !this.user_has_internet ) return 'antenna-bars-off.svg'; // Default icon for no internet
-        if( this.player_error !== null ) return 'antenna-bars-1.svg'; // Default icon for errors
+        // if( this.player_error !== null ) return 'antenna-bars-1.svg'; // Default icon for errors
         if( this.player_hls_level === -1 ) return 'antenna-bars-5.svg';
         if( typeof this.player_hls_level === 'number' ) return `antenna-bars-${this.player_hls_level+2 - this.minimum_hls_level}.svg`;
         return 'antenna-bars-1.svg'; 
@@ -338,11 +341,11 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
                 const bufferedEnd = audio.buffered.end(audio.buffered.length - 1);
                 this.buffered_percent = (bufferedEnd / audio.duration) * 100;
             }
-            this.audio_duration = this.player.duration || 0; // Ensure duration is set
+            this.audio_duration = this.player.song_duration || 0; // Ensure duration is set
         });
 
         this.player.set_audio_element(audio);
-        this.player.set_thumbnail_element(document.getElementById('thumbnail') as HTMLImageElement);
+        // this.player.set_thumbnail_element(document.getElementById('thumbnail') as HTMLImageElement);
 
         this.setupTouchListeners();
     }
@@ -568,16 +571,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.player.shuffle;
     }
     toggle_repeat(): void {
-        this.player.repeat = (this.player.repeat + 1) % 2; // Cycle through 0, 1
+        this.player.repeat = !this.player.repeat; // Cycle through 0, 1
     }
-    get repeat(): number {
+    get repeat(): boolean {
         return this.player.repeat;
     }
     get disco_mode(): boolean {
-        return this.player.disco_mode;
+        // return this.player.disco_mode;
+        return false;
     }
     toggle_disco_mode(): void {
-        this.player.disco_mode = !this.player.disco_mode;
+        // this.player.disco_mode = !this.player.disco_mode;
     }
     toggle_play(): void {
         this.player.toggle_play();
@@ -619,7 +623,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     next(): void {
         const previous_exists = this.previous_song_exists;
-        this.player.skip_to_next(true);
+        this.player.skip_to_next(Skip_Event.DEFAULT);
 
         // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
         // do animation
@@ -727,7 +731,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
 
     add_song_to_playlist(): void {
-        this.hot_action.open_hot_action(this.player.song_data, this.player.song_data?.id.source || 'youtube', 'add_to_playlist');
+        this.hot_action.open_hot_action(this.player.current, this.player.current?.id.source || 'youtube', 'add_to_playlist');
     }
 
     open_queue_management(): void {
@@ -1157,22 +1161,23 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return available;
     }
     get current_quality(): string {
-        switch(this.player.audio_quality) {
-            case -1: return 'auto';
-            case 0: return 'ultra-low';
-            case 1: return 'low';
-            case 2: return 'medium';
-            case 3: return 'high';
-            case 4: return 'ultra-high';
-            default: return 'unknown';
-        }
+        // switch(this.player.audio_quality) {
+        //     case -1: return 'auto';
+        //     case 0: return 'ultra-low';
+        //     case 1: return 'low';
+        //     case 2: return 'medium';
+        //     case 3: return 'high';
+        //     case 4: return 'ultra-high';
+        //     default: return 'unknown';
+        // }
+        return 'unknown';
     }
     set_quality(quality: string): void {
-        this.quality_selection_open = false;
-        if(quality === 'auto') {
-            this.player.audio_quality = -1;
-            return;
-        }
-        this.player.audio_quality = this.all_qualities.indexOf(quality);
+        // this.quality_selection_open = false;
+        // if(quality === 'auto') {
+        //     this.player.audio_quality = -1;
+        //     return;
+        // }
+        // this.player.audio_quality = this.all_qualities.indexOf(quality);
     }
 }

@@ -371,7 +371,7 @@ export class MusicMediaService {
     public async download_audio(song_key: string, download_options: {quality: DownloadQuality, bit_rate: string}): Promise<void> {
         try {
             const video_id = song_key.split(':').pop() || ''; 
-            let song_data = (song_key === this.song_key(this.playerService.song_data?.id) ? this.playerService.song_data : await this.get_song_from_indexDB(song_key)) || {
+            let song_data = (song_key === this.song_key(this.playerService.current?.id) ? this.playerService.current : await this.get_song_from_indexDB(song_key)) || {
                 original_song_name: '#no name', 
                 original_artists: [{ id: '', name: '#no name', source: 'youtube' as Song_Source }], 
                 song_name: '#no name', 
@@ -440,8 +440,8 @@ export class MusicMediaService {
                 return;
             }
 
-            if(this.bare_song_key(this.playerService.song_data?.id) === this.bare_song_key(song_data.id)) {
-                this.playerService.song_data = song_data; // Update the player service with the new song data if the song is currently playing
+            if(this.bare_song_key(this.playerService.current?.id) === this.bare_song_key(song_data.id)) {
+                this.playerService.current = song_data; // Update the player service with the new song data if the song is currently playing
                 // this.playerService.playlist_song_data_map.set(this.bare_song_key(song_data.id), song_data);
                 // this.playlists.update_song_in_playlist(song_data, null, null);
                 // this.song_data_updated.emit(song_data); 
@@ -523,25 +523,27 @@ export class MusicMediaService {
         return (await this.get_hls_stream(key))?.playlist_url || null;
     }
 
-    async get_hls_stream(key: string, abortSignal?: AbortSignal): Promise<any | null> {
+    async get_hls_stream(key: string): Promise<any | null> {
         const video_id = key.split(':').pop() || '';
-        let response: any;
+
         try {
-            response = await lastValueFrom(
+            // Pass video_ids as an array parameter
+            const response = await lastValueFrom(
                 this.http.get(
-                    `/stream?video_id=${encodeURIComponent(video_id)}`,
-                    
+                    `/session`,
+                    { params: { video_ids: JSON.stringify([video_id]) } }
                 )
             );
+            console.log('hls response', response);
+            return response || null;
         } catch (error) {
-            if (error.name === 'AbortError') {
+            if ((error as any).name === 'AbortError') {
                 console.log('Request aborted for HLS stream:', video_id);
                 return null;
             }
             console.error('Error fetching HLS stream:', error);
             return null;
         }
-        return response || null;
     }
 
     async get_audio_duration(key: string): Promise<number | null> {
@@ -560,13 +562,14 @@ export class MusicMediaService {
     }
 
     async preload_hls_stream(key: string): Promise<any | null> {
-        const video_id = key.split(':').pop() || '';
-        const response = ((await lastValueFrom(
-            this.http.get(
-                `/stream/preload?video_id=${encodeURIComponent(video_id)}`,
-            )
-        )) as any);
-        return response || null;
+        // const video_id = key.split(':').pop() || '';
+        // const response = ((await lastValueFrom(
+        //     this.http.get(
+        //         `/stream/preload?video_id=${encodeURIComponent(video_id)}`,
+        //     )
+        // )) as any);
+        // return response || null;
+        return null;
     }
 
     async get_song_artwork(song: Song_Data): Promise<string | null> {

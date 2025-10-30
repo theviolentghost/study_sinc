@@ -23,7 +23,7 @@ export class AlbumComponent implements OnInit {
     }
 
     get current_song_identifier(): Song_Identifier | null {
-        return this.player.song_data ? this.player.song_data.id : null;
+        return this.player.current ? this.player.current.id : null;
     }
 
     ngOnInit(): void {

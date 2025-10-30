@@ -67,15 +67,15 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     ngOnInit(): void {
         // Component initialization
         this.loaded = false;
-        this.player.playlist_changed.subscribe(() => {
-            this.update_main_color();
-        });
+        // this.player.playlist_changed.subscribe(() => {
+        //     this.update_main_color();
+        // });
         this.update_main_color();
-        this.player.clear_playlist_color.subscribe(() => {
-            // check to see if the navigation url is the same as this playlist
-            if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
-            document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
-        });
+        // this.player.clear_playlist_color.subscribe(() => {
+        //     // check to see if the navigation url is the same as this playlist
+        //     if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
+        //     document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
+        // });
 
         // Subscribe to notification service
         this.notification_service.notification$.subscribe((notification: Notification) => {
@@ -628,7 +628,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     get current_song_identifier(): Song_Identifier | null {
-        return this.player.song_data ? this.player.song_data.id : null;
+        return this.player.current ? this.player.current.id : null;
     }
 
     get video_identifiers(): Song_Identifier[] {
@@ -1125,10 +1125,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         this.player.open_player.emit();
 
-        this.player.update_media_session(track_data)
-        await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, false);
-        this.player.load_and_play_track(track_data);
-        this.player.remove_track_from_playlist_queue(this.media.song_key(track_data.id));
+        // this.player.update_media_session(track_data)
+        // await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, false);
+        // this.player.load_and_play_track(track_data);
+        // this.player.remove_track_from_playlist_queue(this.media.song_key(track_data.id));
     }
 
     public ms_to_time(ms: number, format: string = 'concise'): string {
@@ -1189,7 +1189,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         } else {
             // Different playlist or no playlist loaded, load and play
             this.player.open_player.emit();
-            this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
+            // this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
         }
     }
 

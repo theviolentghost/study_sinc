@@ -134,8 +134,8 @@ export class HotActionComponent {
                 this.song_data.liked = true;
                 this.playlists.add_to_favorites(this.song_data);
 
-                if(this.media.song_key(this.player.song_data.id) === this.media.song_key(this.song_data.id)) {
-                    this.player.song_data = this.song_data; // Update player song data to reflect changes
+                if(this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+                    this.player.current = this.song_data; // Update player song data to reflect changes
                 }
             },
             is_selectable: () => !!this.song_data && !this.is_favorite

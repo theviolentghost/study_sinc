@@ -95,7 +95,7 @@ export class ArtistsComponent implements OnInit {
     } 
 
     get current_song_identifier(): Song_Identifier | null {
-        return this.player.song_data ? this.player.song_data.id : null;
+        return this.player.current ? this.player.current.id : null;
     }
 
     // constructor(private route: ActivatedRoute, private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router) { }
@@ -234,34 +234,34 @@ export class ArtistsComponent implements OnInit {
 
     async spotify_play(video: any): Promise<void> {
         this.this_artist_playing = true;
-        this.player.song_changed.emit(); 
-        this.player.update_media_session({
-            original_song_name: video.name || '',
-            original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
-            song_name: video.name || '',
-            downloaded: false,
-            download_audio_blob: null,
-            download_artwork_blob: null,
-            download_options: null,
-            id: {
-                video_id: '', // null, faster loading
-                source_id: '', // Use video.id or video.uri for Spotify
-                source: 'spotify',
-            },
-            url: {
-                audio: null,
-                artwork: {
-                    low: video.album?.images?.[2]?.url || null,
-                    high: video.album?.images?.[0]?.url || null,
-                },
-            },
-            colors: {
-                primary: null,
-                common: null,
-            },
-            video_duration: video.duration_ms,
-            liked: false,
-        });
+        // this.player.song_changed.emit(); 
+        // this.player.update_media_session({
+        //     original_song_name: video.name || '',
+        //     original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
+        //     song_name: video.name || '',
+        //     downloaded: false,
+        //     download_audio_blob: null,
+        //     download_artwork_blob: null,
+        //     download_options: null,
+        //     id: {
+        //         video_id: '', // null, faster loading
+        //         source_id: '', // Use video.id or video.uri for Spotify
+        //         source: 'spotify',
+        //     },
+        //     url: {
+        //         audio: null,
+        //         artwork: {
+        //             low: video.album?.images?.[2]?.url || null,
+        //             high: video.album?.images?.[0]?.url || null,
+        //         },
+        //     },
+        //     colors: {
+        //         primary: null,
+        //         common: null,
+        //     },
+        //     video_duration: video.duration_ms,
+        //     liked: false,
+        // });
 
         this.player.open_player.emit();
 
@@ -288,25 +288,25 @@ export class ArtistsComponent implements OnInit {
             const top_tracks_keys: string[] = top_tracks_songs.map(song => this.media.song_key(song.id));
             top_tracks_songs.forEach((song, index) => map.set(top_tracks_keys[index], top_tracks_songs[index].id));
 
-            if(top_tracks_keys.length > 0) {
-                top_tracks_songs.map((song) => {
-                    this.player.add_song_to_cache(song);
-                });
-                await this.player.load_playlist(null, {
-                    songs: map,
-                    name: (this.artist_details?.name || 'Unknown Artist') + ' Top Tracks',
-                    song_added_timestamps: new Map(),
-                    sorting_method: 'recent_to_old'
-                }, false, false);
-                console.log('Loaded top tracks playlist:', top_tracks_songs);
-            }
+            // if(top_tracks_keys.length > 0) {
+            //     top_tracks_songs.map((song) => {
+            //         this.player.add_song_to_cache(song);
+            //     });
+            //     await this.player.load_playlist(null, {
+            //         songs: map,
+            //         name: (this.artist_details?.name || 'Unknown Artist') + ' Top Tracks',
+            //         song_added_timestamps: new Map(),
+            //         sorting_method: 'recent_to_old'
+            //     }, false, false);
+            //     console.log('Loaded top tracks playlist:', top_tracks_songs);
+            // }
         }
 
         await this.player.load_and_play_track(track_data);
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;
-            this.player.song_data = track_data; 
+            this.player.current = track_data; 
             this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
         }
     }

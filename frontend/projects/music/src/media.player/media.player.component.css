@@ -291,7 +291,7 @@
     /* object-fit: cover; */
 }
 #audio, audio {
-    display: none; /* Hide the audio element */
+    /* display: none; Hide the audio element */
 }
 .dashboard {
     position: relative;
@@ -902,7 +902,7 @@
     position: absolute;
     width: 100%;
     height: 100%;
-    z-index: 5;
+    z-index: -1;
     background: transparent;
 }
 .container.hidden .draggable, .container.reduced .draggable {
