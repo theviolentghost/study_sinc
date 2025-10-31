@@ -188,10 +188,10 @@ class Adaptive_Stream {
                 this.hls_raw_audio_directory,
                 this.hls_session_directory,
             ]);
-            // await Promise.all([
-            //     this.remove_sessions('*'),
-            //     this.remove_audio_files('*'),
-            // ]);
+            await Promise.all([
+                // this.remove_sessions('*'),
+                // this.remove_audio_files('*'),
+            ]);
 
             this.ready = true;
             console.log('Adaptive_Stream initialized successfully');
@@ -1006,7 +1006,7 @@ class Adaptive_Stream {
     await adaptive_stream.initialize();
 
     try {
-        await adaptive_stream.create_session(['L7PugiHUEOQ']);
+        await adaptive_stream.create_session(['9iHM6X6uUH8']);
 
         // console.log('getting dump');
         // let result = await adaptive_stream.get_json_dump('-mMmOKHzuWc');

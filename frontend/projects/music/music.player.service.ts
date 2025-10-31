@@ -68,7 +68,7 @@ export class MusicPlayerService {
     }
 
     public play(): void {
-        this.buffer_controller.play("http://localhost:3000/hls/session/9b125136-3a5a-4347-93ce-ec0261d7775b/master.m3u8");
+        this.buffer_controller.play("http://localhost:3000/hls/session/09d1380e-0cc1-4125-bb3a-bc68b0ac5ba9/master.m3u8");
     }
     
     public pause(): void {
@@ -91,11 +91,12 @@ export class MusicPlayerService {
 
     public skip_to_next(event: Skip_Event = Skip_Event.DEFAULT, event_data: any = {}): void {
         // Implement skip to next song logic
-        this.buffer_controller.play('http://localhost:3000/hls/session/0a992d36-4ed0-42d3-8b23-9480ea90c1c7/master.m3u8');
+        this.buffer_controller.play('http://localhost:3000/hls/session/76599b37-c191-4df3-a219-aaffee496b97/master.m3u8');
     }
 
     public skip_to_previous(event: Skip_Event = Skip_Event.DEFAULT, event_data: any = {}): void {
         // Implement skip to previous song logic
+        this.buffer_controller.play("http://localhost:3000/hls/session/09d1380e-0cc1-4125-bb3a-bc68b0ac5ba9/master.m3u8");
     }
 
     public seek_to(time: number): void {

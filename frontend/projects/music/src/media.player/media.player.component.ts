@@ -589,7 +589,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     previous(): void {
         const next_exists = this.player.preloaded_next_song;
         // should right fade
-        if(!this.previous_song_exists) return;
+        // if(!this.previous_song_exists) return;
         this.player.skip_to_previous();
 
         // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
