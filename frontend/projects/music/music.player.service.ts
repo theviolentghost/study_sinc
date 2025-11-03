@@ -70,11 +70,35 @@ export class MusicPlayerService {
         this.media_controller = new MusicMediaManager();
     }
 
+    // temp 
+
+    private configure_media_session() {
+        if (!('mediaSession' in navigator)) return;
+
+        // navigator.mediaSession.setActionHandler('play', () => {
+        //     this.audio_element?.play();
+        // });
+        
+        // navigator.mediaSession.setActionHandler('pause', () => {
+        //     this.audio_element?.pause();
+        // });
+
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+            this.skip_to_next();
+        });
+
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            this.skip_to_previous();
+        });
+    }
+
     public play(): void {
+        this.configure_media_session();
         this.buffer_controller.play("http://localhost:3000/hls/session/09d1380e-0cc1-4125-bb3a-bc68b0ac5ba9/master.m3u8");
     }
     
     public pause(): void {
+        this.configure_media_session();
         this.buffer_controller.pause();
     }
 

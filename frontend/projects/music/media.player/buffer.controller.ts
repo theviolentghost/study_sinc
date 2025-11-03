@@ -13,8 +13,13 @@ class BufferController {
     private transfer_data: any = null;
     private codec = 'audio/mp4; codecs="mp4a.40.2"';
     
-    // Store the original blob URL to verify it doesn't change
     private blob_url: string | null = null;
+    private is_safari: boolean = false;
+
+    constructor() {
+        this.is_safari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
+    }
 
     public set_audio_element(audio: HTMLMediaElement | HTMLAudioElement) {
         this.audio_element = audio;
@@ -26,21 +31,22 @@ class BufferController {
         this.audio_element.preload = 'auto';
         this.audio_element.setAttribute('playsinline', 'true');
         this.audio_element.setAttribute('webkit-playsinline', 'true');
-
-        this.configure_media_session();
-        await this.initialize_media_source();
-    }
-
-    private configure_media_session() {
-        if (!('mediaSession' in navigator)) return;
-
-        navigator.mediaSession.setActionHandler('play', () => {
-            this.audio_element?.play();
-        });
         
-        navigator.mediaSession.setActionHandler('pause', () => {
-            this.audio_element?.pause();
+        // Safari needs these
+        if (this.is_safari) {
+            this.audio_element.setAttribute('controls', 'false');
+        }
+
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: 'heyo song',
+            artist: 'heyo',
+            album: '',
+            artwork: [
+                
+            ]
         });
+
+        await this.initialize_media_source();
     }
 
     private async initialize_media_source() {
@@ -58,7 +64,13 @@ class BufferController {
         console.log('🎵 Creating MediaSource with blob URL:', this.blob_url);
 
         await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('MediaSource sourceopen timeout after 10s'));
+            }, 10000);
+
             this.media_source!.addEventListener('sourceopen', () => {
+                clearTimeout(timeout);
+                
                 if (!this.media_source) {
                     reject(new Error('MediaSource is null on sourceopen event.'));
                     return;
@@ -66,7 +78,8 @@ class BufferController {
 
                 try {
                     this.source_buffer = this.media_source.addSourceBuffer(this.codec);
-                    // IMPORTANT: Use 'segments' mode instead of 'sequence' for better seeking
+                    
+                    // Safari prefers segments mode
                     this.source_buffer.mode = 'segments';
 
                     this.source_buffer.addEventListener('updateend', () => {
@@ -78,10 +91,12 @@ class BufferController {
                     });
 
                     this.is_media_source_attached = true;
-                    console.log('✅ MediaSource initialized with blob URL:', this.blob_url);
+                    console.log('✅ MediaSource initialized');
                     console.log('   SourceBuffer mode:', this.source_buffer.mode);
                     resolve();
                 } catch (error) {
+                    clearTimeout(timeout);
+                    console.error('Error creating SourceBuffer:', error);
                     reject(error);
                 }
             });
@@ -95,10 +110,14 @@ class BufferController {
             lowLatencyMode: false,
             autoStartLoad: false,
             
-            // Buffer management
-            // maxBufferLength: 30,
-            // maxMaxBufferLength: 40,
-            // backBufferLength: 20,
+            // Safari-friendly buffer settings
+            maxBufferLength: this.is_safari ? 20 : 30,
+            maxMaxBufferLength: this.is_safari ? 30 : 40,
+            backBufferLength: this.is_safari ? 10 : 20,
+            maxBufferHole: 0.5,
+            
+            // Safari needs more aggressive buffer management
+            nudgeMaxRetry: this.is_safari ? 5 : 3,
         });
 
         this.configure_hls_events(hls);
@@ -126,16 +145,13 @@ class BufferController {
         });
 
         hls.on(Events.MEDIA_ATTACHING, (e, data) => {
-            // Verify we're reusing the same MediaSource
             const currentBlobUrl = this.audio_element?.src;
             console.log('🔗 Media attaching');
-            console.log('   Original blob URL:', this.blob_url);
-            console.log('   Current audio.src:', currentBlobUrl);
             console.log('   URLs match:', this.blob_url === currentBlobUrl);
         });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
-            console.log('📦 Intercepting buffer append, fragment:', data.frag.sn);
+            console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
             
             if (data.data && data.type === 'audio') {
                 const uint_8_data = new Uint8Array(data.data);
@@ -150,7 +166,7 @@ class BufferController {
                 switch (data.type) {
                     case Hls.ErrorTypes.NETWORK_ERROR:
                         console.log('🔄 Network error, attempting recovery...');
-                        hls.startLoad();
+                        setTimeout(() => hls.startLoad(), 1000);
                         break;
                     case Hls.ErrorTypes.MEDIA_ERROR:
                         console.log('🔄 Media error, attempting recovery...');
@@ -170,17 +186,15 @@ class BufferController {
         console.log(`\n${'='.repeat(60)}`);
         console.log(`🎵 Playing track: ${url}`);
         console.log(`   Is first track: ${this.is_first_track}`);
-        console.log(`   Current blob URL: ${this.audio_element.src}`);
-        console.log(`   Original blob URL: ${this.blob_url}`);
+        console.log(`   Browser: ${this.is_safari ? 'Safari' : 'Chrome'}`);
         console.log(`${'='.repeat(60)}\n`);
 
         if (this.is_first_track) {
-            // ✅ FIRST TRACK: Normal initialization
+            // ✅ FIRST TRACK
             console.log('🆕 First track - creating new HLS instance');
             
             this.hls = this.create_hls_instance();
             
-            // Attach with our pre-created MediaSource
             this.hls.attachMedia({
                 media: this.audio_element,
                 mediaSource: this.media_source,
@@ -190,60 +204,62 @@ class BufferController {
             this.is_first_track = false;
             
         } else {
-            // ✅ SUBSEQUENT TRACKS: Clear buffer and transfer MediaSource
-            console.log('🔄 Subsequent track - clearing buffer and transferring MediaSource');
+            // ✅ SUBSEQUENT TRACKS
+            console.log('🔄 Subsequent track');
             
             if (!this.hls) {
                 throw new Error('HLS instance not initialized');
             }
 
-            // 🗑️ CLEAR THE BUFFER BEFORE SWITCHING TRACKS
-            await this.clear_buffer();
+            if (this.is_safari) {
+                // SAFARI: Don't transfer, just stop and reload
+                // Safari doesn't handle transferMedia well
+                console.log('🍎 Safari: Using simple stop/load approach');
+                
+                // Stop current loading
+                this.hls.stopLoad();
+                
+                // Clear the buffer more gently for Safari
+                await this.safari_clear_buffer();
+                
+                // Don't create new HLS instance - reuse existing
+                // Safari prefers keeping the same instance
+                
+            } else {
+                // CHROME/OTHER: Use transfer approach
+                console.log('🌐 Chrome: Using transfer approach');
+                
+                await this.clear_buffer();
 
-            // CRITICAL: Get transfer data BEFORE detaching
-            this.transfer_data = this.hls.transferMedia();
-            
-            if (!this.transfer_data || !this.transfer_data.mediaSource) {
-                console.error('❌ Transfer data is invalid:', this.transfer_data);
-                throw new Error('Failed to transfer MediaSource');
-            }
+                this.transfer_data = this.hls.transferMedia();
+                
+                if (!this.transfer_data || !this.transfer_data.mediaSource) {
+                    console.warn('⚠️ Transfer failed, falling back to simple approach');
+                    this.hls.stopLoad();
+                } else {
+                    console.log('📦 Transfer data obtained');
+                    
+                    const isSameMediaSource = this.transfer_data.mediaSource === this.media_source;
+                    console.log('   Same MediaSource:', isSameMediaSource);
 
-            console.log('📦 Transfer data obtained:');
-            console.log('   MediaSource:', this.transfer_data.mediaSource);
-            console.log('   Tracks:', Object.keys(this.transfer_data.tracks || {}));
-            console.log('   MediaSource readyState:', this.transfer_data.mediaSource.readyState);
-
-            // Verify the MediaSource is the same instance
-            const isSameMediaSource = this.transfer_data.mediaSource === this.media_source;
-            console.log('   Same MediaSource instance:', isSameMediaSource);
-
-            // Detach old HLS instance
-            this.hls.detachMedia();
-            
-            // Destroy old instance
-            this.hls.destroy();
-            
-            // Create new HLS instance
-            const new_hls = this.create_hls_instance();
-            
-            // CRITICAL: Attach with the SAME MediaSource
-            const attach_data: MediaAttachingData = {
-                media: this.audio_element,
-                mediaSource: this.transfer_data.mediaSource, // ✅ Reuse!
-                tracks: this.transfer_data.tracks,            // ✅ Reuse SourceBuffers!
-                overrides: { 
-                    endOfStream: false  // Keep MediaSource open
+                    this.hls.detachMedia();
+                    this.hls.destroy();
+                    
+                    const new_hls = this.create_hls_instance();
+                    
+                    const attach_data: MediaAttachingData = {
+                        media: this.audio_element,
+                        mediaSource: this.transfer_data.mediaSource,
+                        tracks: this.transfer_data.tracks,
+                        overrides: { endOfStream: false }
+                    };
+                    
+                    new_hls.attachMedia(attach_data);
+                    this.hls = new_hls;
+                    
+                    console.log('✅ MediaSource transferred');
                 }
-            };
-            
-            new_hls.attachMedia(attach_data);
-            
-            // Update reference
-            this.hls = new_hls;
-            
-            console.log('✅ MediaSource transferred successfully');
-            console.log('   New audio.src:', this.audio_element.src);
-            console.log('   Blob URL unchanged:', this.audio_element.src === this.blob_url);
+            }
         }
 
         // Load new source
@@ -255,12 +271,87 @@ class BufferController {
             console.log('✅ Playback started successfully');
         } catch (error) {
             console.error('❌ Playback failed:', error);
-            throw error;
+            
+            // Safari sometimes needs a delay
+            if (this.is_safari) {
+                console.log('🍎 Safari: Retrying play after delay...');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                try {
+                    await this.audio_element.play();
+                    console.log('✅ Playback started on retry');
+                } catch (retryError) {
+                    console.error('❌ Retry also failed:', retryError);
+                    throw retryError;
+                }
+            } else {
+                throw error;
+            }
         }
     }
 
     /**
-     * Clear all buffered data from ALL SourceBuffers and reset state
+     * Safari-friendly buffer clearing (more conservative)
+     */
+    private async safari_clear_buffer(): Promise<void> {
+        if (!this.media_source) return;
+
+        console.log('🍎 Safari: Gentle buffer clear');
+
+        const sourceBuffers = this.media_source.sourceBuffers;
+        
+        for (let i = 0; i < sourceBuffers.length; i++) {
+            const sb = sourceBuffers[i];
+            const buffered = sb.buffered;
+            
+            if (buffered.length === 0) continue;
+
+            try {
+                if (sb.updating) {
+                    await new Promise<void>((resolve) => {
+                        const onUpdateEnd = () => {
+                            sb.removeEventListener('updateend', onUpdateEnd);
+                            resolve();
+                        };
+                        sb.addEventListener('updateend', onUpdateEnd);
+                    });
+                }
+
+                // Safari: Only clear old data, keep recent buffer
+                const currentTime = this.audio_element.currentTime;
+                
+                for (let j = 0; j < buffered.length; j++) {
+                    const start = buffered.start(j);
+                    const end = buffered.end(j);
+                    
+                    // Only remove ranges that are well behind current time
+                    if (end < currentTime - 5) {
+                        console.log(`   Removing old range: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
+                        sb.remove(start, end);
+                        
+                        await new Promise<void>((resolve) => {
+                            const onUpdateEnd = () => {
+                                sb.removeEventListener('updateend', onUpdateEnd);
+                                resolve();
+                            };
+                            sb.addEventListener('updateend', onUpdateEnd);
+                        });
+                    }
+                }
+
+                // Don't reset timestampOffset in Safari
+                // Safari handles this automatically
+
+            } catch (error) {
+                console.error(`❌ Safari buffer clear error:`, error);
+                // Continue anyway
+            }
+        }
+
+        console.log('✅ Safari buffer clear complete');
+    }
+
+    /**
+     * Aggressive buffer clearing for Chrome/Firefox
      */
     private async clear_buffer(): Promise<void> {
         if (!this.media_source) {
@@ -272,7 +363,6 @@ class BufferController {
 
         const sourceBuffers = this.media_source.sourceBuffers;
         
-        // Clear ALL SourceBuffers (not just our audio one)
         for (let i = 0; i < sourceBuffers.length; i++) {
             const sb = sourceBuffers[i];
             const buffered = sb.buffered;
@@ -282,12 +372,10 @@ class BufferController {
                 continue;
             }
 
-            console.log(`   SourceBuffer ${i}: clearing ${buffered.length} range(s), mode: ${sb.mode}`);
+            console.log(`   SourceBuffer ${i}: clearing ${buffered.length} range(s)`);
 
             try {
-                // Wait if SourceBuffer is currently updating
                 if (sb.updating) {
-                    console.log(`   ⏳ Waiting for SourceBuffer ${i} to finish updating...`);
                     await new Promise<void>((resolve) => {
                         const onUpdateEnd = () => {
                             sb.removeEventListener('updateend', onUpdateEnd);
@@ -297,16 +385,14 @@ class BufferController {
                     });
                 }
 
-                // Remove all buffered ranges
                 for (let j = buffered.length - 1; j >= 0; j--) {
                     const start = buffered.start(j);
                     const end = buffered.end(j);
                     
-                    console.log(`      Removing range ${j + 1}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
+                    console.log(`      Removing range: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
                     
                     sb.remove(start, end);
                     
-                    // Wait for removal to complete
                     await new Promise<void>((resolve) => {
                         const onUpdateEnd = () => {
                             sb.removeEventListener('updateend', onUpdateEnd);
@@ -316,32 +402,26 @@ class BufferController {
                     });
                 }
 
-                // CRITICAL: Reset timestampOffset for new track
                 sb.timestampOffset = 0;
+
             } catch (error) {
                 console.error(`❌ Error clearing SourceBuffer ${i}:`, error);
             }
         }
 
-        // CRITICAL: Reset MediaSource duration
         try {
             if (this.media_source.readyState === 'open') {
-                const oldDuration = this.media_source.duration;
-                console.log(`   Old duration: ${oldDuration.toFixed(2)}s`);
-                
-                // Reset duration to allow new track to set its own
-                // Setting to NaN signals that duration should be recalculated
                 this.media_source.duration = 0;
-                console.log(`   ✅ Reset duration to 0`);
             }
         } catch (error) {
             console.error('❌ Error resetting duration:', error);
         }
 
-        // Reset audio element current time
         if (this.audio_element) {
             this.audio_element.currentTime = 0;
         }
+
+        console.log('✅ Buffer cleared');
     }
 
     public pause() {
@@ -363,7 +443,6 @@ class BufferController {
             console.log(`⏩ Seeking to ${time.toFixed(2)}s`);
             this.audio_element.currentTime = time;
             
-            // Trigger HLS.js to load fragments at new position
             if (this.hls) {
                 this.hls.startLoad(time);
             }
@@ -387,7 +466,7 @@ class BufferController {
         if (this.is_processing_queue) return;
 
         if (!this.source_buffer) {
-            console.error('SourceBuffer not initialized, cannot process queue.');
+            console.error('SourceBuffer not initialized');
             return;
         }
 
@@ -396,11 +475,9 @@ class BufferController {
         try {
             while (this.append_to_buffer_queue.length > 0) {
                 const data = this.append_to_buffer_queue.shift();
-                
                 if (!data) break;
 
                 try {
-                    // Wait if SourceBuffer is updating
                     if (this.source_buffer.updating) {
                         await new Promise<void>((resolve) => {
                             const onUpdateEnd = () => {
@@ -411,15 +488,14 @@ class BufferController {
                         });
                     }
 
-                    // Append the data
                     this.source_buffer.appendBuffer(data);
-                    console.log('✅ Appended', data.byteLength, 'bytes to SourceBuffer');
+                    // console.log('✅ Appended', data.byteLength, 'bytes');
 
                 } catch (error) {
                     console.error('Error appending to buffer:', error);
                     
                     if (error instanceof Error && error.name === 'QuotaExceededError') {
-                        console.warn('⚠️ Buffer quota exceeded, removing old data');
+                        console.warn('⚠️ Buffer quota exceeded');
                         
                         if (this.source_buffer.buffered.length > 0) {
                             const currentTime = this.audio_element.currentTime;
@@ -427,9 +503,7 @@ class BufferController {
                             
                             try {
                                 this.source_buffer.remove(0, removeEnd);
-                                console.log('🗑️ Removed buffer from 0 to', removeEnd);
                                 
-                                // Wait for remove to complete
                                 await new Promise<void>((resolve) => {
                                     const onUpdateEnd = () => {
                                         this.source_buffer?.removeEventListener('updateend', onUpdateEnd);
@@ -438,7 +512,6 @@ class BufferController {
                                     this.source_buffer?.addEventListener('updateend', onUpdateEnd);
                                 });
                                 
-                                // Re-add data to try again
                                 this.append_to_buffer_queue.unshift(data);
                             } catch (removeError) {
                                 console.error('Error removing buffer:', removeError);
@@ -448,9 +521,8 @@ class BufferController {
                     }
                 }
             }
-
         } catch (error) {
-            console.error('Fatal error processing buffer queue:', error);
+            console.error('Fatal error processing buffer:', error);
         } finally {
             this.is_processing_queue = false;
         }
@@ -497,9 +569,6 @@ class BufferController {
         this.transfer_data = null;
     }
 
-    /**
-     * Get detailed buffer and MediaSource state info for debugging
-     */
     public get_debug_info() {
         if (!this.media_source) {
             return { error: 'MediaSource not initialized' };
@@ -529,6 +598,7 @@ class BufferController {
         }
 
         return {
+            browser: this.is_safari ? 'Safari' : 'Chrome/Other',
             mediaSource: {
                 readyState: this.media_source.readyState,
                 duration: this.media_source.duration,

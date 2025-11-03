@@ -25,6 +25,22 @@ class MusicMediaManager {
         //     this.play();
         // }
     }
+
+    private configure_media_session() {
+        // if (!('mediaSession' in navigator)) return;
+
+        // navigator.mediaSession.setActionHandler('play', () => {
+        //     this.audio_element?.play();
+        // });
+        
+        // navigator.mediaSession.setActionHandler('pause', () => {
+        //     this.audio_element?.pause();
+        // });
+
+        // navigator.mediaSession.setActionHandler('nexttrack', () => {
+        //     this.next_track();
+        // });
+    }
 }
 
 export default MusicMediaManager;
