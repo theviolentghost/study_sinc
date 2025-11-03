@@ -5,6 +5,7 @@ import { Output, EventEmitter } from '@angular/core';
 // import { PlaylistsService } from './playlists.service';
 // import Hls from 'hls.js';
 import BufferController from './media.player/buffer.controller';
+import MusicMediaManager from './media.player/media.manager';
 import { MusicMediaService, Song_Data, Song_Playlist_Identifier } from './music.media.service';
 
 export enum Skip_Event {
@@ -22,6 +23,7 @@ export class MusicPlayerService {
 
 
     private buffer_controller: BufferController;
+    private media_controller: MusicMediaManager;
 
     public current: Song_Data | null = null;
     private _shuffle: boolean = false;
@@ -65,6 +67,7 @@ export class MusicPlayerService {
 
     constructor(private media: MusicMediaService) {
         this.buffer_controller = new BufferController();
+        this.media_controller = new MusicMediaManager();
     }
 
     public play(): void {
@@ -76,7 +79,7 @@ export class MusicPlayerService {
     }
 
     public toggle_play(): void {
-        // Implement play/pause toggle logic
+        // this.media_controller.toggle_play();
         if (this.buffer_controller.is_playing) {
             this.pause();
         } else {
