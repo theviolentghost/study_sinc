@@ -13,6 +13,7 @@ import { WatchHistoryService } from './watch-history.service';
 })
 export class YoutubeService {
     isLoggingIn = false;
+    LOGIN_STORAGE_KEY = 'login storgae key';
     private loginSessionIdSubject = new BehaviorSubject<string | null>(null);
     loginSessionId$: Observable<string | null> = this.loginSessionIdSubject.asObservable();
     private loginImageSubject = new BehaviorSubject<string | null>(null);
@@ -131,7 +132,7 @@ export class YoutubeService {
     private isLoginSessionActive(id: string): Observable<any>{
         let params = new HttpParams();
 
-        return this.http.get<any>(`/is_session_active/${id}`, { params });
+        return this.http.get<any>(`/is_login_session_active/${id}`, { params });
     }
 
     private isAccountLoggedIn(id: string): Observable<any>{
@@ -189,6 +190,7 @@ export class YoutubeService {
                     this.isLoggingIn = false;
                     this.navigateToHome();
                     clearInterval(loginChecker);
+                    this.saveAccountId(id);
             });
             this.getLoginFrame(id);
         } , 500);
@@ -214,7 +216,19 @@ export class YoutubeService {
         }
     }
     saveAccountId(id: string){
+        localStorage.setItem(this.LOGIN_STORAGE_KEY, id);
+    }
 
+    loginToSavedAccount(): void{
+        let loginId = localStorage.getItem(this.LOGIN_STORAGE_KEY);
+        if(!loginId) return;
+        this.isAccountLoggedIn(loginId)
+            .pipe(take(1))
+            .subscribe(isLoggedIn => {
+                if(!isLoggedIn) return;
+
+                this.loginSessionIdSubject.next(loginId);
+            });
     }
 
     getLoginFrame(id: string): void{

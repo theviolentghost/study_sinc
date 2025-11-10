@@ -604,7 +604,7 @@ app.get('/start_youtube_login', async (req, res) => {
     youtubeAccount.awaitLogin(browserInfo.page, id);
 });
 
-app.get('/is_session_active/:id', async (req, res) => {
+app.get('/is_login_session_active/:id', async (req, res) => {
     const { id } = req.params;
     const session = youtubeLoginSessions[id];
     res.send(session ? true : false);
@@ -665,9 +665,22 @@ app.get('/is_youtube_account_logged_in/:id', async (req, res) => {
 
     let response = youtubeAccount.isLoggedIn(id);
     res.status(200).json({isLoggedIn: response});
-    if(response) {
+    if(response && youtubeLoginSessions[id]) {
         await youtubeLoginSessions[id].browser.close();
         delete youtubeLoginSessions[id];
+    }
+});
+
+app.get('/end_youtube_login_session/:id', async (req, res) => {
+    const { id } = req.params;
+
+    if(!youtubeLoginSessions[id]) res.status(404).send('Session not found');
+
+    try{
+        await youtubeLoginSessions[id].browser.close();
+        delete youtubeLoginSessions[id];
+    } catch(err){
+        
     }
 });
 
