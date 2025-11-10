@@ -19,6 +19,8 @@
     "@angular/platform-browser-dynamic": "^19.2.8",
     "@angular/router": "^19.2.8",
     "@angular/service-worker": "^19.2.8",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "hls.js": "^1.6.9",
     "idb-keyval": "^6.2.2",
     "plyr": "^3.7.8",

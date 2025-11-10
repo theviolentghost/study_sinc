@@ -156,10 +156,11 @@ export class HotActionService {
                 },
                 colors: {
                     primary: await this.media.get_primary_color_from_artwork(video.album?.images?.[0]?.url || null),
-                    common: await this.media.get_top_colors_from_artwork(video.album?.images?.[0]?.url || null, 5, 55),
+                    common: await this.media.get_top_colors_from_artwork(video.album?.images?.[0]?.url || null, 5, 25),
                 },
                 video_duration: video.duration_ms,
                 liked: false,
+                explicit: video.explicit || false,
             }
     }
 

@@ -162,23 +162,12 @@ class Adaptive_Stream {
     profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
     hls_root = path.join(__dirname, 'storage', 'musik', 'hls'); 
     hls_raw_audio_directory = path.join(this.hls_root, 'raw');
-    hls_session_directory = path.join(this.hls_root, 'session');
 
-    hls_session_max_uphold_time = 7 * 24 * 60 * 60 * 1000; // 7 days
-    hls_session_initial_uphold_time = 24 * 60 * 60 * 1000; // 24 hours
-    hls_session_cleanup_interval = 60 * 60 * 1000; // 60 minutes
+    hls_raw_audio_max_uphold_time = 7 * 24 * 60 * 60 * 1000; // 7 days
+    hls_raw_audio_cleanup_interval = 60 * 60 * 1000; // 60 minutes
 
     ready = false;
     audio_data = new Map(); // Map of video_id to audio details
-    active_sessions = new Map(); // Map of video_id to session info
-    
-    // Rate limiting for yt-dlp requests
-    last_request_time = 0;
-    min_request_interval = 2000; // 2 seconds between requests
-    
-    // Rate limiting for yt-dlp requests
-    last_request_time = 0;
-    min_request_interval = 2000; // 2 seconds between requests
 
     async initialize() {
         console.log('Initializing Adaptive_Stream...');
@@ -186,12 +175,11 @@ class Adaptive_Stream {
             await this.ensure_directories([
                 this.hls_root,
                 this.hls_raw_audio_directory,
-                this.hls_session_directory,
             ]);
-            await Promise.all([
-                // this.remove_sessions('*'),
-                // this.remove_audio_files('*'),
-            ]);
+            // await Promise.all([
+            //     // this.remove_audio_files('*'),
+            // ]);
+            setInterval(this.cleanup.bind(this), this.hls_raw_audio_cleanup_interval);
 
             this.ready = true;
             console.log('Adaptive_Stream initialized successfully');
@@ -202,20 +190,6 @@ class Adaptive_Stream {
     }
 
     setup_endpoints(app) {
-        // app.get('/hls/:session_id/:codec/:profile/index.m3u8', async (req, res) => {
-        //     const { session_id, codec, profile } = req.params;
-
-        //     // Validate session_id, codec, and profile
-        //     if (!this.active_sessions.has(session_id)) {
-        //         return res.status(404).json({ error: 'Session not found', success: false });
-        //     }
-
-        //     // Generate HLS playlist
-        //     const playlist = this.create_hls_playlist(session_data, codec, profile);
-        //     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-        //     res.send(playlist);
-        // });
-
         app.use('/hls', express.static(this.hls_root, {
             setHeaders: (res, path) => {
                 if (path.endsWith('.m3u8')) {
@@ -232,7 +206,7 @@ class Adaptive_Stream {
             }
         }));
 
-        app.get('/session', async (req, res) => {
+        app.get('/stream', async (req, res) => {
             try {
                 let video_ids = req.query.video_ids;
                 
@@ -251,7 +225,7 @@ class Adaptive_Stream {
                     return res.status(400).json({ error: 'Invalid video_ids parameter', success: false });
                 }
 
-                const session_response = await this.create_session(video_ids);
+                const session_response = await this.stream(video_ids);
                 
                 return res.status(200).json({ ...session_response, success: true });
             } catch(error) {
@@ -281,36 +255,44 @@ class Adaptive_Stream {
         }
     }
 
-    async create_session(video_ids = []) {
+    async stream(video_ids = []) {
         // video_ids is an array of video_id strings to already include in the session
         // used for prioritized users for better visual 'speed' / better spin up
         if (!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if(!Array.isArray(video_ids) || video_ids.length === 0) throw new Error('Invalid video_ids parameter.');
 
         try {
-            const session_uuid = crypto.randomUUID();
-            const session_directory = path.join(this.hls_session_directory, session_uuid);
+            // max 10 concurrent streams for now
+            Promise.all(video_ids.slice(0, 10).map(async (video_id) => {
+                this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                if(video_id !== video_ids[0]) {
+                    // confirm stream creation for non-priority videos
+                    this.confirm_stream_creation(video_id, 25000);
+                }
+            })).catch((error) => {
+                throw error;
+            });
 
-            await this.ensure_directories([session_directory]);
-            // create HLS streams for the first 3 video_ids
-            Promise.all(video_ids.slice(0, 3).map(async (video_id) => {
-                this.create_hls_stream(video_id, session_directory, this.codecs, this.profile_progression);
-            }));
-
-            await this.wait_for_first_readable_master_playlist(path.join(session_directory, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), 10000);
+            // console.log(path.join(this.hls_raw_audio_directory, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`))
+            await this.confirm_stream_creation(video_ids[0], 25000);
 
             const session_data = {
                 video_ids: video_ids,
-                created_at: Date.now(),
-                last_accessed: Date.now(),
-                playlist_url: `/hls/session/${session_uuid}/master.m3u8`,
-                session_id: session_uuid,
-                // permissions: [], // future use
+                playlist_url: `/hls/raw/${video_ids[0]}/master.m3u8`,
             };
-            this.active_sessions.set(session_uuid, session_data);
 
             return session_data;
         } catch (error) {
             throw error;
+        }
+    }
+
+    async confirm_stream_creation(video_id, timeout = 25000) {
+        try {
+            await this.wait_for_first_readable_master_playlist(path.join(this.hls_raw_audio_directory, video_id, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), timeout);
+            console.log(`Stream creation confirmed: ${video_id}`);
+        } catch (error) {
+            throw new Error(`Stream creation confirmation failed for video ID ${video_id}: ${error.message}`);
         }
     }
 
@@ -364,27 +346,6 @@ class Adaptive_Stream {
         await file_system.promises.writeFile(lyrics_path, vtt_data);
     }
 
-    async create_segment_symlinks(video_id, session_directory, available_codecs = this.codecs, available_profiles = this.profile_progression) {
-        // Create symlinks from session directory to raw audio segments
-        const symlink_promises = [];
-        
-        for (const codec of available_codecs) {
-            for (const profile of available_profiles) {
-                const raw_segment_dir = path.join(this.hls_raw_audio_directory, video_id, codec, profile);
-                const session_segment_dir = path.join(session_directory, codec, profile);
-                
-                // Create a symlink for the entire segment directory
-                const symlink_target = path.relative(session_segment_dir, raw_segment_dir);
-                
-                // We'll symlink individual segments as they're created
-                // For now, we can use the hls_base_url option in FFmpeg instead
-            }
-        }
-        
-        return Promise.all(symlink_promises);
-    }
-
-
     fetch_data(url) {
         return new Promise((resolve, reject) => {
             https.get(url, (res) => {
@@ -404,6 +365,7 @@ class Adaptive_Stream {
             });
         });
     }
+
     async read_properties_json(video_id) {
         const properties_path = path.join(this.hls_raw_audio_directory, video_id, 'properties.json');
         try {
@@ -414,15 +376,67 @@ class Adaptive_Stream {
         }
     }
 
-    async create_hls_stream(video_id, session_directory, available_codecs = this.codecs, available_profiles = this.profile_progression) {
+    async does_video_id_audio_exist(video_id) {
+        // check sessions first then files (as a fail safe)
+        if (this.audio_data.has(video_id)) {
+            // reset last accessed
+            this.audio_data.get(video_id).last_accessed = Date.now();
+            return true;
+        }
+
+        const video_audio_path = path.join(this.hls_raw_audio_directory, video_id);
+        const exists = file_system.existsSync(video_audio_path);
+        if(exists) {
+            // // check if session has audio data (.ts files for all qualities), if not delete
+            // const audio_quality_dirs = this.profile_progression.map(profile => ({
+            //     profile,
+            //     dir: path.join(video_audio_path, profile)
+            // }));
+            // const has_audio_data = audio_quality_dirs.some(item => file_system.existsSync(item.dir));
+            // // check if they have any .ts files and their .m3u8 playlists
+            // const has_playlist = audio_quality_dirs.some(item => {
+            //     const m3u8_path = path.join(item.dir, `${Adaptive_Stream.profiles[this.codecs[0]][item.profile].bitrate}.m3u8`);
+            //     console.log('m3u8_path check:', m3u8_path);
+            //     return file_system.existsSync(m3u8_path);
+            // });
+
+            // console.log('Audio playlist existence check:', has_playlist);
+
+            // if (!has_playlist) {
+            //     console.warn(`No audio data found for video ID: ${video_id}. Deleting audio files.`);
+            //     // file_system.promises.rm(video_audio_path, { recursive: true, force: true });
+            //     await this.delete_raw_audio(video_id);
+            //     return false;
+            // } else {
+                console.warn(`Audio files exist for video ID: ${video_id} but no active session found. Recreating session data.`);
+                this.audio_data.set(video_id, {
+                    process: null,
+                    created_at: Date.now(),
+                    last_accessed: Date.now(),
+                });
+            // }
+        }
+
+        console.log(`Audio files existence check for video ID ${video_id}: ${exists}`);
+
+        return exists;
+    }
+
+    async create_hls_stream(video_id, available_codecs = this.codecs, available_profiles = this.profile_progression) {
         if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
         if(!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
+        if((await this.does_video_id_audio_exist(video_id))) return null;
 
         console.log(`Spinning up HLS stream: ${video_id}`);
 
+        // optimistic
+        this.audio_data.set(video_id, {
+            process: null,
+            created_at: Date.now(),
+            last_accessed: Date.now(),
+        });
+
         try {
-            const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
-            await this.write_master_playlist(session_directory, master_playlist);
             const create_audio_metadata = async () => {
                 const json_dump_data = await this.get_json_dump(video_id);
                 this.create_properties_json(video_id, { permanent: false }, json_dump_data);
@@ -435,19 +449,16 @@ class Adaptive_Stream {
             await this.ensure_directories([
                 ...available_codecs.flatMap(codec => {
                     return available_profiles.map(profile => {
-                        return path.join(session_directory, codec, profile);
-                    });
-                }),
-                ...available_codecs.flatMap(codec => {
-                    return available_profiles.map(profile => {
                         return path.join(this.hls_raw_audio_directory, video_id, codec, profile);
                     });
                 })
             ]);
+            const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
+            await this.write_master_playlist(path.join(this.hls_raw_audio_directory, video_id), master_playlist);
             // const audio_process = await this.get_video_audio_url(video_id);
             // console.log(`Obtained audio stream for video ID ${video_id} - url: ${audio_process}`);
             const audio_process = await this.create_yt_dlp_process(video_id); // use inital video to create the HLS stream
-            const ffmpeg_process = await this.create_ffmpeg_process(audio_process, session_directory, video_id, available_codecs, available_profiles);
+            const ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id), video_id, available_codecs, available_profiles);
 
             // Wait for first segment - use a specific profile to check
             const first_profile = available_profiles[0]; // 'ultra-low'
@@ -462,6 +473,8 @@ class Adaptive_Stream {
 
             return ffmpeg_process;
         } catch (error) {
+            // cleanup on failure
+            this.delete_raw_audio(video_id);
             console.error(`Error creating HLS stream for video ID ${video_id}:`, error.message);
             throw error;
         }
@@ -719,9 +732,9 @@ class Adaptive_Stream {
                 if(!profile_info) continue;
 
                 // Calculate relative path from session playlist to raw audio segments
-                const playlist_dir = path.join(output_directory, codec, profile);
-                const segment_dir = path.join(this.hls_raw_audio_directory, video_id, codec, profile);
-                const relative_segment_path = path.relative(playlist_dir, segment_dir);
+                // const playlist_dir = path.join(output_directory, codec, profile);
+                // const segment_dir = path.join(this.hls_raw_audio_directory, video_id, codec, profile);
+                // const relative_segment_path = path.relative(playlist_dir, segment_dir);
 
                 ffmpeg_process
                     .output(path.join(output_directory, codec, profile, `${profile_info.bitrate}.m3u8`))
@@ -742,7 +755,7 @@ class Adaptive_Stream {
                         // '-preset', this.get_ffmpeg_preset(fast_startup, profile),
                         // '-tune', this.get_ffmpeg_tune(fast_startup, profile),
                         '-hls_flags', 'append_list',
-                        '-hls_base_url', `${relative_segment_path}/`,
+                        // '-hls_base_url', `${relative_segment_path}/`,
                         '-hls_segment_filename', path.join(this.hls_raw_audio_directory, video_id, codec, profile, `${profile_info.bitrate}_%d.ts`)
                     ]);
             }
@@ -811,23 +824,6 @@ class Adaptive_Stream {
         });
     }
 
-    async delete_session(session_id) {
-        return new Promise((resolve, reject) => {
-            if(!this.active_sessions.has(session_id)) {
-                // if session is in the map, remove it
-                this.active_sessions.delete(session_id);
-            }
-
-            file_system.promises.rm(path.join(this.hls_session_directory, session_id), { recursive: true, force: true })
-                .then(() => {
-                    resolve();
-                })
-                .catch((err) => {
-                    reject(err);
-                });
-        });
-    }
-
     async delete_raw_audio(video_id) {
 
         return new Promise((resolve, reject) => {
@@ -848,6 +844,7 @@ class Adaptive_Stream {
                     return;
                 });
             
+            // Delete the raw audio directory
             file_system.promises.rm(path.join(this.hls_raw_audio_directory, video_id), { recursive: true, force: true })
                 .then(() => {
                     resolve();
@@ -855,38 +852,16 @@ class Adaptive_Stream {
                 .catch((err) => {
                     reject(err);
                 });
-        });
-    }
-
-    async remove_sessions(sessions = '*') {
-        // sessions should be array of ids to remove, or '*' for all
-        return new Promise(async (resolve, reject) => {
-            // Cleanup logic for all sessions
-            try {
-                // Remove all session directories
-                if(sessions === '*') var children = await file_system.promises.readdir(this.hls_session_directory);
-                else {
-                    if(!Array.isArray(sessions)) throw new Error('Invalid sessions parameter for remove_sessions');
-                    var children = sessions;
+            
+            // also check ffmpeg process and kill if exists
+            const session_info = this.audio_data.get(video_id);
+            if(session_info && session_info.process) {
+                try {
+                    session_info.process.kill('SIGTERM');
+                } catch (error) {
+                    console.error(`Error killing FFmpeg process for video ID ${video_id}:`, error.message);
                 }
-
-                let successful = 0;
-                let failed = 0;
-
-                await Promise.all(children.map(async (child) => {
-                    try {
-                        await this.delete_session(child);
-                        successful++;
-                    } catch (error) {
-                        console.error(`Failed to delete session ${child}:`, error.message);
-                        failed++;
-                    }
-                }));
-
-                console.log(`Session cleanup: ${successful} successful, ${failed} failed (total: ${children.length})`);
-                resolve();
-            } catch (error) {
-                reject(error);
+                this.audio_data.delete(video_id);
             }
         });
     }
@@ -923,7 +898,6 @@ class Adaptive_Stream {
             }
         });
     }
-
 
     async get_json_dump(video_id) {
         if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
@@ -998,26 +972,60 @@ class Adaptive_Stream {
             throw error;
         }
     }
+
+    async cleanup() {
+        // Cleanup logic for all raw audio files and processes
+        try {
+            // grab all video ids from hls/raw
+            const all_video_ids = await file_system.promises.readdir(this.hls_raw_audio_directory);
+            const video_ids_to_delete = all_video_ids.filter((video_id) => {
+                const audio_data = this.audio_data.has(video_id);
+                if(!audio_data) return true; // no active session, delete
+                const session_info = this.audio_data.get(video_id);
+                const now = Date.now();
+                const last_accessed = session_info.last_accessed || session_info.created_at || 0;
+
+                return (now - last_accessed) > this.hls_raw_audio_max_uphold_time;
+            });
+
+            let successful = 0;
+            let failed = 0;
+
+            await Promise.all(video_ids_to_delete.map(async (child) => {
+                try {
+                    await this.delete_raw_audio(child);
+                    successful++;
+                } catch (error) {
+                    console.error(`Failed to delete audio for ${child}:`, error.message);
+                    failed++;
+                }
+            }));
+
+            console.log(`Audio cleanup: ${successful} successful, ${failed} prevented (total: ${video_ids_to_delete.length})`);
+        } catch (error) {
+            throw error;
+        }
+    }
 }
 
 // testing
-(async () => {
-    const adaptive_stream = new Adaptive_Stream();
-    await adaptive_stream.initialize();
+// (async () => {
+//     const adaptive_stream = new Adaptive_Stream();
+//     await adaptive_stream.initialize();
 
-    try {
-        await adaptive_stream.create_session(['9iHM6X6uUH8']);
+//     try {
+//         await adaptive_stream.stream(['9iHM6X6uUH8', '-mMmOKHzuWc']);
 
-        // console.log('getting dump');
-        // let result = await adaptive_stream.get_json_dump('-mMmOKHzuWc');
-        // console.log(result);
-        // let vtt_data = await adaptive_stream.extract_vtt_subtitles(result);
-        // console.log('Extracted VTT data:', vtt_data);
-        // console.log('success');
-    } catch (error) {
-        console.error('Error during testing:', error);
-    }
-})();
+//         // console.log('getting dump');
+//         // let result = await adaptive_stream.get_json_dump('-mMmOKHzuWc');
+//         // console.log(result);
+//         // let vtt_data = await adaptive_stream.extract_vtt_subtitles(result);
+//         // console.log('Extracted VTT data:', vtt_data);
+//         // console.log('success');
+//     } catch (error) {
+//         console.error('Error during testing:', error);
+//     }
+// })();
 
 export default {
     Stream: Adaptive_Stream,

@@ -9,13 +9,14 @@ import {
 } from '@angular/animations';
 
 import { MusicMediaService, Song_Data, DownloadQuality, Song_Playlist, Song_Source } from '../../music.media.service';
-import { MusicPlayerService, Skip_Event } from '../../music.player.service';
+import { MusicPlayerService } from '../../music.player.service';
 import { PlaylistsService } from '../../playlists.service';
 import { HotActionComponent } from '../hot.action/hot.action.component';
 import { HotActionService } from '../../hot.action.service';
 import { QuickActionComponent } from '../quick.action/quick.action.component';
 import { QuickActionService } from '../../quick.action.service';
 import { SettingsService } from '../../settings.service';
+import { Skip_Event, Skip_Result } from '../../media.player/playlist.manager';
 
 @Component({
   selector: 'media-player',
@@ -82,20 +83,22 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         if (status === 'hidden') {
             this.dragOffset = 0; // Reset drag offset when hiding
             this.animationState = 'hidden';
-            // this.player.clear_playlist_color.emit(); // Clear main color when hiding
+            this.player.clear_playlist_color.emit(); // Clear main color when hiding
         } else if (status === 'reduced') {
             this.animationState = 'reduced';
-            // this.player.clear_playlist_color.emit(); // Clear main color when reducing
+            this.player.clear_playlist_color.emit(); // Clear main color when reducing
             return;
         } else {
             this.animationState = 'visible';
-            // this.player.playlist_changed.emit(); // Refresh playlist view when expanding
+            this.player.playlist_changed.emit(); // Refresh playlist view when expanding
         }
     }
     get visibility_status(): 'visible' | 'reduced' | 'hidden' {
         return this._visibility_status;
     }
-    buffered_percent = 0;
+    get buffered_percent(): number {
+        return this.player.buffered_percent;
+    }
     buffer_like = false;
     buffer_like_clicked = false;
 
@@ -116,6 +119,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private headerTouchStartTime = 0;
     private headerHasMoved = false;
     private readonly clickThreshold = 10; // Maximum movement allowed for a click (px)
+
+    // Seek bar dragging properties (Apple-style)
+    isSeekBarDragging = false;
+    private seekBarStartValue = 0;
+    private seekBarStartX = 0;
+    private seekBarDragSensitivity = 2.0; // Pixels per second
+    seekBarPreviewValue = 0;
+    private seekBarInitialTouch = false;
     
     private get dragThreshold(): number {
         return window.innerHeight * 0.65; // 65% of the viewport height
@@ -153,11 +164,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.player.current = value;
     }
     get current_media_data(): Song_Data | null {
-        return this.player.current; // idk why here
+        return this.player.media_data || this.current_song_data; 
     }
     get current_playlist_data(): Song_Playlist | null {
-        // return this.player.playlist_data;
-        return null;
+        return this.player.playlist_data;
     }
     is_downloading(video_id: string): boolean {
         return this.media.is_downloading(video_id);
@@ -166,11 +176,9 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.media.download_progress(video_id); // return the current download progress
     }
     get preloaded_next_song(): boolean {
-        // return false;
         return this.player.preloaded_next_song;
     }
     get previous_song_exists(): boolean {
-        // return true;
         return this.player.previous_song_exists;
     }
     get prefers_shuffle_play_over_dj_play(): boolean {
@@ -178,12 +186,15 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     get is_desired_play_method_active(): boolean {
         // if prefers shuffle and shuffle is active, or prefers dj play and disco mode is active
-        return false;
+        return this.player.shuffle;
         // return (this.settings.prefers_shuffle_play_over_dj_play && this.player.shuffle) || (!this.settings.prefers_shuffle_play_over_dj_play && this.player.disco_mode);
     }
-
-    audio_current_time = 0;
-    audio_duration = 0;
+    get audio_current_time(): number {
+        return this.player.song_time_elapsed;
+    }
+    get audio_duration(): number {
+        return this.player.song_duration;
+    }
     player_error: string | null = null; // Error message if any
     player_hls_level = 0;
     player_quality_update: 'up' | 'down' | 'none' = 'none';
@@ -201,7 +212,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         // Initialize orientation detection
         this.setupOrientationDetection();
 
-        this.visibility_status = 'visible';
+        // this.visibility_status = 'visible';
         
         // check if the user has internet connection
         window.addEventListener('online', () => {
@@ -213,6 +224,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.player.open_player.subscribe(() => {
             this.visibility_status = 'visible';
             this.animationState = 'visible';
+            // this.player.playlist_changed.emit();
         });
         this.player.reduce_player.subscribe(() => {
             this.visibility_status = 'reduced';
@@ -249,14 +261,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         // });
     }
 
-    get player_status(): 'loading' | 'playing' | 'paused' | 'stopped' {
+    get player_status(): 'playing' | 'paused' | 'stopped' {
         return this.player.player_status;
     }
     
     get is_seekbar_disabled(): boolean {
         // On iOS, be more permissive about when seeking is allowed
         // Only disable if actually loading a new track or no duration available
-        return this.player.player_status === 'loading' || this.audio_duration <= 0 || !this.current_song_data;
+        return this.player.player_status === 'stopped' || this.audio_duration <= 0 || !this.current_song_data;
     }
     get audio_started(): boolean {
         // return this.player.loaded_current_song;
@@ -272,7 +284,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         //             return 'reload.svg';
         //     }
         // }
-        if (this.player_status === 'loading') return 'loader.svg';
+        if (this.player_status === 'stopped') return 'loader.svg';
         return this.player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg';
     }
 
@@ -334,18 +346,10 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
 
     ngAfterViewInit() {
         const audio = document.getElementById('audio') as HTMLAudioElement;
-        audio.ontimeupdate = () => this.audio_current_time = audio.currentTime;
-        audio.onloadedmetadata = () => audio.currentTime = 0; // Reset to start when metadata is loaded
-        audio.addEventListener('progress', () => {
-            if (audio.buffered.length > 0 && audio.duration > 0) {
-                const bufferedEnd = audio.buffered.end(audio.buffered.length - 1);
-                this.buffered_percent = (bufferedEnd / audio.duration) * 100;
-            }
-            this.audio_duration = this.player.song_duration || 0; // Ensure duration is set
-        });
+        const thumbnail = document.getElementById('thumbnail') as HTMLImageElement;
 
         this.player.set_audio_element(audio);
-        // this.player.set_thumbnail_element(document.getElementById('thumbnail') as HTMLImageElement);
+        this.player.set_thumbnail_element(thumbnail);
 
         this.setupTouchListeners();
     }
@@ -590,7 +594,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         const next_exists = this.player.preloaded_next_song;
         // should right fade
         // if(!this.previous_song_exists) return;
-        this.player.skip_to_previous();
+        const result = this.player.skip_to_previous();
+
+        if(result === Skip_Result.REPLAY) {
+            // add something later
+            return;
+        }
 
         // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
 
@@ -623,7 +632,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     next(): void {
         const previous_exists = this.previous_song_exists;
-        this.player.skip_to_next(Skip_Event.DEFAULT);
+        this.player.skip_to_next(Skip_Event.USER_INITIATED);
 
         // document.getElementById('bar-main-right-temp')?.classList.remove('skip-previous');
         // do animation
@@ -1027,14 +1036,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
 
         // For reduced mode, always allow clicks to open (ignore headerHasMoved for simple taps)
         if (this.visibility_status === 'reduced') {
-            console.log('Opening player from reduced mode');
             this.toggle_visibility();
             return;
         }
 
         // For visible mode, only handle if we haven't moved (to avoid clicks after drags)
         if (this.visibility_status === 'visible' && !this.headerHasMoved) {
-            console.log('Closing player from visible mode');
             this.toggle_visibility();
         }
     }
@@ -1050,6 +1057,110 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     // Bound methods for horizontal swipe event listeners
     private boundHeaderMouseMove = (event: MouseEvent) => this.onHeaderMouseMove(event);
     private boundHeaderMouseUp = (event: MouseEvent) => this.onHeaderMouseUp(event);
+
+    // Apple-style seek bar event handlers
+    onSeekBarMouseDown(event: MouseEvent): void {
+        if (this.is_seekbar_disabled) return;
+        
+        event.preventDefault();
+        event.stopPropagation();
+        
+        this.startSeekBarDrag(event.clientX, this.audio_current_time);
+        
+        // Add global mouse event listeners
+        document.addEventListener('mousemove', this.boundSeekBarMouseMove);
+        document.addEventListener('mouseup', this.boundSeekBarMouseUp);
+    }
+
+    onSeekBarTouchStart(event: TouchEvent): void {
+        if (this.is_seekbar_disabled) return;
+        
+        event.preventDefault();
+        event.stopPropagation();
+        
+        const touch = event.touches[0];
+        this.startSeekBarDrag(touch.clientX, this.audio_current_time);
+        
+        // Add global touch event listeners
+        document.addEventListener('touchmove', this.boundSeekBarTouchMove, { passive: false });
+        document.addEventListener('touchend', this.boundSeekBarTouchEnd);
+    }
+
+    private startSeekBarDrag(startX: number, currentValue: number): void {
+        this.isSeekBarDragging = true;
+        this.seekBarStartX = startX;
+        this.seekBarStartValue = currentValue;
+        this.seekBarPreviewValue = currentValue;
+        this.seekBarInitialTouch = true;
+    }
+
+    private onSeekBarMouseMove(event: MouseEvent): void {
+        if (!this.isSeekBarDragging) return;
+        
+        event.preventDefault();
+        this.updateSeekBarPosition(event.clientX);
+    }
+
+    private onSeekBarTouchMove(event: TouchEvent): void {
+        if (!this.isSeekBarDragging) return;
+        
+        event.preventDefault();
+        const touch = event.touches[0];
+        this.updateSeekBarPosition(touch.clientX);
+    }
+
+    private updateSeekBarPosition(currentX: number): void {
+        const deltaX = currentX - this.seekBarStartX; // Right = positive
+        const sensitivity = this.seekBarDragSensitivity;
+        
+        // Calculate new position based on horizontal displacement
+        const deltaSeconds = deltaX / sensitivity; // Convert pixels to seconds
+        let newValue = this.seekBarStartValue + deltaSeconds;
+        
+        // Clamp to valid range
+        newValue = Math.max(0, Math.min(newValue, this.audio_duration));
+        
+        this.seekBarPreviewValue = newValue;
+    }
+
+    private onSeekBarMouseUp(event: MouseEvent): void {
+        if (!this.isSeekBarDragging) return;
+        
+        event.preventDefault();
+        this.endSeekBarDrag();
+        
+        // Remove global mouse event listeners
+        document.removeEventListener('mousemove', this.boundSeekBarMouseMove);
+        document.removeEventListener('mouseup', this.boundSeekBarMouseUp);
+    }
+
+    private onSeekBarTouchEnd(event: TouchEvent): void {
+        if (!this.isSeekBarDragging) return;
+        
+        event.preventDefault();
+        this.endSeekBarDrag();
+        
+        // Remove global touch event listeners
+        document.removeEventListener('touchmove', this.boundSeekBarTouchMove);
+        document.removeEventListener('touchend', this.boundSeekBarTouchEnd);
+    }
+
+    private endSeekBarDrag(): void {
+        if (!this.isSeekBarDragging) return;
+        
+        // Apply the seek
+        this.player.seek_to(this.seekBarPreviewValue);
+        
+        // Reset drag state
+        this.isSeekBarDragging = false;
+        this.seekBarInitialTouch = false;
+    }
+
+    // Bound methods for seek bar event listeners
+    private boundSeekBarMouseMove = (event: MouseEvent) => this.onSeekBarMouseMove(event);
+    private boundSeekBarMouseUp = (event: MouseEvent) => this.onSeekBarMouseUp(event);
+    private boundSeekBarTouchMove = (event: TouchEvent) => this.onSeekBarTouchMove(event);
+    private boundSeekBarTouchEnd = (event: TouchEvent) => this.onSeekBarTouchEnd(event);
 
 
 
@@ -1179,5 +1290,12 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         //     return;
         // }
         // this.player.audio_quality = this.all_qualities.indexOf(quality);
+    }
+
+    is_song_in_playlist(song_data: Song_Data | null): boolean {
+        if (!song_data) return false;
+        return this.media.get_playlists_containing_song(this.media.bare_song_key(song_data.id)).filter((playlist) => {
+            return playlist !== '#recently_played'
+        }).length > 0;
     }
 }

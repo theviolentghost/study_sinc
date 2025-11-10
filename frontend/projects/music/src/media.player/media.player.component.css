@@ -14,6 +14,19 @@
     /* transition: height 0.65s ease-in-out, bottom 0.25s ease-in-out; */
     z-index: 1000;
     background-color: var(--color-background-200);
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--background);
+        z-index: -1;
+        pointer-events: none;
+        filter: brightness(0.55);
+    }
 }
 .container.reduced {
     bottom: 74px;
@@ -27,7 +40,7 @@
     position: relative;
     flex-shrink: 0;
     width: 100%;
-    height: var(--space-7);
+    height: var(--space-8);
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -45,6 +58,11 @@
     -webkit-user-select: none;
     /* Ensure touch events are properly handled */
     touch-action: pan-y;
+    transition: height 0.25s ease-in-out;
+
+    &.reduced {
+        height: var(--space-7);
+    }
 
     &::after {
         content: '';
@@ -168,7 +186,7 @@
     /* text-overflow: ellipsis;
     white-space: nowrap; */
 }
-.audio-progress {
+.meta-audio-progress {
     --progress: 0.0;
     width: 100%;
     height: 2px;
@@ -179,7 +197,7 @@
     opacity: 1;
     transition: opacity 0.55s ease-in-out;
 }
-.audio-progress::after {
+.meta-audio-progress::after {
     content: '';
     position: absolute;
     top: 0;
@@ -291,7 +309,7 @@
     /* object-fit: cover; */
 }
 #audio, audio {
-    /* display: none; Hide the audio element */
+    display: none; 
 }
 .dashboard {
     position: relative;
@@ -312,15 +330,15 @@
 }
 .duration {
     width: 100%;
-    padding: var(--space-2);
+    padding: var(--space-3) var(--space-2);
     display: flex;
     justify-content: space-between;
     opacity: 0;
     animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
 }
 .duration .time {
-    font-size: var(--space-3);
-    font-weight: 600;
+    font-size: var(--space-4);
+    font-weight: 500;
     color: var(--color-neutral);
 }
 .metadata {
@@ -364,30 +382,42 @@
     line-height: 1.2;
 }
 .info .artist {
-    font-size: var(--space-4);
-    font-weight: 400;
+    font-size: calc(var(--font-size-base) * 1.1);
     color: var(--color-neutral);
-    text-align: center;
-    width: 100%;
-    text-align: left;
-    overflow: hidden;
     text-overflow: ellipsis;
+    text-align: left;
     white-space: nowrap;
-    margin-bottom: var(--space-1);
-    opacity: 0;
+    display: flex;
+    flex-direction: row;
+    margin-right: 8px;
+}
+.artists {
     animation: fade-in-from-bottom 0.45s ease-in-out 0.1s forwards;
+    opacity: 0;
 }
 .quick-playlist-action {
     position: absolute;
     transform: translateY(var(--space-1));
     width: var(--space-6);
     height: var(--space-6);
-    background-color: var(--color-neutral);
-    mask-position: center;
-    mask-size: contain;
-    mask-repeat: no-repeat;
     cursor: pointer;
     z-index: 6;
+    background-color: transparent;
+
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        mask-position: center;
+        mask-size: contain;
+        mask-repeat: no-repeat;
+        mask-image: var(--mask);
+        background-color: var(--color);
+        z-index: 10;
+    }
 
     &.like {
         right: var(--space-2);
@@ -397,85 +427,135 @@
 
     &.add {
         border-radius: 9999px;
-        border-radius: 1.5px solid var(--color-neutral);
         opacity: 0;
         animation: fade-in-from-bottom 0.45s ease-in-out 0s forwards;
-        right: calc(var(--space-2) + var(--space-6) + var(--space-2));
+        right: var(--space-2);
+
+        &.added {
+            &::before {
+                background-color: var(--color-background);
+                scale: 0.9;
+            }
+
+            &::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: var(--color-primary);
+                border-radius: 9999px;
+                /* border: 1.5px solid var(--color-neutral); */
+            }
+        }
     }
 }
-.main-audio-progress {
+.audio-progress {
     position: relative;
     top: 0;
     left: 0;
     width: calc(100% - var(--space-4));
-    height: 8px;
+    height: 9px;
     z-index: 6;
     background: var(--color-background-300);
     border-radius: 9999px;
-    /* transition: height 0.15s ease-in-out; */
+    overflow: hidden;
+    cursor: pointer;
+    transition: height 0.2s ease-out, transform 0.2s ease-out;
     opacity: 0;
     animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
+    
+    /* Expand touch/click area */
+    &::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: -10px;
+        right: -10px;
+        bottom: -10px;
+        background: transparent;
+    }
+
+    &.dragging {
+        height: 13px;
+        transform: translateY(-2px);
+    }
+
+    &.disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
 }
+@keyframes buffer {
+    0% {
+        width: 0%;
+        opacity: 0.0;
+    }
+    0% {
+        width: 0%;
+        opacity: 0.6;
+    }
+    80% {
+        width: 100%;
+        opacity: 0.3;
+    }
+    100% {
+        width: 100%;
+        opacity: 0.0;
+    }
+}
+
 .buffer-bar {
     position: absolute;
     top: 0;
-    left: 7px; /* Offset by thumb radius */
+    left: 0;
     height: 100%;
-    width: calc(var(--buffered-percent, 0%) * (100% - 14px) / 100%); /* Subtract thumb width and use percentage */
-    background: var(--color-primary);
-    filter: grayscale(0.8) brightness(.75);
-    pointer-events: none;
-    border-radius: 9999px;
-}
-.slider {
-    --buffer-height: 14px;
-    top: calc( -.5 * var(--buffer-height));
-    left: 0;
-    --value: 00;
-    --max: 100;
-    width: 100%;
-    height: calc(100% + var(--buffer-height));
-    background: transparent;
-    appearance: none;
-    outline: none;
-    margin: 0;
-    padding: 0;
-    cursor: pointer;
-    position: relative;
-    /* border-radius: 9999px; */
-}
-.slider:disabled {
-    cursor: not-allowed;
-    /* background-color: black; */
-}
-.slider::after {
-    content: '';
-    position: absolute;
-    top: calc(var(--buffer-height) / 2);
-    left: 0;
-    width: calc((var(--value)) / var(--max) * calc(100%));
-    height: calc(100% - var(--buffer-height));
-    background-color: var(--color-primary);
-    border-radius: 9999px;
-}
-.slider:disabled::after {
-    background-color: var(--color-neutral);
-}
-.slider::-webkit-slider-thumb {
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 99999px;
+    width: calc(var(--buffered-percent, 0%)); /* Subtract thumb width and use percentage */
     background: var(--color);
-    cursor: grabbing;
+    filter: grayscale(0.2) brightness(.55);
+    pointer-events: none;
+
+    &.loading {
+        animation: buffer 1.6s linear infinite;
+    }
 }
-.slider:disabled::-webkit-slider-thumb {
-    background: var(--color-neutral);
-    cursor: not-allowed;
+.progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: calc(var(--value) / var(--max) * 100%);
+    background: var(--color);
+    /* transition: width 0.15s ease-in-out; */
 }
-/* .main-audio-progress:has(.slider:active) {
-    height: 14px;
-} */
+
+.seek-thumb {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    background: var(--color-primary);
+    border: 3px solid var(--color-background);
+    border-radius: 50%;
+    transition: opacity 0.2s ease-out;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10;
+}
+
+.explicit {
+    width: 20px;
+    height: 20px;
+    background-color: var(--color-neutral);
+    mask-image: var(--mask);
+    mask-size: cover;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    margin-right: 4px;
+}
+
 .controls, .modifiers {
     position: relative;
     display: flex;
@@ -850,8 +930,8 @@
 }
 .source {
     position: relative;
-    width: var(--space-5);
-    height: var(--space-5);
+    width: 20px;
+    height: 20px;
 }
 .source::after {
     content: '';
@@ -902,7 +982,7 @@
     position: absolute;
     width: 100%;
     height: 100%;
-    z-index: -1;
+    z-index: 5;
     background: transparent;
 }
 .container.hidden .draggable, .container.reduced .draggable {
@@ -1029,7 +1109,7 @@
         animation: slide-in-from-right 0.45s ease-in-out 0s forwards;
     }
 
-    .info .artist {
+    .info .artists {
         animation: slide-in-from-right 0.45s ease-in-out 0.1s forwards;
     }
 

@@ -229,10 +229,15 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     async youtube_play(video: any): Promise<void> {
-        // this.player.song_changed.emit();
+        this.player.song_changed.emit();
         const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'youtube', video_id: video.snippet?.videoId || video.id?.videoId}));
         let track_data: Song_Data | null = cache || await this.hot_action.youtube_track_data(video);
         if(!track_data) return;
+
+        this.player.open_player.emit();
+
+        this.player.add_song_to_cache(track_data);
+        this.player.update_media_session(track_data);
 
         this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
@@ -247,18 +252,13 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
                     this.player.add_song_to_cache(song);
                 });
 
-                // await this.player.load_playlist(null, playlist, false, false);
+                await this.player.load_playlist(null, playlist, false);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
         }).catch((error) => {
             console.error('Error fetching watch playlist:', error);
         });
-
-        this.player.open_player.emit();
-
-        this.player.add_song_to_cache(track_data);
-        // this.player.update_media_session(track_data);
 
         await this.player.load_and_play_track(track_data);
         if(!cache) {
@@ -270,34 +270,35 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     async spotify_play(video: any): Promise<void> {
-        // this.player.song_changed.emit(); 
-        // this.player.update_media_session({
-        //     original_song_name: video.name || '',
-        //     original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
-        //     song_name: video.name || '',
-        //     downloaded: false,
-        //     download_audio_blob: null,
-        //     download_artwork_blob: null,
-        //     download_options: null,
-        //     id: {
-        //         video_id: '', // null, faster loading
-        //         source_id: '', // Use video.id or video.uri for Spotify
-        //         source: 'spotify',
-        //     },
-        //     url: {
-        //         audio: null,
-        //         artwork: {
-        //             low: video.album?.images?.[2]?.url || null,
-        //             high: video.album?.images?.[0]?.url || null,
-        //         },
-        //     },
-        //     colors: {
-        //         primary: null,
-        //         common: null,
-        //     },
-        //     video_duration: video.duration_ms,
-        //     liked: false,
-        // });
+        this.player.song_changed.emit(); 
+        this.player.update_media_session({
+            original_song_name: video.name || '',
+            original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
+            song_name: video.name || '',
+            downloaded: false,
+            download_audio_blob: null,
+            download_artwork_blob: null,
+            download_options: null,
+            id: {
+                video_id: '', // null, faster loading
+                source_id: '', // Use video.id or video.uri for Spotify
+                source: 'spotify',
+            },
+            url: {
+                audio: null,
+                artwork: {
+                    low: video.album?.images?.[2]?.url || null,
+                    high: video.album?.images?.[0]?.url || null,
+                },
+            },
+            colors: {
+                primary: null,
+                common: null,
+            },
+            video_duration: video.duration_ms,
+            liked: false,
+            explicit: video.explicit || false,
+        });
 
         this.player.pause();
         this.player.open_player.emit();
@@ -321,7 +322,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
                     this.player.add_song_to_cache(song);
                 });
 
-                // await this.player.load_playlist(null, playlist, false, false);
+                await this.player.load_playlist(null, playlist, false);
             } else {
                 console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
             }
@@ -490,6 +491,10 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
                 source: 'spotify'
             }
         });
+    }
+
+    youtube_open_channel(channel: any): void {
+        // null for now
     }
 
     spotify_open_album(album: any): void {

@@ -29,7 +29,7 @@
                     <div class="artist">{{ meta_song_data?.original_artists?.[0]?.name || song_data?.original_artists?.[0]?.name || "" }}</div>
                 </div>
             </div>
-            <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10) - var(--space-6))' : '100%'">
+            <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10))' : '100%'">
                 <button class="action" *ngFor="let action of actions" (click)="action.select();" [style.--color]="!action?.no_check ? (action.selected ? 'var(--color-primary)' : 'var(--color-background-400)') : 'var(--color-primary)'" [style.--text]="!action?.no_check ? (action.selected ? 'var(--color-primary)' : 'var(--color-text)') : 'var(--color-primary)'" [ngClass]="{'null': !action_is_selectable(action.is_selectable)}">
                     <div class="thumbnail">
                         <div class="icon" [style.--mask]="'url(\'' + action.icon() + '\')'" alt="Action Thumbnail"></div>
@@ -39,8 +39,8 @@
                 </button>
                 <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%;">Add To Playlists</h2>
                 <button class="action playlist" *ngFor="let playlist of playlist_selectors" (click)="select_playlist(playlist)" [style.--primary]="get_playlist_primary_color(playlist.identifier)" [style.--color]="(playlist.selected ? 'var(--primary)' : 'var(--color-background-400)')" [style.--text]="(playlist.selected ? 'var(--primary)' : 'var(--color-text)')" [style.--background]="(playlist.selected ? 'var(--primary)' : 'var(--color-background)')" [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}">
-                    <div class="thumbnail">
-                        <!-- <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" /> -->
+                    <div class="thumbnail" [ngClass]="{'single': playlist.identifier.images.length < 4}">
+                        <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" />
                     </div>
                     <div style="display: flex; flex-direction: column; gap: var(--space-1);">
                         <div class="name">{{ playlist.identifier.name }}</div>

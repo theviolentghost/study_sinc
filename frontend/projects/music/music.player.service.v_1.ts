@@ -1211,7 +1211,6 @@ export class MusicPlayerService {
                 this.skipping_to_next = false;
                 return;
             }
-            // return;
         }
         const current_song_key = this.media.song_key(this.audio_data.current.identifier);
         const next_song_key = this.playlist.play_next.length > 0 ? this.playlist.play_next.shift() : this.playlist.queue.shift();

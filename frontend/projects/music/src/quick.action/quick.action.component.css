@@ -1,6 +1,6 @@
 :host {
     position: fixed;
-    transform: translateY(100%);
+    transform: translateY(110%);
     right: 0;
     bottom: 0;
     width: 100%;
@@ -40,6 +40,15 @@
         opacity: 1;
     }
 }
+.dot {
+    --size: 4px;
+    height: var(--size);
+    width: var(--size);
+    background-color: var(--color-neutral);
+    border-radius: 50%;
+    display: inline-block;
+    margin: 4px;
+}
 
 .content-wrapper {
     width: 100%;
@@ -47,6 +56,7 @@
     flex-direction: column;
     align-items: center;
     min-height: 20dvh;
+    max-height: calc(100dvh - var(--space-9));
     transition: transform 0.1s ease-out;
     will-change: transform;
     background-color: var(--color-background-200);
@@ -183,8 +193,8 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    background-color: var(--color-background);
-    box-shadow: 0 0 10px 10px var(--color-background);
+    /* background-color: var(--color-background); */
+    /* box-shadow: 0 0 10px 10px var(--color-background); */
     padding: var(--space-2) 0;
     box-sizing: content-box;
     min-height: 20vh;
@@ -219,15 +229,15 @@
     --text-subtle: var(--color-neutral);
     flex-direction: row;
     padding: var(--space-2) 0;
-    border-bottom: solid 1px var(--color-background-400);
+    /* border-bottom: solid 1px var(--color-background-400); */
     width: 100%;
     aspect-ratio: 16 / 9;
     max-height: var(--space-8);
     align-items: center;
-    background-color: var(--color-background);
+    background-color: var(--color-background-200);
     gap: var(--space-2);
     overflow: visible;
-    box-shadow: 0 0 10px 2px var(--color-background);
+    /* box-shadow: 0 0 10px 2px var(--color-background); */
 }
 .result.video.selected {
     --text: var(--color-primary);
@@ -287,7 +297,7 @@
     text-overflow: ellipsis;
     white-space: normal;
     text-align: left;
-    display: flex;
+    /* display: flex; */
     flex-direction: row;
     align-items: center;
 

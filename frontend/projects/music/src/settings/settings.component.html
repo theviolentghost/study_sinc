@@ -1,4 +1,21 @@
-<p>settings works!</p>
-<p>{{is_silent_audio_allowed ? 'Silent audio is allowed' : 'Silent audio is not allowed'}}</p>
-<input type="checkbox" [(ngModel)]="use_silent_audio">
-<p>Use silent audio to preserve audio pipeline (iOS Safari specific)</p>
+<div class="profile">
+    <div class="avater">
+        <img src="users.svg" alt="User Avatar">
+    </div>
+    <div style="display: flex; flex-direction: column; justify-content: center;">
+        <div class="display-name">#display name</div>
+        <div class="identifier">#identifier</div>
+    </div>
+</div>
+
+<div class="setting-genre-container">
+    <div 
+        class="setting-genre"
+        *ngFor="let genre of genres"
+        (click)="open_genre_setting(genre);"
+    >
+        
+        <div class="label">{{ genre.label }}</div>
+        <div class="chevron" [style.--mask]="'url(' + 'chevron-left.svg' + ')'"></div>
+    </div>
+</div>

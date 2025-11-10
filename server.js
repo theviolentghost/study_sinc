@@ -679,14 +679,14 @@ app.get('/music/spotify/video-id', async (req, res) => {
     }
     try {
         const video_id = await Music.spotify.uri_to_video_id(spotify_uri);
-        if (!video_id) {
-            return res.status(404).json({ error: 'Video ID not found for the given Spotify URI' });
+        if (!video_id || !(typeof video_id === 'string')) {
+            return res.status(404).json({ error: 'Video ID not found for the given Spotify URI', video_id: null });
         }
 
         res.json({ video_id });
     } catch (error) {
         console.error('Error fetching video ID from Spotify URI:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Internal server error', video_id: null });
     }
 });
 

@@ -79,8 +79,8 @@
         <div class="queue-management">
             <!-- #resultVideos (scroll)="on_scroll($event)" [style.padding-top]="padding_top" -->
             <div class="result-videos hide-scrollbar" #resultVideos (scroll)="on_scroll($event)" >
-                <h2 *ngIf="song_data" style="width: 100%; margin: var(--space-2);">Currently Playing</h2>
-                <div class="preview" *ngIf="song_data">
+                <h3 *ngIf="song_data" style="width: 100%; margin: var(--space-2) 0;">Queue</h3>
+                <div class="result video disable-select" *ngIf="song_data">
                     <div class="thumbnail" [style.background-color]="song_data?.colors?.primary || 'transparent'">
                         <img [src]="get_object_url(song_data?.download_artwork_blob) || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high ||  'default-thumbnail.svg'" alt="Thumbnail" />
                     </div>
@@ -89,9 +89,10 @@
                         <div class="artist">{{ song_data?.original_artists?.[0]?.name }}</div>
                     </div>
                 </div>
-                <div *ngIf="play_next_queue_length > 0" style="width: 100%; margin: var(--space-2);">
-                    <h2>Up Next</h2>
-                    <p style="font-size: var(--space-3); color: var(--color-background-600);">{{ play_next_queue_duration }}</p>
+                <div *ngIf="play_next_queue_length > 0" style="width: 100%; margin: var(--space-2) 0; display: flex; align-items: center; gap: 4px;">
+                    <h3>Queued Next</h3>
+                    <div class="dot"></div>
+                    <p style="font-size: var(--space-4); color: var(--color-background-600);">{{ play_next_queue_duration }}</p>
                 </div>
                 <div 
                     cdkDropList
@@ -160,9 +161,10 @@
                         ></div>
                     </button>
                 </div>
-                <div style="width: 100%; margin: var(--space-2);">
-                    <h2>Playlist</h2>
-                    <p style="font-size: var(--space-3); color: var(--color-background-600);">{{ playlist_queue_duration }}</p>
+                <div style="width: 100%; margin: var(--space-2) 0; display: flex; align-items: center; gap: 4px;">
+                    <h3>Up Next</h3>
+                    <div class="dot"></div>
+                    <p style="font-size: var(--space-4); color: var(--color-background-600);">{{ playlist_queue_duration }}</p>
                 </div>
                 <div 
                     cdkDropList

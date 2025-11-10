@@ -273,6 +273,7 @@ async function youtube_search(query = 'NoCopyrightSounds', /* add more params in
             youtube_search_for_artists(query, 16)
         ]).then(([videos, artists]) => {
             return {
+                catalog: [...videos.results, ...artists.results],
                 videos,
                 artists
             };
@@ -656,8 +657,8 @@ async function spotify_uri_to_video_id(uri) {
         
         return response.data?.id;
     } catch (error) {
-        console.error('Error fetching spotify video id:', error);
-        return {};
+        console.error('Error fetching spotify video id:', uri);
+        return '';
     }
 }
 

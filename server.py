@@ -192,6 +192,11 @@ def get_video_id():
     
     logger.info(f"Getting video ID for query: {query}")
     result = spotdl.get_video_id(query)
+    
+    if not result:
+        logger.warning(f"No video ID found for query: {query}")
+        return jsonify({"error": f"No YouTube video found for: {query}", "id": None}), 404
+    
     return jsonify({"id": result})
 
 @app.route('/request_embedding', methods=['POST'])

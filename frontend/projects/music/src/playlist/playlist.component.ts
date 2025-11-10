@@ -67,15 +67,15 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     ngOnInit(): void {
         // Component initialization
         this.loaded = false;
-        // this.player.playlist_changed.subscribe(() => {
-        //     this.update_main_color();
-        // });
+        this.player.playlist_changed.subscribe(() => {
+            this.update_main_color();
+        });
         this.update_main_color();
-        // this.player.clear_playlist_color.subscribe(() => {
-        //     // check to see if the navigation url is the same as this playlist
-        //     if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
-        //     document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
-        // });
+        this.player.clear_playlist_color.subscribe(() => {
+            // check to see if the navigation url is the same as this playlist
+            if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
+            document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
+        });
 
         // Subscribe to notification service
         this.notification_service.notification$.subscribe((notification: Notification) => {
@@ -86,7 +86,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
 
     ngAfterViewInit(): void {
         // Auto-scroll to hide search-filter when component loads
-        this.auto_scroll_past_search_filter();
+        // this.auto_scroll_past_search_filter();
         this.loaded = true;
         this.update_main_color();
         this.update_container_height();
@@ -1125,10 +1125,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         this.player.open_player.emit();
 
-        // this.player.update_media_session(track_data)
-        // await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, false);
-        // this.player.load_and_play_track(track_data);
-        // this.player.remove_track_from_playlist_queue(this.media.song_key(track_data.id));
+        // this.player.update_media_session(track_data);
+        await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false);
+        this.player.load_and_play_track(track_data);
+        this.player.remove_song_from_playlist_queue(this.media.song_key(track_data.id));
     }
 
     public ms_to_time(ms: number, format: string = 'concise'): string {
@@ -1174,7 +1174,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         return this.is_current_playlist_playing ? 'player-pause' : 'player-play';
     }
 
-    play_playlist (): void {
+    public async play_playlist (): Promise<void> {
         if(!this.playlists.selected_playlist) return;
         if(this.playlists.selected_playlist.songs.size === 0) return;
 
@@ -1189,7 +1189,9 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         } else {
             // Different playlist or no playlist loaded, load and play
             this.player.open_player.emit();
-            // this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
+            await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
+            this.player.playlist_changed.emit();
+            // this.player.play();
         }
     }
 

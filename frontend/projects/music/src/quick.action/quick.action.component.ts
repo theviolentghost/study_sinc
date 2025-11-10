@@ -63,7 +63,6 @@ export class QuickActionComponent {
         return this.player.play_next_queue.length;
     }
     get play_next_queue(): string[] {
-        //
         return this.player.play_next_queue;
     }
     get play_next_queue_with_song_data(): Song_Data[] {
@@ -72,7 +71,6 @@ export class QuickActionComponent {
         }).filter(song_data => song_data !== null) as Song_Data[];
     }
     get playlist_queue(): string[] {
-        //
         return this.player.playlist_queue.slice(this.visible_start_index, this.visible_end_index); 
     }
     get playlist_queue_with_song_data(): Song_Data[] {
@@ -419,8 +417,8 @@ export class QuickActionComponent {
                         const index_identifier = parseInt(this.swiping_video.substring(index_identifier_index + 1));
                         // console.log(index_identifier);
                         this.player.playlist_queue.splice(index_identifier - this.play_next_queue_with_song_data.length - 1, 1);
-                        // console.log(index_identifier - this.play_next_queue_with_song_data.length)
-                        // this.player.playlist_queue.queue = this.player.playlist_queue.queue.filter(song => {
+                        console.log(index_identifier - this.play_next_queue_with_song_data.length)
+                        // this.player.playlist_queue = this.player.playlist_queue.filter(song => {
                         //     return this.media.bare_song_key(song) !== this.video_key(this.swiping_video_data, undefined);
                         // });
                     }
@@ -463,10 +461,10 @@ export class QuickActionComponent {
         
         this.player.open_player.emit();
 
-        // this.player.update_media_session(track_data, this.media.song_key(track_data.id));
+        this.player.update_media_session(track_data);
 
         await this.player.load_and_play_track(track_data);
-        // this.player.remove_current_song_from_queue();
+        this.player.remove_current_song_from_queue();
     }
 
     private start_hold_timer(video: Song_Data | null): void {

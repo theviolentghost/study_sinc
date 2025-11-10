@@ -37,7 +37,7 @@
             </div>
             <div class="name">Create Playlist</div>
         </button>
-        <button 
+        <!-- <button 
             class="playlist no-background" 
             (click)="start_dj_play()" 
             [style.--primary]="'var(--color-primary)'"
@@ -47,8 +47,8 @@
                 <div class="image" [style.--mask]="'url(\'disco-ball-fill.svg\')'"></div>
             </div>
             <div class="name">Play DJ Mix</div>
-        </button>
-        <h1 *ngIf="default_playlist_identifiers.length > 0">Default Playlists</h1>        
+        </button> -->
+        <!-- <h1 *ngIf="default_playlist_identifiers.length > 0">Default Playlists</h1>         -->
         <button 
             class="playlist" 
             *ngFor="let playlist of default_playlist_identifiers; last as isLast" 
@@ -57,7 +57,7 @@
             [style.--primary]="get_playlist_primary_color(playlist)"
             [style.border-bottom]="isLast ? 'solid 1px transparent' : null"
         >
-            <div class="thumbnail" [ngClass]="{'single': playlist.images.length === 1}">
+            <div class="thumbnail" [ngClass]="{'single': playlist.images.length < 4}">
                 <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
             </div>
             <div class="info">
@@ -81,7 +81,7 @@
             [style.--primary]="get_playlist_primary_color(playlist)"
             [style.border-bottom]="isLast ? 'solid 1px transparent' : null"
         >
-            <div class="thumbnail" [ngClass]="{'single': playlist.images.length === 1}">
+            <div class="thumbnail" [ngClass]="{'single': playlist.images.length < 4}">
                 <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
             </div>
             <!-- <div class="name">{{ playlist.name }}</div> -->

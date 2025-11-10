@@ -162,9 +162,7 @@ export class HotActionComponent {
                 this.actions[3].selected = !this.actions[3].selected;
             },
             action: async () => {
-                console.log('Up next');
                 if(!this.song_data) return;
-                // console.log('Adding to play next:', this.song_data);
                 const run = async () => {
                     this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id),this.song_data);
                     this.player.add_song_to_play_next(this.song_data);
