@@ -64,8 +64,17 @@ class BufferController {
         const audio_context = this.fragment_parser.get_context();
         this.audio_mixer = new AudioMixer(audio_context, audio_context.sampleRate);
 
+        // Detect Safari (including iOS Safari)
         this.is_safari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        // Detect specifically iOS Safari (iPhone, iPad, iPod)
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        
         console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
+        console.log('📱 iOS:', isIOS);
+        
+        // iOS Safari needs special handling
+        this.is_safari = this.is_safari || isIOS;
     }
 
     public set_audio_element(audio: HTMLMediaElement | HTMLAudioElement) {
@@ -250,16 +259,21 @@ class BufferController {
 
             this._is_fully_buffered = true;
             
-            // Emit song end event when buffering completes
-            // const ev = new CustomEvent('songEnded', { 
-            //     detail: { 
-            //         currentTime: this.audio_element?.currentTime || 0,
-            //         duration: this.audio_element?.duration || 0,
-            //         url: this.current_url,
-            //         reason: 'buffered_to_end'
-            //     } 
-            // });
-            // this.events.dispatchEvent(ev);
+            // Emit song end event when buffering completes (for auto-skip)
+            if (!this._songEndedEmitted) {
+                this._songEndedEmitted = true;
+                
+                const ev = new CustomEvent('songEnded', { 
+                    detail: { 
+                        currentTime: this.audio_element?.currentTime || 0,
+                        duration: this.audio_element?.duration || 0,
+                        url: this.current_url,
+                        reason: 'buffered_to_end'
+                    } 
+                });
+                this.events.dispatchEvent(ev);
+                console.log('🎵 Song ended event emitted (buffered_to_end)');
+            }
 
             // const decoded_buffer = await this.fragment_parser.get_song_decoded_buffer();
             // console.log(decoded_buffer);
@@ -311,15 +325,20 @@ class BufferController {
                 if (duration > 0 && duration - currentTime < 1) {
                     console.log('✅ Song finished, emitting end event');
                     
-                    // Emit song end event so your app can skip to next track
-                    const ev = new CustomEvent('songEnded', { 
-                        detail: { 
-                            currentTime,
-                            duration,
-                            url: this.current_url
-                        } 
-                    });
-                    this.events.dispatchEvent(ev);
+                    if (!this._songEndedEmitted) {
+                        this._songEndedEmitted = true;
+                        
+                        // Emit song end event so your app can skip to next track
+                        const ev = new CustomEvent('songEnded', { 
+                            detail: { 
+                                currentTime,
+                                duration,
+                                url: this.current_url,
+                                reason: 'buffer_stalled'
+                            } 
+                        });
+                        this.events.dispatchEvent(ev);
+                    }
                 }
             }
             
@@ -347,6 +366,7 @@ class BufferController {
         
         this.has_audio = false;
         this._is_fully_buffered = false;
+        this._songEndedEmitted = false; // Reset for new track
 
         if (this.is_first_track) {
             // ✅ FIRST TRACK
@@ -370,20 +390,22 @@ class BufferController {
                 throw new Error('HLS instance not initialized');
             }
 
-            // if (this.is_safari) {
-            if(false) {
-                // SAFARI: Don't transfer, just stop and reload
-                // Safari doesn't handle transferMedia well
-                console.log('🍎 Safari: Using simple stop/load approach');
+            if (this.is_safari) {
+                // SAFARI/iOS: Use simple stop/clear/reload approach
+                // Safari (especially iOS) doesn't handle transferMedia well
+                console.log('🍎 Safari/iOS: Using simple stop/clear/reload approach');
                 
                 // Stop current loading
                 this.hls.stopLoad();
                 
-                // Clear the buffer more gently for Safari
+                // Clear the buffer gently
                 await this.safari_clear_buffer();
                 
+                // Reset the songEnded flag for the new track
+                this._songEndedEmitted = false;
+                
                 // Don't create new HLS instance - reuse existing
-                // Safari prefers keeping the same instance
+                // Safari prefers keeping the same instance and MediaSource
                 
             } else {
                 // CHROME/OTHER: Use transfer approach
@@ -441,15 +463,24 @@ class BufferController {
 
         console.log('🍎 Safari: Gentle buffer clear');
 
+        // Pause playback before clearing
+        if (this.audio_element && !this.audio_element.paused) {
+            this.audio_element.pause();
+        }
+
         const sourceBuffers = this.media_source.sourceBuffers;
         
         for (let i = 0; i < sourceBuffers.length; i++) {
             const sb = sourceBuffers[i];
             const buffered = sb.buffered;
             
-            if (buffered.length === 0) continue;
+            if (buffered.length === 0) {
+                console.log(`   SourceBuffer ${i}: already empty`);
+                continue;
+            }
 
             try {
+                // Wait for any pending updates to complete
                 if (sb.updating) {
                     await new Promise<void>((resolve) => {
                         const onUpdateEnd = () => {
@@ -457,33 +488,63 @@ class BufferController {
                             resolve();
                         };
                         sb.addEventListener('updateend', onUpdateEnd);
+                        
+                        // Timeout after 2 seconds
+                        setTimeout(() => {
+                            sb.removeEventListener('updateend', onUpdateEnd);
+                            resolve();
+                        }, 2000);
                     });
                 }
 
-                const currentTime = this.audio_element.currentTime;
-                
-                for (let j = 0; j < buffered.length; j++) {
+                // Remove all buffered ranges
+                for (let j = buffered.length - 1; j >= 0; j--) {
                     const start = buffered.start(j);
                     const end = buffered.end(j);
                     
-                    if (end < currentTime - 5) {
-                        console.log(`   Removing old range: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
+                    console.log(`   Removing range ${j}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
+                    
+                    try {
                         sb.remove(start, end);
                         
+                        // Wait for removal to complete
                         await new Promise<void>((resolve) => {
                             const onUpdateEnd = () => {
                                 sb.removeEventListener('updateend', onUpdateEnd);
                                 resolve();
                             };
                             sb.addEventListener('updateend', onUpdateEnd);
+                            
+                            // Timeout after 2 seconds
+                            setTimeout(() => {
+                                sb.removeEventListener('updateend', onUpdateEnd);
+                                resolve();
+                            }, 2000);
                         });
+                    } catch (removeError) {
+                        console.warn(`   Could not remove range ${j}:`, removeError);
                     }
                 }
 
-                this._has_audio = false;
+                // Reset timestamp offset
+                if (!sb.updating) {
+                    sb.timestampOffset = 0;
+                }
 
             } catch (error) {
-                console.error(`❌ Safari buffer clear error:`, error);
+                console.error(`❌ Safari buffer clear error for SourceBuffer ${i}:`, error);
+            }
+        }
+
+        // Reset has_audio flag
+        this._has_audio = false;
+
+        // Reset currentTime to 0
+        if (this.audio_element) {
+            try {
+                this.audio_element.currentTime = 0;
+            } catch (e) {
+                console.warn('Could not reset currentTime:', e);
             }
         }
 

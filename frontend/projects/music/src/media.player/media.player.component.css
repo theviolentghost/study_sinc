@@ -310,7 +310,7 @@
 }
 #audio, audio {
     z-index: 99999999999;
-    display: none; 
+    /* display: none;  */
 }
 .dashboard {
     position: relative;
@@ -437,7 +437,7 @@
 
         &.added {
             border: none;
-            
+
             &::before {
                 background-color: var(--color-background);
                 scale: 0.9;
