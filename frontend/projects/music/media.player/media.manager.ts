@@ -271,9 +271,9 @@ class MusicMediaManager {
 
     public async update_media_session(metadata: Song_Data): Promise<void> {
         if (!('mediaSession' in navigator) || !metadata) return;
+        this.configure_media_session();
 
         this._media_data = metadata;
-        console.log('Updating media session metadata:', metadata);
 
         const has_artwork_ready = 
             (metadata.download_artwork_blob) ||

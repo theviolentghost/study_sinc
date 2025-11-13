@@ -1,6 +1,6 @@
-import Hls from 'hls.js';
+import Hls, { MediaAttachingData } from 'hls.js';
 import { Events } from 'hls.js';
-import type { MediaAttachingData } from 'hls.js';
+
 import AudioMixer from './media.mixer';
 import FragmentParser from './fragment.parser';
 
@@ -20,6 +20,8 @@ class BufferController {
     
     private blob_url: string | null = null;
     private is_safari: boolean = false;
+    private _songEndedEmitted: boolean = false;
+    public _is_fully_buffered: boolean = false;
 
     private _has_audio: boolean = false;
     public get has_audio(): boolean {
@@ -27,6 +29,9 @@ class BufferController {
     }
     public set has_audio(value: boolean) {
         this._has_audio = value;
+    }
+    public get is_fully_buffered(): boolean {
+        return this._is_fully_buffered;
     }
 
     public readonly events: EventTarget = new EventTarget();
@@ -74,6 +79,30 @@ class BufferController {
         this.audio_element.setAttribute('playsinline', 'true');
         this.audio_element.setAttribute('webkit-playsinline', 'true');
         
+        // Detect when playback reaches the end
+        // this.audio_element.addEventListener('timeupdate', () => {
+        //     const currentTime = this.audio_element?.currentTime || 0;
+        //     const duration = this.audio_element?.duration || 0;
+            
+        //     // Trigger auto-skip when within 0.5 seconds of the end
+        //     if (duration > 0 && duration - currentTime < 0.5 && duration - currentTime > 0) {
+        //         if (!this._songEndedEmitted) {
+        //             this._songEndedEmitted = true;
+                    
+        //             console.log('🎵 Song reached end via timeupdate');
+        //             const ev = new CustomEvent('songEnded', { 
+        //                 detail: { 
+        //                     currentTime,
+        //                     duration,
+        //                     url: this.current_url,
+        //                     reason: 'timeupdate'
+        //                 } 
+        //             });
+        //             this.events.dispatchEvent(ev);
+        //         }
+        //     }
+        // });
+        
         // Safari needs these
         // if (this.is_safari) {
         //     this.audio_element.setAttribute('controls', 'false');
@@ -96,44 +125,44 @@ class BufferController {
 
         console.log('🎵 Creating MediaSource with blob URL:', this.blob_url);
 
-        await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('MediaSource sourceopen timeout after 10s'));
-            }, 10000);
+        // await new Promise<void>((resolve, reject) => {
+        //     const timeout = setTimeout(() => {
+        //         reject(new Error('MediaSource sourceopen timeout after 10s'));
+        //     }, 10000);
 
-            this.media_source!.addEventListener('sourceopen', () => {
-                clearTimeout(timeout);
+        //     this.media_source!.addEventListener('sourceopen', () => {
+        //         clearTimeout(timeout);
                 
-                if (!this.media_source) {
-                    reject(new Error('MediaSource is null on sourceopen event.'));
-                    return;
-                }
+        //         if (!this.media_source) {
+        //             reject(new Error('MediaSource is null on sourceopen event.'));
+        //             return;
+        //         }
 
-                try {
-                    this.source_buffer = this.media_source.addSourceBuffer(this.codec);
+        //         try {
+        //             this.source_buffer = this.media_source.addSourceBuffer(this.codec);
                     
-                    // Safari prefers segments mode
-                    this.source_buffer.mode = 'segments';
+        //             // Safari prefers segments mode
+        //             this.source_buffer.mode = 'segments';
 
-                    this.source_buffer.addEventListener('updateend', () => {
-                        this.process_append_to_buffer();
-                    });
+        //             this.source_buffer.addEventListener('updateend', () => {
+        //                 this.process_append_to_buffer();
+        //             });
 
-                    this.source_buffer.addEventListener('error', (error) => {
-                        console.error('SourceBuffer error:', error);
-                    });
+        //             this.source_buffer.addEventListener('error', (error) => {
+        //                 console.error('SourceBuffer error:', error);
+        //             });
 
-                    this.is_media_source_attached = true;
-                    console.log('✅ MediaSource initialized');
-                    console.log('   SourceBuffer mode:', this.source_buffer.mode);
-                    resolve();
-                } catch (error) {
-                    clearTimeout(timeout);
-                    console.error('Error creating SourceBuffer:', error);
-                    reject(error);
-                }
-            });
-        });
+        //             this.is_media_source_attached = true;
+        //             console.log('✅ MediaSource initialized');
+        //             console.log('   SourceBuffer mode:', this.source_buffer.mode);
+        //             resolve();
+        //         } catch (error) {
+        //             clearTimeout(timeout);
+        //             console.error('Error creating SourceBuffer:', error);
+        //             reject(error);
+        //         }
+        //     });
+        // });
     }
 
     private create_hls_instance(): Hls {
@@ -141,17 +170,17 @@ class BufferController {
             debug: false,
             enableWorker: true,
             lowLatencyMode: false,
-            autoStartLoad: false,
+            autoStartLoad: true,
         
             
             // Ensure we start from the first segment
-            startPosition: 0,
-            startLevel: -1,
+            // startPosition: 0,
+            // startLevel: -1,
             
-            maxBufferHole: 0.5,
-            nudgeMaxRetry: this.is_safari ? 5 : 3,
-            manifestLoadingMaxRetry: 5,
-            manifestLoadingRetryDelay: 200,
+            // maxBufferHole: 0.5,
+            // nudgeMaxRetry: this.is_safari ? 5 : 3,
+            // manifestLoadingMaxRetry: 5,
+            // manifestLoadingRetryDelay: 200,
         });
 
         this.configure_hls_events(hls);
@@ -192,30 +221,45 @@ class BufferController {
             //     return;
             // }
             
+            
             if (data.data && data.type === 'audio') {
-                console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
-                const uint_8_data = new Uint8Array(data.data);
-                this.append_to_buffer(uint_8_data);
+                this.has_audio = true;
+                // console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
+                // const uint_8_data = new Uint8Array(data.data);
+                // this.append_to_buffer(uint_8_data);
 
                 // console.log(this.fragment_parser.validate_mp4_data(uint_8_data) ? '✅ Fragment MP4 data is valid' : '❌ Fragment MP4 data is invalid');
                 // console.log(this.fragment_parser.analyze_mp4_structure(uint_8_data, `Fragment SN ${data.frag.sn}`));
 
                 // Emit event with raw audio fragment data
-                const ev = new CustomEvent('dataLoaded', { 
-                    detail: { 
-                        bytes: uint_8_data.byteLength,
-                        fragmentData: uint_8_data,
-                        fragmentNumber: data.frag.sn
-                    } 
-                });
-                this.events.dispatchEvent(ev);
+                // const ev = new CustomEvent('dataLoaded', { 
+                //     detail: { 
+                //         bytes: uint_8_data.byteLength,
+                //         fragmentData: uint_8_data,
+                //         fragmentNumber: data.frag.sn
+                //     } 
+                // });
+                // this.events.dispatchEvent(ev);
                 // this.fragment_parser.decode_audio_fragment(uint_8_data, data.frag.sn);
             }
         });
 
         hls.on(Events.BUFFERED_TO_END, async () => {
             console.log('✅ Buffer has reached end of stream');
-            console.log(this.media_source.sourceBuffers)
+            console.log(this.media_source.sourceBuffers);
+
+            this._is_fully_buffered = true;
+            
+            // Emit song end event when buffering completes
+            // const ev = new CustomEvent('songEnded', { 
+            //     detail: { 
+            //         currentTime: this.audio_element?.currentTime || 0,
+            //         duration: this.audio_element?.duration || 0,
+            //         url: this.current_url,
+            //         reason: 'buffered_to_end'
+            //     } 
+            // });
+            // this.events.dispatchEvent(ev);
 
             // const decoded_buffer = await this.fragment_parser.get_song_decoded_buffer();
             // console.log(decoded_buffer);
@@ -239,6 +283,12 @@ class BufferController {
             // }
         });
 
+        hls.on(Events.BUFFER_EOS , async () => {
+            console.log('🔚 Buffer end of stream reached');
+
+            return;
+        });
+
         hls.on(Events.FRAG_PARSING_INIT_SEGMENT, (event, data) => {
             console.log('📋 Init segment received');
             // @ts-ignore
@@ -249,6 +299,29 @@ class BufferController {
 
         hls.on(Events.ERROR, (event, data) => {
             console.error('HLS Error:', data.details, 'fatal:', data.fatal);
+            
+            // Detect end of stream via bufferStalledError
+            if (data.details === 'bufferStalledError' && !data.fatal) {
+                console.log('🎵 Song appears to have ended (buffer stalled)');
+                
+                // Check if we're near the end of the track
+                const currentTime = this.audio_element?.currentTime || 0;
+                const duration = this.audio_element?.duration || 0;
+                
+                if (duration > 0 && duration - currentTime < 1) {
+                    console.log('✅ Song finished, emitting end event');
+                    
+                    // Emit song end event so your app can skip to next track
+                    const ev = new CustomEvent('songEnded', { 
+                        detail: { 
+                            currentTime,
+                            duration,
+                            url: this.current_url
+                        } 
+                    });
+                    this.events.dispatchEvent(ev);
+                }
+            }
             
             if (data.fatal) {
                 switch (data.type) {
@@ -271,7 +344,12 @@ class BufferController {
     public current_url: string | null = null;
     public async load(url: string) {
         if (!this.audio_element) throw new Error('Audio element not set.');
+        
+        this.has_audio = false;
+        this._is_fully_buffered = false;
+
         if (this.is_first_track) {
+            // ✅ FIRST TRACK
             console.log('🆕 First track - creating new HLS instance');
             
             this.hls = this.create_hls_instance();
@@ -283,28 +361,47 @@ class BufferController {
             });
             
             this.is_first_track = false;
+            
         } else {
+            // ✅ SUBSEQUENT TRACKS
             console.log('🔄 Subsequent track');
             
             if (!this.hls) {
                 throw new Error('HLS instance not initialized');
             }
 
-            console.log('⏹️ Stopping HLS loading before track switch');
-            this.hls.stopLoad();
-
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            if (this.is_safari) { 
+            // if (this.is_safari) {
+            if(false) {
+                // SAFARI: Don't transfer, just stop and reload
+                // Safari doesn't handle transferMedia well
+                console.log('🍎 Safari: Using simple stop/load approach');
+                
+                // Stop current loading
+                this.hls.stopLoad();
+                
+                // Clear the buffer more gently for Safari
                 await this.safari_clear_buffer();
+                
+                // Don't create new HLS instance - reuse existing
+                // Safari prefers keeping the same instance
+                
             } else {
+                // CHROME/OTHER: Use transfer approach
+                console.log('🌐 Chrome: Using transfer approach');
+                
                 await this.clear_buffer();
 
                 this.transfer_data = this.hls.transferMedia();
                 
                 if (!this.transfer_data || !this.transfer_data.mediaSource) {
                     console.warn('⚠️ Transfer failed, falling back to simple approach');
+                    this.hls.stopLoad();
                 } else {
+                    console.log('📦 Transfer data obtained');
+                    
+                    const isSameMediaSource = this.transfer_data.mediaSource === this.media_source;
+                    console.log('   Same MediaSource:', isSameMediaSource);
+
                     this.hls.detachMedia();
                     this.hls.destroy();
                     
@@ -319,17 +416,14 @@ class BufferController {
                     
                     new_hls.attachMedia(attach_data);
                     this.hls = new_hls;
+                    
+                    console.log('✅ MediaSource transferred');
                 }
             }
         }
 
+        // Load new source
         this.hls.loadSource(url);
-        this.current_url = url;
-
-        // Safari: Wait a tick before starting load
-        if (this.is_safari && this.is_first_track) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
     }
 
     
@@ -403,6 +497,12 @@ class BufferController {
         }
 
         console.log('🗑️ Clearing all SourceBuffers');
+        
+        // Reopen if ended
+        if (this.media_source.readyState === 'ended') {
+            console.log('   MediaSource is ended, reopening...');
+            this.media_source.duration = 0;
+        }
 
         const sourceBuffers = this.media_source.sourceBuffers;
         this._has_audio = false;
@@ -453,6 +553,7 @@ class BufferController {
             }
         }
 
+        // Reset duration after clearing
         try {
             if (this.media_source.readyState === 'open') {
                 this.media_source.duration = 0;
@@ -464,6 +565,8 @@ class BufferController {
         if (this.audio_element) {
             this.audio_element.currentTime = 0;
         }
+        
+        console.log('✅ Buffer cleared, MediaSource state:', this.media_source.readyState);
     }
 
     public play() {

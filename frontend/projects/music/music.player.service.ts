@@ -108,8 +108,31 @@ export class MusicPlayerService {
         this.media_controller.configure_media_session();
         console.log('Audio element set in MusicPlayerService.');
 
+        // Listen for custom songEnded event from BufferController
+        this.buffer_controller.events.addEventListener('songEnded', (event: Event) => {
+            const customEvent = event as CustomEvent;
+
+            // if(customEvent.detail.reason === 'buffered_to_end') {
+            //     // dont skip, juts confirm length and that we are fully buffered
+            //     return;
+            // }
+            
+            // Auto-skip to next track
+            if (
+                this.media_controller.buffer_controller.has_audio &&
+                this.media_controller.buffer_controller.is_fully_buffered
+            ) {
+                this.skip_to_next(Skip_Event.DEFAULT);
+            }
+        });
+
         element.addEventListener('ended', () => {
-            this.skip_to_next(Skip_Event.DEFAULT);
+            console.log('ended event fired on audio element.');
+            if(this.media_controller.buffer_controller.has_audio) {
+                this.skip_to_next(Skip_Event.DEFAULT);
+            }
+            
+            // this.skip_to_next(Skip_Event.DEFAULT);
         });
 
         element.addEventListener('loadeddata', () => {

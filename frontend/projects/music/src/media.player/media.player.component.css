@@ -309,6 +309,7 @@
     /* object-fit: cover; */
 }
 #audio, audio {
+    z-index: 99999999999;
     display: none; 
 }
 .dashboard {

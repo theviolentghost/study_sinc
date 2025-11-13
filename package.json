@@ -17,7 +17,8 @@
         "build:all": "npm run build:frontend && npm run build:music",
         "build:all:run": "npm run update:music && npm run build:all && npm run serve",
         "build:all:run:noupdate": "npm run build:all && npm run serve",
-        "update:music": "node update_version.js"
+        "update:music": "node update_version.js",
+        "hls:build": "cd frontend && npm run hls:build"
     },
     "dependencies": {
         "@chroma-core/default-embed": "^0.1.8",

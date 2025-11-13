@@ -6,7 +6,8 @@
     "start": "ng serve --host 0.0.0.0",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "hls:build": "cd ../hls.js && npm run build && npm link && cd ../frontend && npm link hls.js"
   },
   "private": true,
   "dependencies": {
