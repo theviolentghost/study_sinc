@@ -404,6 +404,9 @@
     cursor: pointer;
     z-index: 6;
     background-color: transparent;
+    --color: var(--color-neutral);
+    border: 2px solid var(--color-neutral);
+    border-radius: 9999px;
 
     &::before {
         content: '';
@@ -433,6 +436,8 @@
         right: var(--space-2);
 
         &.added {
+            border: none;
+            
             &::before {
                 background-color: var(--color-background);
                 scale: 0.9;
@@ -447,7 +452,6 @@
                 height: 100%;
                 background-color: var(--color-primary);
                 border-radius: 9999px;
-                /* border: 1.5px solid var(--color-neutral); */
             }
         }
     }
