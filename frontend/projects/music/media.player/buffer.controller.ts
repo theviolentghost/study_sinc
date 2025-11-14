@@ -349,9 +349,10 @@ class BufferController {
         
         this.has_audio = false;
         this._is_fully_buffered = false;
+        this.current_url = url;
 
         if (this.is_first_track) {
-            // ✅ FIRST TRACK
+            // ✅ FIRST TRACK - Create HLS and attach to MediaSource
             console.log('🆕 First track - creating new HLS instance');
             
             this.hls = this.create_hls_instance();
@@ -365,74 +366,69 @@ class BufferController {
             this.is_first_track = false;
             
         } else {
-            // ✅ SUBSEQUENT TRACKS
-            console.log('🔄 Subsequent track');
+            // ✅ SUBSEQUENT TRACKS - Keep same MediaSource, transfer to new HLS
+            console.log('🔄 Subsequent track - using persistent MediaSource approach');
             
             if (!this.hls) {
                 throw new Error('HLS instance not initialized');
             }
 
-            // if (this.is_safari) {
-            if(false) {
-                // // SAFARI: Don't transfer, just stop and reload
-                // // Safari doesn't handle transferMedia well
-                // console.log('🍎 Safari: Using simple stop/load approach');
-                
-                // // Stop current loading
-                // this.hls.stopLoad();
-                
-                // // Clear the buffer more gently for Safari
-                // await this.safari_clear_buffer();
-                
-                // // Don't create new HLS instance - reuse existing
-                // // Safari prefers keeping the same instance
-                console.log('🍎 Safari: Using gentle buffer clear approach');
-                await this.safari_clear_buffer();
-                
-            } else {
-                // CHROME/OTHER: Use transfer approach
-                console.log('🌐 Chrome: Using transfer approach');
-                
-                // await this.clear_buffer();
-                await this.clear_all_buffered_data();
-                // await this.safari_clear_buffer();
+            // Stop current loading first
+            console.log('   Stopping current HLS load...');
+            this.hls.stopLoad();
 
-                this.transfer_data = this.hls.transferMedia();
-                
-                if (!this.transfer_data || !this.transfer_data.mediaSource) {
-                    console.warn('⚠️ Transfer failed, falling back to simple approach');
-                    this.hls.stopLoad();
-                } else {
-                    console.log('📦 Transfer data obtained');
-                    
-                    const isSameMediaSource = this.transfer_data.mediaSource === this.media_source;
-                    console.log('   Same MediaSource:', isSameMediaSource);
+            // Wait a brief moment for HLS to stop cleanly
+            await new Promise(resolve => setTimeout(resolve, 50));
 
-                    this.hls.detachMedia();
-                    this.hls.destroy();
-                    
-                    const new_hls = this.create_hls_instance();
-                    
-                    const attach_data: MediaAttachingData = {
-                        media: this.audio_element,
-                        mediaSource: this.transfer_data.mediaSource,
-                        tracks: this.transfer_data.tracks,
-                        overrides: { endOfStream: false }
-                    };
-                    
-                    new_hls.attachMedia(attach_data);
-                    this.hls = new_hls;
-                    
-                    console.log('✅ MediaSource transferred');
-                }
+            // Clear all buffered data but keep MediaSource alive
+            console.log('   Clearing old buffered data...');
+            await this.clear_all_buffered_data();
+
+            // Transfer the MediaSource to reuse it
+            console.log('   Transferring MediaSource...');
+            this.transfer_data = this.hls.transferMedia();
+            
+            if (!this.transfer_data || !this.transfer_data.mediaSource) {
+                console.error('⚠️ Transfer failed - MediaSource may be invalid');
+                console.log('   MediaSource state:', this.media_source?.readyState);
+                throw new Error('Failed to transfer MediaSource - cannot continue');
             }
+
+            console.log('   Transfer successful:');
+            console.log('     - Same MediaSource:', this.transfer_data.mediaSource === this.media_source);
+            console.log('     - MediaSource state:', this.transfer_data.mediaSource.readyState);
+            console.log('     - SourceBuffers:', this.transfer_data.mediaSource.sourceBuffers.length);
+
+            // Detach and destroy old HLS instance
+            this.hls.detachMedia();
+            this.hls.destroy();
+            
+            // Create new HLS instance
+            const new_hls = this.create_hls_instance();
+            
+            // Attach with the transferred MediaSource and tracks
+            const attach_data: MediaAttachingData = {
+                media: this.audio_element,
+                mediaSource: this.transfer_data.mediaSource,
+                tracks: this.transfer_data.tracks,
+                overrides: { endOfStream: false }
+            };
+            
+            new_hls.attachMedia(attach_data);
+            this.hls = new_hls;
+            
+            console.log('✅ New HLS instance attached to existing MediaSource');
         }
 
-        // Load new source
+        // Load new source and start playback
+        console.log('🎵 Loading new source:', url);
         this.hls.loadSource(url);
-        // this.hls.startLoad(0);
+        this.hls.startLoad(0);
 
+        // Reset playback position
         this.audio_element.currentTime = 0;
+        
+        console.log('✅ Load complete, HLS should start buffering...');
     }
 
     
@@ -660,6 +656,16 @@ class BufferController {
                 if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
                     console.warn('⚠️ MediaSource became invalid during clearing');
                     break;
+                }
+
+                // If MediaSource ended, reopen it before removing
+                if (this.media_source.readyState === 'ended') {
+                    console.log('   MediaSource was ended, setting duration to Infinity to reopen');
+                    try {
+                        this.media_source.duration = Infinity;
+                    } catch (error) {
+                        console.warn('   Could not reopen MediaSource:', error);
+                    }
                 }
 
                 // Remove all buffered ranges (iterate backwards to avoid index issues)
