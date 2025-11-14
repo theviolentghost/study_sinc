@@ -170,9 +170,9 @@ class BufferController {
             debug: false,
             enableWorker: true,
             lowLatencyMode: false,
-            autoStartLoad: false,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
+            autoStartLoad: true,
+            // maxBufferLength: 30,
+            // maxMaxBufferLength: 60,
         
             
             // Ensure we start from the first segment
@@ -350,10 +350,6 @@ class BufferController {
         this.has_audio = false;
         this._is_fully_buffered = false;
 
-        this.audio_element.src = url;
-
-        return;
-
         if (this.is_first_track) {
             // ✅ FIRST TRACK
             console.log('🆕 First track - creating new HLS instance');
@@ -376,8 +372,8 @@ class BufferController {
                 throw new Error('HLS instance not initialized');
             }
 
-            if (this.is_safari) {
-            // if(false) {
+            // if (this.is_safari) {
+            if(false) {
                 // // SAFARI: Don't transfer, just stop and reload
                 // // Safari doesn't handle transferMedia well
                 // console.log('🍎 Safari: Using simple stop/load approach');
@@ -397,7 +393,8 @@ class BufferController {
                 // CHROME/OTHER: Use transfer approach
                 console.log('🌐 Chrome: Using transfer approach');
                 
-                await this.clear_buffer();
+                // await this.clear_buffer();
+                await this.clear_all_buffered_data();
                 // await this.safari_clear_buffer();
 
                 this.transfer_data = this.hls.transferMedia();
@@ -433,7 +430,7 @@ class BufferController {
 
         // Load new source
         this.hls.loadSource(url);
-        this.hls.startLoad(0);
+        // this.hls.startLoad(0);
 
         this.audio_element.currentTime = 0;
     }
@@ -500,6 +497,218 @@ class BufferController {
         }
 
         console.log('✅ Safari buffer clear complete');
+    }
+
+    /**
+     * Remove buffered audio data that's 10-20 seconds behind current playback position.
+     * This helps manage memory and prevents buffer overflow.
+     * 
+     * @param behindRange - Time range in seconds behind current position to remove [min, max]. Default: [10, 20]
+     * @returns Promise that resolves when cleanup is complete
+     */
+    public async cleanup_old_buffer(behindRange: [number, number] = [10, 20]): Promise<void> {
+        if (!this.media_source || !this.audio_element) {
+            console.warn('⚠️ No MediaSource or audio element available for buffer cleanup');
+            return;
+        }
+
+        console.log('🧹 Starting buffer cleanup process');
+
+        const currentTime = this.audio_element.currentTime;
+        const [minBehind, maxBehind] = behindRange;
+
+        if (currentTime < maxBehind) {
+            // Not enough playback yet to have old data to remove
+            return;
+        }
+
+        console.log(`🧹 Cleaning up buffer data ${minBehind}-${maxBehind}s behind current position (${currentTime.toFixed(2)}s)`);
+
+        const sourceBuffers = this.media_source.sourceBuffers;
+        let totalRemoved = 0;
+
+        for (let i = 0; i < sourceBuffers.length; i++) {
+            const sb = sourceBuffers[i];
+            const buffered = sb.buffered;
+
+            console.log(`   SourceBuffer ${i}: ${buffered.length} buffered range(s)`);
+
+            if (buffered.length === 0) continue;
+
+            try {
+                // Wait for any pending updates
+                if (sb.updating) {
+                    await new Promise<void>((resolve) => {
+                        const onUpdateEnd = () => {
+                            sb.removeEventListener('updateend', onUpdateEnd);
+                            resolve();
+                        };
+                        sb.addEventListener('updateend', onUpdateEnd);
+                    });
+                }
+
+                // Check if MediaSource is still valid
+                if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
+                    console.warn('⚠️ MediaSource became invalid during cleanup');
+                    break;
+                }
+
+                // Calculate the removal range
+                const removeStart = Math.max(0, currentTime - maxBehind);
+                const removeEnd = Math.max(0, currentTime - minBehind);
+
+                console.log(`   Removal range: ${removeStart.toFixed(2)}s - ${removeEnd.toFixed(2)}s`);
+
+                // Find buffered ranges that overlap with our removal zone
+                for (let j = 0; j < buffered.length; j++) {
+                    const bufferStart = buffered.start(j);
+                    const bufferEnd = buffered.end(j);
+
+                    console.log(`   Buffered range ${j}: ${bufferStart.toFixed(2)}s - ${bufferEnd.toFixed(2)}s`);
+
+                    // Check if this buffered range overlaps with our removal range
+                    // The range overlaps if: bufferStart < removeEnd AND bufferEnd > removeStart
+                    const overlaps = bufferStart < removeEnd && bufferEnd > removeStart;
+                    
+                    if (overlaps) {
+                        // Calculate the actual portion to remove (intersection of buffer and removal ranges)
+                        const actualRemoveStart = Math.max(bufferStart, removeStart);
+                        const actualRemoveEnd = Math.min(bufferEnd, removeEnd);
+
+                        if (actualRemoveStart < actualRemoveEnd) {
+                            console.log(`   ✂️  Removing buffer ${i}, range ${j}: ${actualRemoveStart.toFixed(2)}s - ${actualRemoveEnd.toFixed(2)}s (${(actualRemoveEnd - actualRemoveStart).toFixed(2)}s)`);
+                            
+                            sb.remove(actualRemoveStart, actualRemoveEnd);
+                            totalRemoved += (actualRemoveEnd - actualRemoveStart);
+
+                            // Wait for removal to complete
+                            await new Promise<void>((resolve) => {
+                                const onUpdateEnd = () => {
+                                    sb.removeEventListener('updateend', onUpdateEnd);
+                                    resolve();
+                                };
+                                sb.addEventListener('updateend', onUpdateEnd);
+                            });
+
+                            // Check again if MediaSource is still valid
+                            if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
+                                console.warn('⚠️ MediaSource became invalid during removal');
+                                return;
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error(`❌ Error cleaning up buffer ${i}:`, error);
+                // Continue with other buffers even if one fails
+            }
+        }
+
+        if (totalRemoved > 0) {
+            console.log(`✅ Buffer cleanup complete: removed ${totalRemoved.toFixed(2)}s of old data`);
+        } else {
+            console.log('✅ Buffer cleanup complete: no old data to remove');
+        }
+    }
+
+    /**
+     * Clear ALL buffered data from all source buffers.
+     * Unlike cleanup_old_buffer which removes data in a specific range,
+     * this removes everything that's currently buffered.
+     * 
+     * Useful when you want to completely reset the buffer state without
+     * switching to a new track.
+     * 
+     * @returns Promise that resolves when all data is cleared
+     */
+    public async clear_all_buffered_data(): Promise<void> {
+        if (!this.media_source || !this.audio_element) {
+            console.warn('⚠️ No MediaSource or audio element available for buffer clearing');
+            return;
+        }
+
+        console.log('🗑️ Clearing ALL buffered data from all source buffers');
+
+        const sourceBuffers = this.media_source.sourceBuffers;
+        let totalRemoved = 0;
+
+        for (let i = 0; i < sourceBuffers.length; i++) {
+            const sb = sourceBuffers[i];
+            const buffered = sb.buffered;
+
+            if (buffered.length === 0) {
+                console.log(`   SourceBuffer ${i}: already empty`);
+                continue;
+            }
+
+            console.log(`   SourceBuffer ${i}: ${buffered.length} buffered range(s) to clear`);
+
+            try {
+                // Wait for any pending updates
+                if (sb.updating) {
+                    await new Promise<void>((resolve) => {
+                        const onUpdateEnd = () => {
+                            sb.removeEventListener('updateend', onUpdateEnd);
+                            resolve();
+                        };
+                        sb.addEventListener('updateend', onUpdateEnd);
+                    });
+                }
+
+                // Check if MediaSource is still valid
+                if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
+                    console.warn('⚠️ MediaSource became invalid during clearing');
+                    break;
+                }
+
+                // Remove all buffered ranges (iterate backwards to avoid index issues)
+                for (let j = buffered.length - 1; j >= 0; j--) {
+                    const bufferStart = buffered.start(j);
+                    const bufferEnd = buffered.end(j);
+                    const rangeSize = bufferEnd - bufferStart;
+
+                    console.log(`   ✂️  Removing buffer ${i}, range ${j}: ${bufferStart.toFixed(2)}s - ${bufferEnd.toFixed(2)}s (${rangeSize.toFixed(2)}s)`);
+                    
+                    sb.remove(bufferStart, bufferEnd);
+                    totalRemoved += rangeSize;
+
+                    // Wait for removal to complete
+                    await new Promise<void>((resolve) => {
+                        const onUpdateEnd = () => {
+                            sb.removeEventListener('updateend', onUpdateEnd);
+                            resolve();
+                        };
+                        sb.addEventListener('updateend', onUpdateEnd);
+                    });
+
+                    // Check again if MediaSource is still valid after each removal
+                    if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
+                        console.warn('⚠️ MediaSource became invalid during removal');
+                        return;
+                    }
+                }
+
+                // Reset timestamp offset after clearing
+                sb.timestampOffset = 0;
+
+            } catch (error) {
+                console.error(`❌ Error clearing buffer ${i}:`, error);
+                // Continue with other buffers even if one fails
+            }
+        }
+
+        // Optionally reset the audio element position
+        // Uncomment if you want to reset playback position when clearing all data
+        // if (this.audio_element) {
+        //     this.audio_element.currentTime = 0;
+        // }
+
+        if (totalRemoved > 0) {
+            console.log(`✅ All buffered data cleared: removed ${totalRemoved.toFixed(2)}s total`);
+        } else {
+            console.log('✅ Buffer clear complete: no data was buffered');
+        }
     }
 
     private async clear_buffer(): Promise<void> {
