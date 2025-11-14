@@ -64,17 +64,8 @@ class BufferController {
         const audio_context = this.fragment_parser.get_context();
         this.audio_mixer = new AudioMixer(audio_context, audio_context.sampleRate);
 
-        // Detect Safari (including iOS Safari)
         this.is_safari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-        // Detect specifically iOS Safari (iPhone, iPad, iPod)
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        
         console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
-        console.log('📱 iOS:', isIOS);
-        
-        // iOS Safari needs special handling
-        this.is_safari = this.is_safari || isIOS;
     }
 
     public set_audio_element(audio: HTMLMediaElement | HTMLAudioElement) {
@@ -179,7 +170,9 @@ class BufferController {
             debug: false,
             enableWorker: true,
             lowLatencyMode: false,
-            autoStartLoad: true,
+            autoStartLoad: false,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
         
             
             // Ensure we start from the first segment
@@ -259,21 +252,16 @@ class BufferController {
 
             this._is_fully_buffered = true;
             
-            // Emit song end event when buffering completes (for auto-skip)
-            if (!this._songEndedEmitted) {
-                this._songEndedEmitted = true;
-                
-                const ev = new CustomEvent('songEnded', { 
-                    detail: { 
-                        currentTime: this.audio_element?.currentTime || 0,
-                        duration: this.audio_element?.duration || 0,
-                        url: this.current_url,
-                        reason: 'buffered_to_end'
-                    } 
-                });
-                this.events.dispatchEvent(ev);
-                console.log('🎵 Song ended event emitted (buffered_to_end)');
-            }
+            // Emit song end event when buffering completes
+            // const ev = new CustomEvent('songEnded', { 
+            //     detail: { 
+            //         currentTime: this.audio_element?.currentTime || 0,
+            //         duration: this.audio_element?.duration || 0,
+            //         url: this.current_url,
+            //         reason: 'buffered_to_end'
+            //     } 
+            // });
+            // this.events.dispatchEvent(ev);
 
             // const decoded_buffer = await this.fragment_parser.get_song_decoded_buffer();
             // console.log(decoded_buffer);
@@ -325,20 +313,15 @@ class BufferController {
                 if (duration > 0 && duration - currentTime < 1) {
                     console.log('✅ Song finished, emitting end event');
                     
-                    if (!this._songEndedEmitted) {
-                        this._songEndedEmitted = true;
-                        
-                        // Emit song end event so your app can skip to next track
-                        const ev = new CustomEvent('songEnded', { 
-                            detail: { 
-                                currentTime,
-                                duration,
-                                url: this.current_url,
-                                reason: 'buffer_stalled'
-                            } 
-                        });
-                        this.events.dispatchEvent(ev);
-                    }
+                    // Emit song end event so your app can skip to next track
+                    const ev = new CustomEvent('songEnded', { 
+                        detail: { 
+                            currentTime,
+                            duration,
+                            url: this.current_url
+                        } 
+                    });
+                    this.events.dispatchEvent(ev);
                 }
             }
             
@@ -366,7 +349,10 @@ class BufferController {
         
         this.has_audio = false;
         this._is_fully_buffered = false;
-        this._songEndedEmitted = false; // Reset for new track
+
+        this.audio_element.src = url;
+
+        return;
 
         if (this.is_first_track) {
             // ✅ FIRST TRACK
@@ -391,27 +377,28 @@ class BufferController {
             }
 
             if (this.is_safari) {
-                // SAFARI/iOS: Use simple stop/clear/reload approach
-                // Safari (especially iOS) doesn't handle transferMedia well
-                console.log('🍎 Safari/iOS: Using simple stop/clear/reload approach');
+            // if(false) {
+                // // SAFARI: Don't transfer, just stop and reload
+                // // Safari doesn't handle transferMedia well
+                // console.log('🍎 Safari: Using simple stop/load approach');
                 
-                // Stop current loading
-                this.hls.stopLoad();
+                // // Stop current loading
+                // this.hls.stopLoad();
                 
-                // Clear the buffer gently
+                // // Clear the buffer more gently for Safari
+                // await this.safari_clear_buffer();
+                
+                // // Don't create new HLS instance - reuse existing
+                // // Safari prefers keeping the same instance
+                console.log('🍎 Safari: Using gentle buffer clear approach');
                 await this.safari_clear_buffer();
-                
-                // Reset the songEnded flag for the new track
-                this._songEndedEmitted = false;
-                
-                // Don't create new HLS instance - reuse existing
-                // Safari prefers keeping the same instance and MediaSource
                 
             } else {
                 // CHROME/OTHER: Use transfer approach
                 console.log('🌐 Chrome: Using transfer approach');
                 
                 await this.clear_buffer();
+                // await this.safari_clear_buffer();
 
                 this.transfer_data = this.hls.transferMedia();
                 
@@ -446,6 +433,9 @@ class BufferController {
 
         // Load new source
         this.hls.loadSource(url);
+        this.hls.startLoad(0);
+
+        this.audio_element.currentTime = 0;
     }
 
     
@@ -463,24 +453,15 @@ class BufferController {
 
         console.log('🍎 Safari: Gentle buffer clear');
 
-        // Pause playback before clearing
-        if (this.audio_element && !this.audio_element.paused) {
-            this.audio_element.pause();
-        }
-
         const sourceBuffers = this.media_source.sourceBuffers;
         
         for (let i = 0; i < sourceBuffers.length; i++) {
             const sb = sourceBuffers[i];
             const buffered = sb.buffered;
             
-            if (buffered.length === 0) {
-                console.log(`   SourceBuffer ${i}: already empty`);
-                continue;
-            }
+            if (buffered.length === 0) continue;
 
             try {
-                // Wait for any pending updates to complete
                 if (sb.updating) {
                     await new Promise<void>((resolve) => {
                         const onUpdateEnd = () => {
@@ -488,63 +469,33 @@ class BufferController {
                             resolve();
                         };
                         sb.addEventListener('updateend', onUpdateEnd);
-                        
-                        // Timeout after 2 seconds
-                        setTimeout(() => {
-                            sb.removeEventListener('updateend', onUpdateEnd);
-                            resolve();
-                        }, 2000);
                     });
                 }
 
-                // Remove all buffered ranges
-                for (let j = buffered.length - 1; j >= 0; j--) {
+                const currentTime = this.audio_element.currentTime;
+                
+                for (let j = 0; j < buffered.length; j++) {
                     const start = buffered.start(j);
                     const end = buffered.end(j);
                     
-                    console.log(`   Removing range ${j}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
-                    
-                    try {
+                    if (end < currentTime - 5) {
+                        console.log(`   Removing old range: ${start.toFixed(2)}s - ${end.toFixed(2)}s`);
                         sb.remove(start, end);
                         
-                        // Wait for removal to complete
                         await new Promise<void>((resolve) => {
                             const onUpdateEnd = () => {
                                 sb.removeEventListener('updateend', onUpdateEnd);
                                 resolve();
                             };
                             sb.addEventListener('updateend', onUpdateEnd);
-                            
-                            // Timeout after 2 seconds
-                            setTimeout(() => {
-                                sb.removeEventListener('updateend', onUpdateEnd);
-                                resolve();
-                            }, 2000);
                         });
-                    } catch (removeError) {
-                        console.warn(`   Could not remove range ${j}:`, removeError);
                     }
                 }
 
-                // Reset timestamp offset
-                if (!sb.updating) {
-                    sb.timestampOffset = 0;
-                }
+                this._has_audio = false;
 
             } catch (error) {
-                console.error(`❌ Safari buffer clear error for SourceBuffer ${i}:`, error);
-            }
-        }
-
-        // Reset has_audio flag
-        this._has_audio = false;
-
-        // Reset currentTime to 0
-        if (this.audio_element) {
-            try {
-                this.audio_element.currentTime = 0;
-            } catch (e) {
-                console.warn('Could not reset currentTime:', e);
+                console.error(`❌ Safari buffer clear error:`, error);
             }
         }
 
@@ -670,195 +621,195 @@ class BufferController {
         return this.audio_element?.duration || 0;
     }
 
-    private append_to_buffer_queue: Uint8Array[] = [];
-    private is_processing_queue: boolean = false;
+    // private append_to_buffer_queue: Uint8Array[] = [];
+    // private is_processing_queue: boolean = false;
 
-    public add_to_buffer_queue(data: Uint8Array) {
-        this.append_to_buffer_queue.push(data);
-        this.process_append_to_buffer();
-    }
+    // public add_to_buffer_queue(data: Uint8Array) {
+    //     this.append_to_buffer_queue.push(data);
+    //     this.process_append_to_buffer();
+    // }
 
-    private async process_append_to_buffer() {
-        if (this.is_processing_queue) return;
+    // private async process_append_to_buffer() {
+    //     if (this.is_processing_queue) return;
 
-        if (!this.source_buffer) {
-            console.error('SourceBuffer not initialized');
-            return;
-        }
+    //     if (!this.source_buffer) {
+    //         console.error('SourceBuffer not initialized');
+    //         return;
+    //     }
 
-        this.is_processing_queue = true;
+    //     this.is_processing_queue = true;
 
-        try {
-            while (this.append_to_buffer_queue.length > 0) {
-                const data = this.append_to_buffer_queue.shift();
-                if (!data) break;
+    //     try {
+    //         while (this.append_to_buffer_queue.length > 0) {
+    //             const data = this.append_to_buffer_queue.shift();
+    //             if (!data) break;
 
-                try {
-                    if (!this.source_buffer || !this.media_source || this.media_source.sourceBuffers.length === 0) {
-                        console.warn('⚠️ SourceBuffer removed, discarding queued data');
-                        this.append_to_buffer_queue = [];
-                        break;
-                    }
+    //             try {
+    //                 if (!this.source_buffer || !this.media_source || this.media_source.sourceBuffers.length === 0) {
+    //                     console.warn('⚠️ SourceBuffer removed, discarding queued data');
+    //                     this.append_to_buffer_queue = [];
+    //                     break;
+    //                 }
 
-                    if (this.source_buffer.updating) {
-                        await new Promise<void>((resolve) => {
-                            const onUpdateEnd = () => {
-                                this.source_buffer?.removeEventListener('updateend', onUpdateEnd);
-                                resolve();
-                            };
-                            this.source_buffer?.addEventListener('updateend', onUpdateEnd);
-                        });
-                    }
+    //                 if (this.source_buffer.updating) {
+    //                     await new Promise<void>((resolve) => {
+    //                         const onUpdateEnd = () => {
+    //                             this.source_buffer?.removeEventListener('updateend', onUpdateEnd);
+    //                             resolve();
+    //                         };
+    //                         this.source_buffer?.addEventListener('updateend', onUpdateEnd);
+    //                     });
+    //                 }
 
-                    if (!this.source_buffer || !this.media_source || this.media_source.sourceBuffers.length === 0) {
-                        console.warn('⚠️ SourceBuffer removed during wait, discarding data');
-                        this.append_to_buffer_queue = [];
-                        break;
-                    }
+    //                 if (!this.source_buffer || !this.media_source || this.media_source.sourceBuffers.length === 0) {
+    //                     console.warn('⚠️ SourceBuffer removed during wait, discarding data');
+    //                     this.append_to_buffer_queue = [];
+    //                     break;
+    //                 }
 
-                    this.source_buffer.appendBuffer(data);
+    //                 this.source_buffer.appendBuffer(data);
 
-                } catch (error) {
-                    console.error('Error appending to buffer:', error);
+    //             } catch (error) {
+    //                 console.error('Error appending to buffer:', error);
                     
-                    if (error instanceof Error && error.name === 'QuotaExceededError') {
-                        console.warn('⚠️ Buffer quota exceeded');
+    //                 if (error instanceof Error && error.name === 'QuotaExceededError') {
+    //                     console.warn('⚠️ Buffer quota exceeded');
                         
-                        if (this.source_buffer.buffered.length > 0) {
-                            const currentTime = this.audio_element.currentTime;
-                            const removeEnd = Math.max(0, currentTime - 30);
+    //                     if (this.source_buffer.buffered.length > 0) {
+    //                         const currentTime = this.audio_element.currentTime;
+    //                         const removeEnd = Math.max(0, currentTime - 30);
                             
-                            try {
-                                this.source_buffer.remove(0, removeEnd);
+    //                         try {
+    //                             this.source_buffer.remove(0, removeEnd);
                                 
-                                await new Promise<void>((resolve) => {
-                                    const onUpdateEnd = () => {
-                                        this.source_buffer?.removeEventListener('updateend', onUpdateEnd);
-                                        resolve();
-                                    };
-                                    this.source_buffer?.addEventListener('updateend', onUpdateEnd);
-                                });
+    //                             await new Promise<void>((resolve) => {
+    //                                 const onUpdateEnd = () => {
+    //                                     this.source_buffer?.removeEventListener('updateend', onUpdateEnd);
+    //                                     resolve();
+    //                                 };
+    //                                 this.source_buffer?.addEventListener('updateend', onUpdateEnd);
+    //                             });
                                 
-                                this.append_to_buffer_queue.unshift(data);
-                            } catch (removeError) {
-                                console.error('Error removing buffer:', removeError);
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Fatal error processing buffer:', error);
-        } finally {
-            this.is_processing_queue = false;
-        }
-    }
+    //                             this.append_to_buffer_queue.unshift(data);
+    //                         } catch (removeError) {
+    //                             console.error('Error removing buffer:', removeError);
+    //                         }
+    //                     }
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     } catch (error) {
+    //         console.error('Fatal error processing buffer:', error);
+    //     } finally {
+    //         this.is_processing_queue = false;
+    //     }
+    // }
 
-    private async append_to_buffer(data: Uint8Array) {
-        if (!this.source_buffer) {
-            throw new Error('SourceBuffer not initialized');
-        }
+    // private async append_to_buffer(data: Uint8Array) {
+    //     if (!this.source_buffer) {
+    //         throw new Error('SourceBuffer not initialized');
+    //     }
 
-        if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
-            console.warn('⚠️ SourceBuffer has been removed from MediaSource, discarding data');
-            return;
-        }
+    //     if (!this.media_source || this.media_source.sourceBuffers.length === 0) {
+    //         console.warn('⚠️ SourceBuffer has been removed from MediaSource, discarding data');
+    //         return;
+    //     }
 
-        if (this.source_buffer.updating) {
-            this.add_to_buffer_queue(data);
-            return;
-        }
+    //     if (this.source_buffer.updating) {
+    //         this.add_to_buffer_queue(data);
+    //         return;
+    //     }
 
-        try {
-            this.source_buffer.appendBuffer(data);
-            this._has_audio = true;
-        } catch (error) {
-            if (error instanceof DOMException && error.name === 'InvalidStateError') {
-                console.warn('⚠️ SourceBuffer removed, cannot append data');
-                return;
-            }
-            console.error('Error appending to buffer:', error);
-            this.add_to_buffer_queue(data);
-        }
-    }
+    //     try {
+    //         this.source_buffer.appendBuffer(data);
+    //         this._has_audio = true;
+    //     } catch (error) {
+    //         if (error instanceof DOMException && error.name === 'InvalidStateError') {
+    //             console.warn('⚠️ SourceBuffer removed, cannot append data');
+    //             return;
+    //         }
+    //         console.error('Error appending to buffer:', error);
+    //         this.add_to_buffer_queue(data);
+    //     }
+    // }
 
-    public destroy() {
-        console.log('🗑️ Destroying BufferController');
+    // public destroy() {
+    //     console.log('🗑️ Destroying BufferController');
         
-        if (this.hls) {
-            this.hls.destroy();
-            this.hls = null;
-        }
+    //     if (this.hls) {
+    //         this.hls.destroy();
+    //         this.hls = null;
+    //     }
 
-        if (this.blob_url) {
-            URL.revokeObjectURL(this.blob_url);
-            this.blob_url = null;
-        }
+    //     if (this.blob_url) {
+    //         URL.revokeObjectURL(this.blob_url);
+    //         this.blob_url = null;
+    //     }
 
-        if (this.audio_element) {
-            this.audio_element.pause();
-            this.audio_element.src = '';
-        }
+    //     if (this.audio_element) {
+    //         this.audio_element.pause();
+    //         this.audio_element.src = '';
+    //     }
 
-        this.is_media_source_attached = false;
-        this.is_first_track = true;
-        this.transfer_data = null;
-        this._has_audio = false;
-    }
+    //     this.is_media_source_attached = false;
+    //     this.is_first_track = true;
+    //     this.transfer_data = null;
+    //     this._has_audio = false;
+    // }
 
-    public get_debug_info() {
-        if (!this.media_source) {
-            return { error: 'MediaSource not initialized' };
-        }
+    // public get_debug_info() {
+    //     if (!this.media_source) {
+    //         return { error: 'MediaSource not initialized' };
+    //     }
 
-        const sourceBuffers = [];
-        for (let i = 0; i < this.media_source.sourceBuffers.length; i++) {
-            const sb = this.media_source.sourceBuffers[i];
-            const ranges = [];
+    //     const sourceBuffers = [];
+    //     for (let i = 0; i < this.media_source.sourceBuffers.length; i++) {
+    //         const sb = this.media_source.sourceBuffers[i];
+    //         const ranges = [];
             
-            for (let j = 0; j < sb.buffered.length; j++) {
-                ranges.push({
-                    start: sb.buffered.start(j),
-                    end: sb.buffered.end(j),
-                    length: sb.buffered.end(j) - sb.buffered.start(j)
-                });
-            }
+    //         for (let j = 0; j < sb.buffered.length; j++) {
+    //             ranges.push({
+    //                 start: sb.buffered.start(j),
+    //                 end: sb.buffered.end(j),
+    //                 length: sb.buffered.end(j) - sb.buffered.start(j)
+    //             });
+    //         }
 
-            sourceBuffers.push({
-                index: i,
-                mode: sb.mode,
-                timestampOffset: sb.timestampOffset,
-                updating: sb.updating,
-                bufferedRanges: ranges,
-                totalBuffered: ranges.reduce((sum, r) => sum + r.length, 0)
-            });
-        }
+    //         sourceBuffers.push({
+    //             index: i,
+    //             mode: sb.mode,
+    //             timestampOffset: sb.timestampOffset,
+    //             updating: sb.updating,
+    //             bufferedRanges: ranges,
+    //             totalBuffered: ranges.reduce((sum, r) => sum + r.length, 0)
+    //         });
+    //     }
 
-        return {
-            browser: this.is_safari ? 'Safari' : 'Chrome/Other',
-            mediaSource: {
-                readyState: this.media_source.readyState,
-                duration: this.media_source.duration,
-                sourceBufferCount: this.media_source.sourceBuffers.length
-            },
-            audioElement: {
-                src: this.audio_element?.src,
-                currentTime: this.audio_element?.currentTime,
-                duration: this.audio_element?.duration,
-                paused: this.audio_element?.paused,
-                readyState: this.audio_element?.readyState
-            },
-            sourceBuffers,
-            blobUrl: this.blob_url,
-            isFirstTrack: this.is_first_track
-        };
-    }
+    //     return {
+    //         browser: this.is_safari ? 'Safari' : 'Chrome/Other',
+    //         mediaSource: {
+    //             readyState: this.media_source.readyState,
+    //             duration: this.media_source.duration,
+    //             sourceBufferCount: this.media_source.sourceBuffers.length
+    //         },
+    //         audioElement: {
+    //             src: this.audio_element?.src,
+    //             currentTime: this.audio_element?.currentTime,
+    //             duration: this.audio_element?.duration,
+    //             paused: this.audio_element?.paused,
+    //             readyState: this.audio_element?.readyState
+    //         },
+    //         sourceBuffers,
+    //         blobUrl: this.blob_url,
+    //         isFirstTrack: this.is_first_track
+    //     };
+    // }
 
-    public log_state() {
-        const info = this.get_debug_info();
-        console.log('📊 BufferController State:', JSON.stringify(info, null, 2));
-    }
+    // public log_state() {
+    //     const info = this.get_debug_info();
+    //     console.log('📊 BufferController State:', JSON.stringify(info, null, 2));
+    // }
 }
 
 export default BufferController;

@@ -14,6 +14,8 @@ import essentia.standard as es
 import subprocess
 import soundfile as sf
 
+import hls_audio_decoder as decoder
+
 # from sklearn.decomposition import PCA
 
 essentia.log.warningActive = False
@@ -328,6 +330,9 @@ class DJ_Audio_Analyzer(Audio_Analyzer):
     def __init__(self):
         super().__init__()
         
+        # Initialize HLS decoder for streaming audio
+        self.hls_decoder = decoder.HLS_Audio_Decoder()
+        
         # Core Essentia analyzers for DJ features
         self.rhythm_extractor = es.RhythmExtractor2013()
         self.key_detector = es.KeyExtractor()
@@ -378,8 +383,17 @@ class DJ_Audio_Analyzer(Audio_Analyzer):
     def extract_dj_features(self, audio_array: np.ndarray, sample_rate: int = 44100):
         """Extract comprehensive DJ mixing features using advanced algorithms."""
         try:
-            # Ensure audio is the right format
+            # Ensure audio is mono and the right format
             audio_float = audio_array.astype(np.float32)
+            
+            # Convert to mono if stereo (2D array)
+            if len(audio_float.shape) == 2:
+                print(f"Converting stereo audio ({audio_float.shape}) to mono...")
+                audio_float = np.mean(audio_float, axis=1)
+            
+            # Ensure it's a 1D array
+            if len(audio_float.shape) != 1:
+                raise ValueError(f"Audio must be 1D or 2D, got shape: {audio_float.shape}")
             
             print("Extracting rhythm and beat information...")
             # 1. RHYTHM ANALYSIS - Use RhythmExtractor2013
@@ -1849,7 +1863,7 @@ class DJ_Mix_Calculator:
             else:
                 # Different modes, use relative major/minor (3 semitones)
                 base_diff = (next_num - current_num) % 12
-                if diff > 6:
+                if base_diff > 6:
                     base_diff -= 12
                 
                 # Add mode difference
@@ -2614,18 +2628,24 @@ if __name__ == "__main__":
     
     analyzer = DJ_Audio_Analyzer()
     mix_calculator = DJ_Mix_Calculator()
+    hls_decoder = decoder.HLS_Audio_Decoder()
 
     # Test with audio files
-    file_path_1 = os.path.join(analyzer.project_root, 'storage', 'musik', 'temp.music', 'song2.wav')
-    file_path_2 = os.path.join(analyzer.project_root, 'storage', 'musik', 'temp.music', 'song1.wav')
-    
+    # file_path_1 = os.path.join(analyzer.project_root, 'storage', 'musik', 'temp.music', 'song2.wav')
+    # file_path_2 = os.path.join(analyzer.project_root, 'storage', 'musik', 'temp.music', 'song6.wav')
+
+    songs = hls_decoder.get_available_songs()
+    print(songs)
+
     try:
         print("Analyzing first track...")
-        audio_array_1, sample_rate_1 = analyzer.decode_to_numpy(file_path_1)
+        # audio_array_1, sample_rate_1 = analyzer.decode_to_numpy(file_path_1)
+        audio_array_1, sample_rate_1 = hls_decoder.decode_chunks_to_numpy(songs[0], 'high', max_duration=None)
         features_1 = analyzer.extract_dj_features(audio_array_1, sample_rate_1)
         
         print("Analyzing second track...")
-        audio_array_2, sample_rate_2 = analyzer.decode_to_numpy(file_path_2)
+        # audio_array_2, sample_rate_2 = analyzer.decode_to_numpy(file_path_2)
+        audio_array_2, sample_rate_2 = hls_decoder.decode_chunks_to_numpy(songs[1], 'high', max_duration=None)
         features_2 = analyzer.extract_dj_features(audio_array_2, sample_rate_2)
 
         print("Calculating optimal mix...")
@@ -2679,9 +2699,9 @@ if __name__ == "__main__":
         print("✅ Mix OUT point is late in current song (optimal timing)!")
         
         # Show time utilization
-        next_song_duration = features_2.get('duration', 180)
-        waste_percentage = (mix_instruction.mix_in_point.time_seconds / next_song_duration) * 100
-        print(f"✅ Only {waste_percentage:.1f}% of next song wasted (vs {43.9:.1f}% in old system)!")
+        # next_song_duration = features_2.get('duration', 180)
+        # waste_percentage = (mix_instruction.mix_in_point.time_seconds / next_song_duration) * 100
+        # print(f"✅ Only {waste_percentage:.1f}% of next song wasted (vs {43.9:.1f}% in old system)!")
         
     except Exception as e:
         print(f"❌ Error during test: {e}")

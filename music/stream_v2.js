@@ -3,10 +3,10 @@ import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import file_system from 'fs-extra';
 import path from 'path';
-import crypto from 'crypto';
 import https from 'https';
 
 // import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+// import { get_mix_information }
 
 const __dirname = path.resolve();
 
@@ -231,6 +231,80 @@ class Adaptive_Stream {
             } catch(error) {
                 console.error('Error during session request:', error.message);
                 return res.status(500).json({ error: 'Internal server error', success: false });
+            }
+        });
+
+        // DJ Mix endpoint - creates a seamless mix between two songs
+        app.get('/dj/mix', async (req, res) => {
+            try {
+                const { current_song_id, next_song_id } = req.query;
+                const current_position = 0; // temp
+                
+                if (!this.is_valid_video_id(current_song_id) || !this.is_valid_video_id(next_song_id)) {
+                    return res.status(400).json({ 
+                        error: 'Invalid video IDs', 
+                        success: false 
+                    });
+                }
+                
+                console.log(`DJ Mix request: ${current_song_id} -> ${next_song_id}`);
+                
+                // Ensure both songs are available in HLS
+                await Promise.all([
+                    this.create_hls_stream(current_song_id, this.codecs, this.profile_progression),
+                    this.create_hls_stream(next_song_id, this.codecs, this.profile_progression)
+                ]);
+                
+                // Call Python DJ service to create the mix
+                const mix_result = await call_dj_api('/create-mix', {
+                    current_song_id,
+                    next_song_id,
+                    quality: 'ultra-high',
+                    current_position,
+                    auto_calculate: true
+                });
+                
+                console.log(`DJ Mix created: ${mix_result.mix_id}`);
+                
+                return res.status(200).json({
+                    success: true,
+                    mix_id: mix_result.mix_id,
+                    playlist_url: mix_result.playlist_url,
+                    mix_info: mix_result.mix_info
+                });
+                
+            } catch(error) {
+                console.error('Error during DJ mix request:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error', 
+                    success: false 
+                });
+            }
+        });
+        
+        // DJ Analysis endpoint - analyze a single song
+        app.post('/dj/analyze', async (req, res) => {
+            try {
+                const { song_id, quality = 'high' } = req.body;
+                
+                if (!this.is_valid_video_id(song_id)) {
+                    return res.status(400).json({ error: 'Invalid video ID', success: false });
+                }
+                
+                // Ensure song is available in HLS
+                await this.create_hls_stream(song_id, this.codecs, this.profile_progression);
+                
+                // Call Python DJ service
+                const analysis_result = await call_dj_api('/analyze', { song_id, quality });
+                
+                return res.status(200).json(analysis_result);
+                
+            } catch(error) {
+                console.error('Error during DJ analysis request:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error',
+                    success: false 
+                });
             }
         });
     }

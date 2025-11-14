@@ -698,6 +698,19 @@ async function spotify_get_artist_albums(artist_id, total_results = 50) {
     }
 }
 
+async function get_mix_information(current_song_id, next_song_id) {
+    try {
+        const response = await axios.post(`http://localhost:5001/dj_calculate_mix`, {
+            current_song_id,
+            next_song_id
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching mix information:', error);
+        return null;
+    }
+}
+
 
 
 

@@ -26,6 +26,16 @@ try:
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'music', 'recommendation'))
     from query_2 import Audio_Search
+    from hls_audio_decoder import HLS_Audio_Decoder
+    from analysis_2 import DJ_Audio_Analyzer, DJ_Mix_Calculator
+    from dj_mixer import DJ_Audio_Mixer
+
+    # Initialize components
+    decoder = HLS_Audio_Decoder()
+    analyzer = DJ_Audio_Analyzer()
+    mix_calculator = DJ_Mix_Calculator()
+    mixer = DJ_Audio_Mixer()
+
     AUDIO_SEARCH_AVAILABLE = True
     print("Audio_Search module imported successfully")
 
@@ -255,6 +265,106 @@ def search_similar_songs():
     except Exception as e:
         logger.error(f"Error searching similar songs: {str(e)}")
         return jsonify({"error": "Failed to search similar songs", "message": str(e)}), 500
+
+@app.route('/dj_calculate_mix', methods=['POST'])
+def calculate_mix():
+    """
+    Calculate optimal mix between two songs.
+    
+    Request JSON:
+    {
+        "current_song_id": "video_id_1",
+        "next_song_id": "video_id_2",
+        "quality": "high",  // optional
+        "current_position": 120.5  // optional, current playback position in seconds
+    }
+    
+    Response JSON:
+    {
+        "success": true,
+        "mix_instruction": {
+            "mix_out_point": { "time_seconds": 175.47, ... },
+            "mix_in_point": { "time_seconds": 15.67, ... },
+            "bpm_sync": { "sync_type": "pitch_up", ... },
+            ...
+        }
+    }
+    """
+    try:
+        data = request.get_json()
+        current_song_id = data.get('current_song_id')
+        next_song_id = data.get('next_song_id')
+        quality = data.get('quality', 'high')
+        current_position = data.get('current_position')
+        
+        if not current_song_id or not next_song_id:
+            return jsonify({'success': False, 'error': 'Both song_ids are required'}), 400
+        
+        # Analyze both songs (use cache if available)
+        print(f"Calculating mix: {current_song_id} -> {next_song_id}")
+
+        audio_1, sr_1 = decoder.decode_chunks_to_numpy(current_song_id, quality)
+        features_1 = analyzer.extract_dj_features(audio_1, sr_1)
+
+        audio_2, sr_2 = decoder.decode_chunks_to_numpy(next_song_id, quality)
+        features_2 = analyzer.extract_dj_features(audio_2, sr_2)
+        
+        # Calculate mix instruction
+        mix_instruction = mix_calculator.calculate_optimal_mix(
+            features_1, 
+            features_2,
+            current_position
+        )
+        
+        # Convert MixInstruction to dict for JSON serialization
+        mix_data = {
+            'mix_out_point': {
+                'time_seconds': mix_instruction.mix_out_point.time_seconds,
+                'bar_position': mix_instruction.mix_out_point.bar_position,
+                'phrase_position': mix_instruction.mix_out_point.phrase_position,
+                'energy_level': mix_instruction.mix_out_point.energy_level,
+                'confidence': mix_instruction.mix_out_point.confidence,
+                'beat_strength': mix_instruction.mix_out_point.beat_strength,
+            },
+            'mix_in_point': {
+                'time_seconds': mix_instruction.mix_in_point.time_seconds,
+                'bar_position': mix_instruction.mix_in_point.bar_position,
+                'phrase_position': mix_instruction.mix_in_point.phrase_position,
+                'energy_level': mix_instruction.mix_in_point.energy_level,
+                'confidence': mix_instruction.mix_in_point.confidence,
+                'beat_strength': mix_instruction.mix_in_point.beat_strength,
+            },
+            'bpm_sync': {
+                'sync_type': mix_instruction.bpm_sync.sync_type.value,
+                'pitch_adjustment': mix_instruction.bpm_sync.pitch_adjustment,
+                'target_bpm': mix_instruction.bpm_sync.target_bpm,
+                'current_bpm': mix_instruction.bpm_sync.current_bpm,
+            },
+            'mix_type': mix_instruction.mix_type.value,
+            'key_shift_semitones': mix_instruction.key_shift_semitones,
+            'crossfade_curve': mix_instruction.crossfade_curve,
+            'mix_out_duration': mix_instruction.mix_out_duration,
+            'mix_in_duration': mix_instruction.mix_in_duration,
+            'overlap_duration': mix_instruction.overlap_duration,
+            'beat_sync_offset': mix_instruction.beat_sync_offset,
+            'phrase_alignment': mix_instruction.phrase_alignment,
+            'compatibility_score': mix_instruction.compatibility_score,
+            'energy_flow_score': mix_instruction.energy_flow_score,
+            'harmonic_compatibility': mix_instruction.harmonic_compatibility,
+            'timing_precision': mix_instruction.timing_precision,
+        }
+        
+        return jsonify({
+            'success': True,
+            'current_song_id': current_song_id,
+            'next_song_id': next_song_id,
+            'mix_instruction': mix_data
+        })
+        
+    except Exception as e:
+        print(f"Error calculating mix: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # Application entry point with proper error handling

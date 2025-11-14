@@ -128,9 +128,9 @@ export class MusicPlayerService {
 
         element.addEventListener('ended', () => {
             console.log('ended event fired on audio element.');
-            if(this.media_controller.buffer_controller.has_audio) {
+            // if(this.media_controller.buffer_controller.has_audio) {
                 this.skip_to_next(Skip_Event.DEFAULT);
-            }
+            // }
             
             // this.skip_to_next(Skip_Event.DEFAULT);
         });
