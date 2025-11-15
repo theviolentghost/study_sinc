@@ -17,6 +17,22 @@ import playlist_importer from './music/import.js';
 import multer from 'multer';
 const upload = multer();
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (error) => {
+    console.error('UNCAUGHT EXCEPTION! Shutting down gracefully...');
+    console.error(error.name, error.message);
+    console.error(error.stack);
+    // Log to file or error tracking service here
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION! Promise:', promise);
+    console.error('Reason:', reason);
+    // Log to file or error tracking service here
+    // Don't exit process for unhandled rejections, just log them
+});
+
 const app = Express();
 
 //
@@ -933,19 +949,62 @@ app.get('/.well-known/appspecific/:path', (req, res) => {
 
 // Serve the Angular study app (this should be LAST)
 app.get(/.*/, (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    console.log(req.url);
-    if (req.path.startsWith('/music') || req.path.startsWith('music')) {
-        res.sendFile(
-            path.join(__dirname, 'frontend/dist/music/browser/index.html')
-        );
-    } else {
-        res.sendFile(
-            path.join(__dirname, 'frontend/dist/study/browser/index.html')
-        );
+    try {
+        res.setHeader('Cache-Control', 'no-store');
+        console.log(req.url);
+        if (req.path.startsWith('/music') || req.path.startsWith('music')) {
+            res.sendFile(
+                path.join(__dirname, 'frontend/dist/music/browser/index.html'),
+                (err) => {
+                    if (err) {
+                        console.error('Error sending music index.html:', err);
+                        res.status(500).send('Error loading page');
+                    }
+                }
+            );
+        } else {
+            res.sendFile(
+                path.join(__dirname, 'frontend/dist/study/browser/index.html'),
+                (err) => {
+                    if (err) {
+                        console.error('Error sending study index.html:', err);
+                        res.status(500).send('Error loading page');
+                    }
+                }
+            );
+        }
+    } catch (error) {
+        console.error('Error in catch-all route:', error);
+        res.status(500).send('Internal server error');
     }
 });
 
-app.listen(port, host, () => {
+// Global error handler middleware (must be last)
+app.use((err, req, res, next) => {
+    console.error('Express error handler:', err.stack);
+    res.status(err.status || 500).json({
+        error: err.message || 'Internal server error',
+        success: false
+    });
+});
+
+const server = app.listen(port, host, () => {
     console.log(`Server is running on http://${host}:${port}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+        process.exit(0);
+    });
 });

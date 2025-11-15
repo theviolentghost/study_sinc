@@ -10,6 +10,61 @@ import https from 'https';
 
 const __dirname = path.resolve();
 
+// Helper function to call Python DJ service
+async function call_dj_api(endpoint, data) {
+    return new Promise((resolve, reject) => {
+        const DJ_SERVICE_HOST = process.env.DJ_SERVICE_HOST || 'localhost';
+        const DJ_SERVICE_PORT = process.env.DJ_SERVICE_PORT || 5000;
+        
+        const postData = JSON.stringify(data);
+        
+        const options = {
+            hostname: DJ_SERVICE_HOST,
+            port: DJ_SERVICE_PORT,
+            path: endpoint,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData)
+            },
+            timeout: 30000 // 30 second timeout
+        };
+        
+        const req = https.request(options, (res) => {
+            let responseData = '';
+            
+            res.on('data', (chunk) => {
+                responseData += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        const parsedData = JSON.parse(responseData);
+                        resolve(parsedData);
+                    } else {
+                        reject(new Error(`DJ service returned status ${res.statusCode}: ${responseData}`));
+                    }
+                } catch (error) {
+                    reject(new Error(`Failed to parse DJ service response: ${error.message}`));
+                }
+            });
+        });
+        
+        req.on('error', (error) => {
+            reject(new Error(`DJ service connection error: ${error.message}`));
+        });
+        
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('DJ service request timeout'));
+        });
+        
+        req.write(postData);
+        req.end();
+    });
+}
+
 class Adaptive_Stream {
     static profiles = {
         'opus': {
@@ -179,46 +234,36 @@ class Adaptive_Stream {
             // await Promise.all([
             //     // this.remove_audio_files('*'),
             // ]);
-            setInterval(this.cleanup.bind(this), this.hls_raw_audio_cleanup_interval);
+            
+            // Wrap cleanup interval in error handler
+            setInterval(() => {
+                this.cleanup().catch(error => {
+                    console.error('Error during scheduled cleanup:', error);
+                });
+            }, this.hls_raw_audio_cleanup_interval);
 
             this.ready = true;
             console.log('Adaptive_Stream initialized successfully');
         } catch (error) {
             console.error('Error during initialization:', error);
+            this.ready = false;
             // throw error;
         }
     }
 
     setup_endpoints(app) {
-        // Enable CORS for all HLS requests
-        app.options('/hls/*', (req, res) => {
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-            res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
-            res.setHeader('Access-Control-Max-Age', '86400');
-            res.status(204).send();
-        });
-
         app.use('/hls', express.static(this.hls_root, {
-            setHeaders: (res, filePath) => {
-                // Set CORS headers for all files
-                res.setHeader('Access-Control-Allow-Origin', '*');
-                res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-                res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
-                res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-                res.setHeader('Accept-Ranges', 'bytes');
-                
-                if (filePath.endsWith('.m3u8')) {
+            setHeaders: (res, path) => {
+                if (path.endsWith('.m3u8')) {
                     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-                } else if (filePath.endsWith('.ts')) {
-                    // MPEG-TS segments for HLS
-                    res.setHeader('Content-Type', 'video/MP2T');
-                    res.setHeader('Cache-Control', 'public, max-age=31536000');
-                } else if (filePath.endsWith('.m4s') || filePath.endsWith('.mp4')) {
-                    // fMP4 segments (if you switch to fMP4 later)
-                    res.setHeader('Content-Type', 'video/mp4');
-                    res.setHeader('Cache-Control', 'public, max-age=31536000');
+                    res.setHeader('Access-Control-Allow-Origin', '*');
+                    res.setHeader('Access-Control-Allow-Headers', 'Range');
+                    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+                } else if (path.endsWith('.ts')) {
+                    res.setHeader('Content-Type', 'video/mp2t');
+                    res.setHeader('Access-Control-Allow-Origin', '*');
+                    res.setHeader('Access-Control-Allow-Headers', 'Range');
+                    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
                 }
             }
         }));
@@ -247,7 +292,11 @@ class Adaptive_Stream {
                 return res.status(200).json({ ...session_response, success: true });
             } catch(error) {
                 console.error('Error during session request:', error.message);
-                return res.status(500).json({ error: 'Internal server error', success: false });
+                console.error('Stack trace:', error.stack);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error', 
+                    success: false 
+                });
             }
         });
 

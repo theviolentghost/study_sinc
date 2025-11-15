@@ -20,7 +20,7 @@ class BufferController {
     public events: EventTarget = new EventTarget();
     public has_audio: boolean = false;
     public fully_buffered: boolean = false;
-    private using_silent_source: boolean = false;
+    public using_silent_source: boolean = false;
 
     get buffered_percent(): number {
         if (!this.audio_element || !this.media_source) return 0;
