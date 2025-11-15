@@ -1911,29 +1911,48 @@ class DJ_Mix_Calculator:
         beat_length_current = 60.0 / current_bpm
         beat_length_next = 60.0 / next_bpm
         
-        # Mix out duration (how long to fade out current track)
-        out_duration = beat_length_current * 8  # 8 beats default
+        # Get energy levels at mix points
+        energy_out = mix_points['out'].energy_level
+        energy_in = mix_points['in'].energy_level
+        energy_diff = abs(energy_out - energy_in)
         
-        # Mix in duration (how long to fade in next track)  
-        in_duration = beat_length_next * 8  # 8 beats default
+        # Dynamic overlap duration based on energy matching
+        # Better energy match = shorter, tighter mix
+        # Worse energy match = longer, smoother transition
+        if energy_diff < 0.15:
+            # Very similar energy - tight DJ blend (6-10 beats)
+            overlap_beats = 6 + (energy_diff * 26)  # 6-10 beats
+            curve = "dj_blend"  # Professional DJ crossfade
+        elif energy_diff < 0.3:
+            # Moderate energy difference - smooth DJ blend (8-14 beats)
+            overlap_beats = 8 + (energy_diff * 20)  # 8-14 beats
+            curve = "dj_blend"  # Keep both tracks present
+        elif energy_diff < 0.5:
+            # Large energy difference - extended DJ blend (10-16 beats)
+            overlap_beats = 10 + (energy_diff * 12)  # 10-16 beats
+            curve = "exponential"  # Smoother for big energy changes
+        else:
+            # Very different energy - quick cut (4-6 beats)
+            overlap_beats = 4 + min(energy_diff * 4, 2)  # 4-6 beats
+            curve = "cut"
         
-        # Overlap duration (how long both tracks play together)
-        overlap_duration = min(out_duration, in_duration)
+        # Use average beat length for overlap calculation
+        avg_beat_length = (beat_length_current + beat_length_next) / 2
+        overlap_duration = avg_beat_length * overlap_beats
+        
+        # Adjust overlap caps for better DJ mixing
+        overlap_duration = min(overlap_duration, 20.0)  # Max 20 seconds (allow longer blends)
+        overlap_duration = max(overlap_duration, 3.0)   # Min 3 seconds (enough time to hear both)
+        
+        # Mix out/in durations match the overlap
+        out_duration = overlap_duration
+        in_duration = overlap_duration
         
         # Beat sync offset (fine timing adjustment)
         beat_offset = 0.0  # Will be calculated in real-time
         
-        # Phrase alignment
+        # Phrase alignment - prefer phrase-aligned mixes
         phrase_align = mix_points['out'].bar_position == 1 and mix_points['in'].bar_position == 1
-        
-        # Crossfade curve based on energy matching
-        energy_diff = abs(mix_points['out'].energy_level - mix_points['in'].energy_level)
-        if energy_diff < 0.2:
-            curve = "linear"
-        elif energy_diff < 0.5:
-            curve = "exponential"
-        else:
-            curve = "cut"
         
         return {
             'out_duration': out_duration,

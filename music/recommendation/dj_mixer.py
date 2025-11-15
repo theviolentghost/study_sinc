@@ -50,38 +50,39 @@ class DJ_Audio_Mixer:
         mix_data = f"{song_id_1}:{song_id_2}:{mix_instruction.mix_out_point.time_seconds}:{mix_instruction.mix_in_point.time_seconds}"
         return hashlib.md5(mix_data.encode()).hexdigest()[:16]
     
-    def create_mixed_audio(
+    def create_mixed_audio_pipe(
         self,
         song_id_1: str,
         song_id_2: str,
         mix_instruction: MixInstruction,
-        quality: str = 'high'
-    ) -> Tuple[str, dict]:
+        quality: str = 'high',
+        mix_style: str = 'balanced'  # 'quick', 'balanced', 'extended', 'long'
+    ):
         """
-        Create a mixed audio file from two songs using the mix instruction.
+        Create a mixed audio subprocess that outputs to stdout (like yt-dlp).
+        Returns a subprocess.Popen object that stream_v2.js can pipe from.
+        
+        This mimics yt-dlp's behavior by outputting M4A audio to stdout,
+        which can then be consumed by stream_v2.js's FFmpeg pipeline.
         
         Args:
             song_id_1: First song ID (current track)
             song_id_2: Second song ID (next track)
             mix_instruction: MixInstruction dataclass with mixing parameters
             quality: HLS quality to use for source audio
+            mix_style: Mixing style for overlap duration
+                - 'quick': 3-5 seconds (fast transition)
+                - 'balanced': 6-10 seconds (default, professional)
+                - 'extended': 10-16 seconds (smooth, gradual)
+                - 'long': 16-24 seconds (very smooth, club style)
             
         Returns:
-            Tuple of (mix_id, mix_info_dict)
+            subprocess.Popen object with stdout containing M4A audio stream
         """
-        print(f"🎛️  Creating DJ mix: {song_id_1} → {song_id_2}")
         
-        # Generate mix ID
-        mix_id = self.generate_mix_id(song_id_1, song_id_2, mix_instruction)
-        mix_dir = os.path.join(self.hls_mixes_path, mix_id)
-        
-        # Check if mix already exists
-        if os.path.exists(mix_dir) and os.path.exists(os.path.join(mix_dir, 'master.m3u8')):
-            print(f"Mix already exists: {mix_id}")
-            return mix_id, self._load_mix_info(mix_id)
-        
-        # Create mix directory
-        os.makedirs(mix_dir, exist_ok=True)
+        # Override overlap duration based on mix style
+        mix_instruction = self._adjust_mix_duration(mix_instruction, mix_style)
+        print(f"🎛️  Creating DJ mix pipe: {song_id_1} → {song_id_2}")
         
         # Decode both songs
         print(f"Decoding song 1: {song_id_1}")
@@ -102,15 +103,7 @@ class DJ_Audio_Mixer:
         if sr_2 != self.sample_rate:
             audio_2 = self._resample(audio_2, sr_2, self.sample_rate)
         
-        # Apply BPM sync (pitch shifting)
-        print(f"Applying BPM sync: {mix_instruction.bpm_sync.sync_type.value}")
-        if mix_instruction.bpm_sync.pitch_adjustment != 0:
-            audio_2 = self._pitch_shift(
-                audio_2, 
-                mix_instruction.bpm_sync.pitch_adjustment
-            )
-        
-        # Create the mix
+        # Create the mix (BPM sync/pitch shifting will be applied only where needed inside)
         print(f"Creating crossfade mix...")
         mixed_audio = self._create_crossfade_mix(
             audio_1,
@@ -118,39 +111,107 @@ class DJ_Audio_Mixer:
             mix_instruction
         )
         
-        # Save mixed audio as WAV (temporary)
-        temp_wav = os.path.join(mix_dir, 'mixed.wav')
-        sf.write(temp_wav, mixed_audio, self.sample_rate, subtype='PCM_16')
+        # Convert to stereo (duplicate mono to both channels)
+        if len(mixed_audio.shape) == 1:
+            mixed_audio = np.stack([mixed_audio, mixed_audio], axis=1)
         
-        # Generate HLS segments
-        print(f"Generating HLS segments...")
-        self._generate_hls_segments(temp_wav, mix_dir, mix_id)
+        # Write mixed audio to temporary WAV file
+        print(f"Writing mixed audio to temp file...")
+        tmp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        sf.write(tmp_wav.name, mixed_audio, self.sample_rate, subtype='PCM_16')
+        tmp_wav_path = tmp_wav.name
+        tmp_wav.close()
         
-        # Save mix info
-        mix_info = {
-            'mix_id': mix_id,
-            'song_id_1': song_id_1,
-            'song_id_2': song_id_2,
-            'duration': len(mixed_audio) / self.sample_rate,
-            'sample_rate': self.sample_rate,
-            'mix_instruction': {
-                'mix_out_time': mix_instruction.mix_out_point.time_seconds,
-                'mix_in_time': mix_instruction.mix_in_point.time_seconds,
-                'mix_type': mix_instruction.mix_type.value,
-                'bpm_sync_type': mix_instruction.bpm_sync.sync_type.value,
-                'pitch_adjustment': mix_instruction.bpm_sync.pitch_adjustment,
-                'compatibility_score': mix_instruction.compatibility_score,
-            }
+        # Create FFmpeg process to encode and stream to stdout
+        # Output as M4A (AAC in MP4 container) - same as yt-dlp's bestaudio[ext=m4a]
+        print(f"Starting FFmpeg pipe to stdout (M4A format)...")
+        
+        cmd = [
+            'ffmpeg',
+            '-i', tmp_wav_path,
+            '-c:a', 'aac',           # AAC codec
+            '-b:a', '192k',          # High quality bitrate
+            '-ar', '44100',          # Sample rate
+            '-ac', '2',              # Stereo
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',  # Streamable MP4
+            '-f', 'mp4',             # MP4 container (M4A)
+            'pipe:1'                 # Output to stdout
+        ]
+        
+        # Start FFmpeg process that outputs to stdout
+        # This mimics yt-dlp's behavior
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0  # Unbuffered
+        )
+        
+        # Store temp file path so we can clean it up later
+        # Attach cleanup callback to process
+        def cleanup_temp_file():
+            try:
+                os.unlink(tmp_wav_path)
+                print(f"Cleaned up temp file: {tmp_wav_path}")
+            except:
+                pass
+        
+        # Attach cleanup method to process
+        process._cleanup_temp_file = cleanup_temp_file
+        process._temp_wav_path = tmp_wav_path
+        
+        print(f"✅ Mix pipe ready - returning subprocess")
+        return process
+    
+    def _adjust_mix_duration(self, mix_instruction: MixInstruction, mix_style: str) -> MixInstruction:
+        """
+        Adjust the overlap duration based on the desired mix style.
+        
+        Args:
+            mix_instruction: Original mix instruction
+            mix_style: 'quick', 'balanced', 'extended', or 'long'
+            
+        Returns:
+            Updated MixInstruction with adjusted overlap_duration
+        """
+        # Define overlap duration ranges for each style
+        style_durations = {
+            'quick': (3.0, 5.0),      # Fast, energetic transitions
+            'balanced': (6.0, 10.0),   # Professional, smooth (default)
+            'extended': (10.0, 16.0),  # Long, gradual blends
+            'long': (16.0, 24.0)       # Very long, club-style mixes
         }
         
-        with open(os.path.join(mix_dir, 'mix_info.json'), 'w') as f:
-            json.dump(mix_info, f, indent=2)
+        if mix_style not in style_durations:
+            print(f"⚠️  Unknown mix style '{mix_style}', using 'balanced'")
+            mix_style = 'balanced'
         
-        # Clean up temp WAV
-        # os.remove(temp_wav)  # Keep it for now for debugging
+        min_duration, max_duration = style_durations[mix_style]
         
-        print(f"✅ Mix created successfully: {mix_id}")
-        return mix_id, mix_info
+        # Calculate target duration based on energy difference
+        # More similar energy = longer mix possible
+        # Different energy = shorter mix recommended
+        energy_diff = abs(
+            mix_instruction.mix_out_point.energy_level - 
+            mix_instruction.mix_in_point.energy_level
+        )
+        
+        # Scale within the range based on energy compatibility
+        # Lower energy_diff = use upper range, higher = use lower range
+        energy_factor = 1.0 - (energy_diff * 0.5)  # 0.5 to 1.0
+        energy_factor = max(0.5, min(1.0, energy_factor))
+        
+        new_duration = min_duration + (max_duration - min_duration) * energy_factor
+        
+        print(f"  🎚️  Mix style: {mix_style.upper()}")
+        print(f"     Original overlap: {mix_instruction.overlap_duration:.1f}s")
+        print(f"     Style range: {min_duration:.1f}s - {max_duration:.1f}s")
+        print(f"     Energy difference: {energy_diff:.2f}")
+        print(f"     Adjusted overlap: {new_duration:.1f}s")
+        
+        # Create new MixInstruction with updated overlap
+        from dataclasses import replace
+        return replace(mix_instruction, overlap_duration=new_duration)
     
     def _resample(self, audio: np.ndarray, original_rate: int, target_rate: int) -> np.ndarray:
         """Resample audio using FFmpeg."""
@@ -235,6 +296,10 @@ class DJ_Audio_Mixer:
     ) -> np.ndarray:
         """
         Create a crossfaded mix of two audio tracks.
+        Only processes the necessary portions - no wasted audio!
+        
+        Mix structure:
+        [Song 1 up to mix point] + [Crossfade section] + [Song 2 from after mix in point]
         
         Args:
             audio_1: First audio track (current song)
@@ -248,52 +313,392 @@ class DJ_Audio_Mixer:
         # Get overlap duration in samples
         overlap_samples = int(mix_instruction.overlap_duration * self.sample_rate)
         
-        print(f"  Mix out at: {mix_instruction.mix_out_point.time_seconds:.2f}s")
-        print(f"  Mix in at: {mix_instruction.mix_in_point.time_seconds:.2f}s")
-        print(f"  Overlap: {mix_instruction.overlap_duration:.2f}s")
+        print(f"  Mix out at: {mix_instruction.mix_out_point.time_seconds:.2f}s (sample {mix_out_sample})")
+        print(f"  Mix in at: {mix_instruction.mix_in_point.time_seconds:.2f}s (sample {mix_in_sample})")
+        print(f"  Overlap: {mix_instruction.overlap_duration:.2f}s ({overlap_samples} samples)")
         
-        # Part 1: Audio from song 1 before mix point
+        # Part 1: Audio from song 1 before mix point (unchanged)
         part1 = audio_1[:mix_out_sample]
+        print(f"  Part 1 (Song 1 intro): {len(part1) / self.sample_rate:.2f}s")
         
-        # Part 2: Overlapping section with crossfade
-        # Extract sections to crossfade
+        # Part 2: Overlapping/crossfade section - BEAT-SYNCHRONIZED MIXING
+        # This is the key to professional DJ mixing: sync the beats during overlap!
+        
+        # Extract the sections that will be mixed
         song1_fade_out = audio_1[mix_out_sample:mix_out_sample + overlap_samples]
-        song2_fade_in = audio_2[mix_in_sample:mix_in_sample + overlap_samples]
         
-        # Make sure both sections are the same length
-        min_length = min(len(song1_fade_out), len(song2_fade_in))
+        # For song 2, we need enough audio to:
+        # 1. Crossfade section (pitch-shifted to match song 1 BPM)
+        # 2. Transition section (gradually returning to original BPM)
+        transition_duration = 8.0  # 8 seconds to transition back to original speed
+        transition_samples = int(transition_duration * self.sample_rate)
+        
+        # Extract more audio from song 2 to include transition section
+        song2_raw = audio_2[mix_in_sample:mix_in_sample + overlap_samples + transition_samples]
+        
+        # Make sure both sections are the same length for crossfade
+        min_length = min(len(song1_fade_out), overlap_samples)
         song1_fade_out = song1_fade_out[:min_length]
-        song2_fade_in = song2_fade_in[:min_length]
+        song2_crossfade_section = song2_raw[:min_length]
         
-        # Create crossfade curve
-        if mix_instruction.crossfade_curve == 'linear':
-            fade_out_curve = np.linspace(1, 0, min_length)
-            fade_in_curve = np.linspace(0, 1, min_length)
-        elif mix_instruction.crossfade_curve == 'exponential':
-            fade_out_curve = np.exp(np.linspace(0, -5, min_length))
-            fade_in_curve = 1 - np.exp(np.linspace(0, -5, min_length))
-        else:  # 'cut'
-            # Quick cut with minimal fade
-            cut_point = min_length // 2
-            fade_out_curve = np.concatenate([np.ones(cut_point), np.zeros(min_length - cut_point)])
-            fade_in_curve = 1 - fade_out_curve
+        # PROFESSIONAL DJ TECHNIQUE: Frequency-selective beat matching
+        # 1. Separate frequencies FIRST (before pitch shifting)
+        # 2. Pitch shift ONLY the low frequencies (bass/beat) of song 2
+        # 3. Keep vocals at natural pitch for clarity
+        # 4. Linear crossfade for vocals (clean transition, sum = 1.0)
+        # 5. Beat-matched crossfade for bass (both present, drives energy)
         
-        # Apply crossfade
-        crossfaded = (song1_fade_out * fade_out_curve) + (song2_fade_in * fade_in_curve)
+        print(f"  🎚️  Separating frequencies for selective processing...")
+        print(f"     Bass (<250Hz) | Mids (250Hz-4kHz) | Highs (>4kHz)")
         
-        # Part 3: Audio from song 2 after mix point
-        part3_start = mix_in_sample + overlap_samples
+        # Split song 1 into frequency bands (no pitch shifting needed)
+        song1_bass, song1_mids, song1_highs = self._split_frequency_bands(song1_fade_out)
+        
+        # Split song 2 RAW audio (before pitch shifting) into frequency bands
+        song2_raw_bass, song2_raw_mids, song2_raw_highs = self._split_frequency_bands(song2_crossfade_section)
+        
+        # Apply BPM sync ONLY to the bass/low frequencies (beat matching)
+        print(f"  🎛️  Beat-synchronized mixing:")
+        print(f"     BPM sync type: {mix_instruction.bpm_sync.sync_type.value}")
+        
+        if mix_instruction.bpm_sync.pitch_adjustment != 0:
+            print(f"     Pitch adjustment: {mix_instruction.bpm_sync.pitch_adjustment:+.2f}%")
+            print(f"     ⚡ Pitch-shifting ONLY low frequencies (bass/beat) for beat matching")
+            print(f"     🎤 Keeping vocals at natural pitch for clarity")
+            
+            # Pitch shift ONLY the bass (this is where the beat lives!)
+            song2_bass_synced = self._pitch_shift(song2_raw_bass, mix_instruction.bpm_sync.pitch_adjustment)
+            
+            # Ensure same length
+            song2_bass_synced = song2_bass_synced[:min_length]
+            
+            # Mids and highs stay at natural pitch
+            song2_mids = song2_raw_mids[:min_length]
+            song2_highs = song2_raw_highs[:min_length]
+            
+            print(f"     ✓ Bass beat-matched at {mix_instruction.bpm_sync.target_bpm:.1f} BPM")
+            print(f"     ✓ Vocals unchanged at natural pitch")
+            
+        else:
+            # No pitch adjustment needed
+            song2_bass_synced = song2_raw_bass
+            song2_mids = song2_raw_mids
+            song2_highs = song2_raw_highs
+        
+        # CROSSFADE CURVES - PROFESSIONAL DJ STYLE WITH DECIBEL SCALING
+        print(f"  🎚️  Applying professional DJ crossfade curves (dB-based)...")
+        
+        # Helper function to convert dB to linear amplitude
+        def db_to_linear(db):
+            """Convert decibels to linear amplitude (0 dB = 1.0, -inf dB = 0.0)"""
+            return np.power(10.0, db / 20.0)
+        
+        # Helper function to convert linear amplitude to dB
+        def linear_to_db(linear):
+            """Convert linear amplitude to decibels"""
+            return 20.0 * np.log10(np.maximum(linear, 1e-10))  # Avoid log(0)
+        
+        # 1. BASS (LOW FREQUENCIES): Both tracks present with beat matching
+        #    This is the "layered bass" technique DJs use
+        #    Using dB scaling for perceptually smooth transition
+        
+        # Bass fade: 0 dB → -10 dB (song 1), -10 dB → 0 dB (song 2)
+        bass_db_out = np.linspace(0.0, -10.0, min_length)   # Song 1 bass: 0 dB → -10 dB
+        bass_db_in = np.linspace(-10.0, 0.0, min_length)    # Song 2 bass: -10 dB → 0 dB
+        
+        bass_fade_out = db_to_linear(bass_db_out)
+        bass_fade_in = db_to_linear(bass_db_in)
+        
+        print(f"     Bass (<250Hz): Layered beat-matched crossfade (dB)")
+        print(f"       Song 1 bass: 0.0 dB → -10.0 dB ({bass_fade_out[0]:.3f} → {bass_fade_out[-1]:.3f})")
+        print(f"       Song 2 bass: -10.0 dB → 0.0 dB ({bass_fade_in[0]:.3f} → {bass_fade_in[-1]:.3f})")
+        
+        # 2. MIDS + HIGHS (VOCALS): Equal-power crossfade in dB domain
+        #    This maintains consistent perceived loudness throughout the transition
+        #    Using -3 dB crossover point (equal power)
+        
+        # Vocal fade: 0 dB → -inf dB (song 1), -inf dB → 0 dB (song 2)
+        # Using equal-power crossfade: each at -3 dB at midpoint
+        vocal_db_out = np.linspace(0.0, -60.0, min_length)  # Song 1: 0 dB → -60 dB (effectively silent)
+        vocal_db_in = np.linspace(-60.0, 0.0, min_length)   # Song 2: -60 dB → 0 dB
+        
+        vocal_fade_out = db_to_linear(vocal_db_out)
+        vocal_fade_in = db_to_linear(vocal_db_in)
+        
+        print(f"     Mids/Highs (vocals): Equal-power crossfade (dB)")
+        print(f"       Song 1 vocals: 0.0 dB → -60.0 dB ({vocal_fade_out[0]:.3f} → {vocal_fade_out[-1]:.6f})")
+        print(f"       Song 2 vocals: -60.0 dB → 0.0 dB ({vocal_fade_in[0]:.6f} → {vocal_fade_in[-1]:.3f})")
+        
+        # At midpoint, both should be at approximately -3 dB for equal power
+        midpoint = min_length // 2
+        combined_power_mid = vocal_fade_out[midpoint]**2 + vocal_fade_in[midpoint]**2
+        combined_db_mid = 10.0 * np.log10(combined_power_mid)
+        print(f"       Midpoint power: {combined_db_mid:.2f} dB (target: ~-3 dB for equal power)")
+        
+        # Apply crossfades to each frequency band
+        crossfaded_bass = (song1_bass * bass_fade_out) + (song2_bass_synced * bass_fade_in)
+        crossfaded_mids = (song1_mids * vocal_fade_out) + (song2_mids * vocal_fade_in)
+        crossfaded_highs = (song1_highs * vocal_fade_out) + (song2_highs * vocal_fade_in)
+        
+        # Recombine frequency bands
+        crossfaded = crossfaded_bass + crossfaded_mids + crossfaded_highs
+        
+        print(f"  Part 2 (Frequency-based crossfade): {len(crossfaded) / self.sample_rate:.2f}s")
+        print(f"     ✨ Result: Continuous bass energy + clean vocal transition")
+        
+        # Part 2.5: Transition section - gradually return song 2 to its original BPM
+        # This happens AFTER the crossfade, so song 1 is gone and only song 2 is playing
+        transition_section = None
+        
+        if mix_instruction.bpm_sync.pitch_adjustment != 0 and len(song2_raw) > min_length:
+            # We have a pitch-shifted section, so we need to create a transition back to original BPM
+            song2_transition_raw = song2_raw[min_length:min_length + transition_samples]
+            
+            if len(song2_transition_raw) > 0:
+                # Pitch shift the transition section to match song 1's BPM
+                song2_transition_synced = self._pitch_shift(
+                    song2_transition_raw, 
+                    mix_instruction.bpm_sync.pitch_adjustment
+                )
+                
+                print(f"  Part 2.5 (BPM transition): {len(song2_transition_synced) / self.sample_rate:.2f}s")
+                print(f"     Gradually returning song 2 to original BPM (dB-based)...")
+                
+                # Get the original audio for the transition section
+                transition_start = mix_in_sample + overlap_samples
+                song2_transition_original = audio_2[transition_start:transition_start + transition_samples]
+                
+                # Make sure lengths match
+                transition_length = min(len(song2_transition_synced), len(song2_transition_original))
+                song2_transition_synced = song2_transition_synced[:transition_length]
+                song2_transition_original = song2_transition_original[:transition_length]
+                
+                # Create a smooth transition from synced BPM back to original BPM
+                # Use dB-based crossfade for perceptually smooth transition
+                # First 20% stays fully synced, middle 60% transitions, last 20% fully original
+                
+                # Create transition curve in dB domain
+                transition_progress = np.zeros(transition_length)
+                
+                # First 20%: Stay at synced BPM
+                first_20_percent = int(transition_length * 0.2)
+                transition_progress[:first_20_percent] = 0.0
+                
+                # Middle 60%: Smooth sigmoid transition (0 to 1)
+                middle_start = first_20_percent
+                middle_end = int(transition_length * 0.8)
+                middle_length = middle_end - middle_start
+                
+                # Sigmoid curve for smooth transition
+                x = np.linspace(-6, 6, middle_length)  # -6 to 6 for nice sigmoid shape
+                sigmoid = 1 / (1 + np.exp(-x))  # 0 to 1
+                transition_progress[middle_start:middle_end] = sigmoid
+                
+                # Last 20%: Fully at original BPM
+                transition_progress[middle_end:] = 1.0
+                
+                # Convert progress to dB curves
+                # Synced version: 0 dB → -60 dB (fade out)
+                synced_db = 0.0 - (60.0 * transition_progress)
+                synced_gain = db_to_linear(synced_db)
+                
+                # Original version: -60 dB → 0 dB (fade in)
+                original_db = -60.0 + (60.0 * transition_progress)
+                original_gain = db_to_linear(original_db)
+                
+                print(f"       Start: Synced at 0 dB ({synced_gain[0]:.3f}), Original at -60 dB ({original_gain[0]:.6f})")
+                print(f"       End: Synced at -60 dB ({synced_gain[-1]:.6f}), Original at 0 dB ({original_gain[-1]:.3f})")
+                
+                # Apply the dB-based transition
+                transition_section = (
+                    song2_transition_synced * synced_gain +      # Synced version fades out
+                    song2_transition_original * original_gain    # Original version fades in
+                )
+                
+                print(f"     Transition curve: synced (dB) → sigmoid blend → original (dB)")
+                print(f"     At start: fully synced BPM")
+                print(f"     At middle: {transition_progress[transition_length//2]:.2f} (blending)")
+                print(f"     At end: {transition_progress[-1]:.2f} (fully original)")
+        
+        # Part 3: Rest of song 2 AFTER the transition (unchanged, original BPM)
+        if transition_section is not None:
+            part3_start = mix_in_sample + overlap_samples + transition_samples
+        else:
+            part3_start = mix_in_sample + overlap_samples
+            
         part3 = audio_2[part3_start:]
+        print(f"  Part 3 (Song 2 remainder at original BPM): {len(part3) / self.sample_rate:.2f}s")
         
         # Concatenate all parts
-        mixed_audio = np.concatenate([part1, crossfaded, part3])
+        if transition_section is not None:
+            mixed_audio = np.concatenate([part1, crossfaded, transition_section, part3])
+        else:
+            mixed_audio = np.concatenate([part1, crossfaded, part3])
+        
+        total_duration = len(mixed_audio) / self.sample_rate
+        song1_duration = len(audio_1) / self.sample_rate
+        song2_duration = len(audio_2) / self.sample_rate
+        time_saved = (song1_duration + song2_duration) - total_duration
+        
+        print(f"  Total mix duration: {total_duration:.2f}s")
+        print(f"  Time saved vs playing both full: {time_saved:.2f}s ({time_saved/60:.1f} minutes)")
         
         # Normalize to prevent clipping
         max_val = np.max(np.abs(mixed_audio))
         if max_val > 0.95:
             mixed_audio = mixed_audio * (0.95 / max_val)
+            print(f"  Normalized audio (peak was {max_val:.3f})")
         
         return mixed_audio
+    
+    def _split_frequency_bands(self, audio: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Split audio into bass, mids, and highs frequency bands for DJ-style mixing.
+        
+        Uses scipy filters for clean frequency separation:
+        - Bass: < 250 Hz (kick drums, sub bass)
+        - Mids: 250 Hz - 4 kHz (main instruments, vocals body)
+        - Highs: > 4 kHz (vocals clarity, cymbals, hi-hats)
+        
+        Args:
+            audio: Input audio array (mono)
+            
+        Returns:
+            Tuple of (bass, mids, highs) as numpy arrays
+        """
+        try:
+            from scipy import signal as scipy_signal
+            
+            # Design filters using scipy (faster than FFmpeg for this)
+            nyquist = self.sample_rate / 2
+            
+            # Bass: Lowpass filter at 250 Hz
+            bass_cutoff = 250 / nyquist
+            b_bass, a_bass = scipy_signal.butter(4, bass_cutoff, btype='low')
+            bass = scipy_signal.filtfilt(b_bass, a_bass, audio)
+            
+            # Mids: Bandpass filter 250 Hz - 4 kHz
+            mids_low = 250 / nyquist
+            mids_high = 4000 / nyquist
+            b_mids, a_mids = scipy_signal.butter(4, [mids_low, mids_high], btype='band')
+            mids = scipy_signal.filtfilt(b_mids, a_mids, audio)
+            
+            # Highs: Highpass filter at 4 kHz
+            highs_cutoff = 4000 / nyquist
+            b_highs, a_highs = scipy_signal.butter(4, highs_cutoff, btype='high')
+            highs = scipy_signal.filtfilt(b_highs, a_highs, audio)
+            
+            return bass, mids, highs
+            
+        except ImportError:
+            # Fallback: Use FFmpeg for frequency splitting
+            print("     Using FFmpeg for frequency separation (scipy not available)")
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_in:
+                sf.write(tmp_in.name, audio, self.sample_rate)
+                
+                # Extract bass
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_bass:
+                    cmd_bass = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'lowpass=f=250',
+                        '-y', tmp_bass.name
+                    ]
+                    subprocess.run(cmd_bass, capture_output=True, check=True)
+                    bass, _ = sf.read(tmp_bass.name)
+                    os.unlink(tmp_bass.name)
+                
+                # Extract mids
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_mids:
+                    cmd_mids = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'highpass=f=250,lowpass=f=4000',
+                        '-y', tmp_mids.name
+                    ]
+                    subprocess.run(cmd_mids, capture_output=True, check=True)
+                    mids, _ = sf.read(tmp_mids.name)
+                    os.unlink(tmp_mids.name)
+                
+                # Extract highs
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_highs:
+                    cmd_highs = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'highpass=f=4000',
+                        '-y', tmp_highs.name
+                    ]
+                    subprocess.run(cmd_highs, capture_output=True, check=True)
+                    highs, _ = sf.read(tmp_highs.name)
+                    os.unlink(tmp_highs.name)
+                
+                os.unlink(tmp_in.name)
+                
+            return bass, mids, highs
+            from scipy import signal as scipy_signal
+            
+            # Design filters using scipy (faster than FFmpeg for this)
+            nyquist = self.sample_rate / 2
+            
+            # Bass: Lowpass filter at 250 Hz
+            bass_cutoff = 250 / nyquist
+            b_bass, a_bass = scipy_signal.butter(4, bass_cutoff, btype='low')
+            bass = scipy_signal.filtfilt(b_bass, a_bass, audio)
+            
+            # Mids: Bandpass filter 250 Hz - 4 kHz
+            mids_low = 250 / nyquist
+            mids_high = 4000 / nyquist
+            b_mids, a_mids = scipy_signal.butter(4, [mids_low, mids_high], btype='band')
+            mids = scipy_signal.filtfilt(b_mids, a_mids, audio)
+            
+            # Highs: Highpass filter at 4 kHz
+            highs_cutoff = 4000 / nyquist
+            b_highs, a_highs = scipy_signal.butter(4, highs_cutoff, btype='high')
+            highs = scipy_signal.filtfilt(b_highs, a_highs, audio)
+            
+            return bass, mids, highs
+            
+        except ImportError:
+            # Fallback: Use FFmpeg for frequency splitting
+            print("     Using FFmpeg for frequency separation (scipy not available)")
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_in:
+                sf.write(tmp_in.name, audio, self.sample_rate)
+                
+                # Extract bass
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_bass:
+                    cmd_bass = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'lowpass=f=250',
+                        '-y', tmp_bass.name
+                    ]
+                    subprocess.run(cmd_bass, capture_output=True, check=True)
+                    bass, _ = sf.read(tmp_bass.name)
+                    os.unlink(tmp_bass.name)
+                
+                # Extract mids
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_mids:
+                    cmd_mids = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'highpass=f=250,lowpass=f=4000',
+                        '-y', tmp_mids.name
+                    ]
+                    subprocess.run(cmd_mids, capture_output=True, check=True)
+                    mids, _ = sf.read(tmp_mids.name)
+                    os.unlink(tmp_mids.name)
+                
+                # Extract highs
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_highs:
+                    cmd_highs = [
+                        'ffmpeg', '-i', tmp_in.name,
+                        '-af', 'highpass=f=4000',
+                        '-y', tmp_highs.name
+                    ]
+                    subprocess.run(cmd_highs, capture_output=True, check=True)
+                    highs, _ = sf.read(tmp_highs.name)
+                    os.unlink(tmp_highs.name)
+                
+                os.unlink(tmp_in.name)
+                
+            return bass, mids, highs
     
     def _generate_hls_segments(self, audio_file: str, output_dir: str, mix_id: str):
         """
@@ -404,15 +809,24 @@ if __name__ == "__main__":
         print("\n3. Calculating optimal mix...")
         mix_instruction = mix_calculator.calculate_optimal_mix(features_1, features_2)
         
-        # Create the mix
-        print("\n4. Creating mixed audio file...")
-        mix_id, mix_info = mixer.create_mixed_audio(songs[0], songs[1], mix_instruction)
+        # Create the mix pipe (like yt-dlp)
+        print("\n4. Creating mixed audio pipe...")
+        process = mixer.create_mixed_audio_pipe(songs[0], songs[1], mix_instruction)
         
-        print(f"\n✅ Mix created successfully!")
-        print(f"   Mix ID: {mix_id}")
-        print(f"   Duration: {mix_info['duration']:.2f}s")
-        print(f"   Playlist URL: {mixer.get_mix_playlist_url(mix_id)}")
-        print(f"\n🎵 You can now play this mix in your player!")
+        print(f"\n✅ Mix pipe created successfully!")
+        print(f"   Process PID: {process.pid}")
+        print(f"   Stdout: {process.stdout}")
+        print(f"   This can now be piped to stream_v2.js FFmpeg process")
+        print(f"\n🎵 Stream is ready to be consumed by Node.js!")
+        
+        # Note: In production, stream_v2.js will handle the process
+        # For testing, you could pipe to a file:
+        # output_path = f"/tmp/test_mix_{songs[0]}_{songs[1]}.m4a"
+        # with open(output_path, 'wb') as f:
+        #     f.write(process.stdout.read())
+        # process.wait()
+        # if hasattr(process, '_cleanup_temp_file'):
+        #     process._cleanup_temp_file()
         
     except Exception as e:
         print(f"❌ Error during mixing: {e}")

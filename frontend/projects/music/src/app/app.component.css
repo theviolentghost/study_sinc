@@ -29,6 +29,7 @@ router-outlet {
     padding: 1rem;
     padding-bottom: var(--space-5);
     width: 100%;
+    z-index: 10;
     background-color: var(--color-background-200);
 }
 .navigation.music-idle {

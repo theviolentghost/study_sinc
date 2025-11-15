@@ -80,7 +80,7 @@ class HLS_Audio_Decoder:
             raise ValueError(f"Invalid quality '{quality}'. Must be one of: {list(quality_map.keys())}")
         
         bitrate, playlist_file = quality_map[quality]
-        playlist_path = os.path.join(song_path, 'aac', quality, playlist_file)
+        playlist_path = os.path.join(song_path, 'audio', 'aac', quality, playlist_file)
         
         if not os.path.exists(playlist_path):
             raise FileNotFoundError(f"Playlist not found: {playlist_path}")

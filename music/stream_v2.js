@@ -352,7 +352,7 @@ class Adaptive_Stream {
 
             const session_data = {
                 video_ids: video_ids,
-                playlist_url: `/hls/raw/${video_ids[0]}/master.m3u8`,
+                playlist_url: `/hls/raw/${video_ids[0]}/audio/master.m3u8`,
             };
 
             return session_data;
@@ -363,7 +363,7 @@ class Adaptive_Stream {
 
     async confirm_stream_creation(video_id, timeout = 25000) {
         try {
-            await this.wait_for_first_readable_master_playlist(path.join(this.hls_raw_audio_directory, video_id, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), timeout);
+            await this.wait_for_first_readable_master_playlist(path.join(this.hls_raw_audio_directory, video_id, 'audio', this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), timeout);
             console.log(`Stream creation confirmed: ${video_id}`);
         } catch (error) {
             throw new Error(`Stream creation confirmation failed for video ID ${video_id}: ${error.message}`);
@@ -523,16 +523,16 @@ class Adaptive_Stream {
             await this.ensure_directories([
                 ...available_codecs.flatMap(codec => {
                     return available_profiles.map(profile => {
-                        return path.join(this.hls_raw_audio_directory, video_id, codec, profile);
+                        return path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
                     });
                 })
             ]);
             const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
-            await this.write_master_playlist(path.join(this.hls_raw_audio_directory, video_id), master_playlist);
+            await this.write_master_playlist(path.join(this.hls_raw_audio_directory, video_id, 'audio'), master_playlist);
             // const audio_process = await this.get_video_audio_url(video_id);
             // console.log(`Obtained audio stream for video ID ${video_id} - url: ${audio_process}`);
             const audio_process = await this.create_yt_dlp_process(video_id); // use inital video to create the HLS stream
-            const ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id), video_id, available_codecs, available_profiles);
+            const ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id, 'audio'), video_id, available_codecs, available_profiles);
 
             // Wait for first segment - use a specific profile to check
             const first_profile = available_profiles[0]; // 'ultra-low'
@@ -830,7 +830,7 @@ class Adaptive_Stream {
                         // '-tune', this.get_ffmpeg_tune(fast_startup, profile),
                         '-hls_flags', 'append_list',
                         // '-hls_base_url', `${relative_segment_path}/`,
-                        '-hls_segment_filename', path.join(this.hls_raw_audio_directory, video_id, codec, profile, `${profile_info.bitrate}_%d.ts`)
+                        '-hls_segment_filename', path.join(output_directory, codec, profile, `${profile_info.bitrate}_%d.ts`)
                     ]);
             }
         }
@@ -852,7 +852,7 @@ class Adaptive_Stream {
 
     async wait_for_first_readable_segment(video_id, codec = 'aac', profile = this.profile_progression[0], timeout = 15000) {
         return new Promise((resolve, reject) => {
-            const segment_path = path.join(this.hls_raw_audio_directory, video_id, codec, profile);
+            const segment_path = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
             const start_time = Date.now();
 
             const check_segment = () => {
@@ -1047,17 +1047,24 @@ class Adaptive_Stream {
         }
     }
 
+    force_clean_index = 0;
+    force_clean_index_count = Math.ceil((2 * 24 * 60 * 60 * 1000) / (this.hls_raw_audio_cleanup_interval)); // once every 48 hours
     async cleanup() {
         // Cleanup logic for all raw audio files and processes
         try {
             // grab all video ids from hls/raw
+            this.force_clean_index = (this.force_clean_index + 1) % this.force_clean_index_count;
+            const use_force_clean = (this.force_clean_index === this.force_clean_index_count - 1);
+            if(use_force_clean) {
+                console.log('Performing forced audio cleanup of all raw audio files.');
+            }
             const all_video_ids = await file_system.promises.readdir(this.hls_raw_audio_directory);
             const video_ids_to_delete = all_video_ids.filter((video_id) => {
                 const audio_data = this.audio_data.has(video_id);
                 if(!audio_data) return true; // no active session, delete
                 const session_info = this.audio_data.get(video_id);
                 const now = Date.now();
-                const last_accessed = session_info.last_accessed || session_info.created_at || 0;
+                const last_accessed = session_info.last_accessed || session_info.created_at || (use_force_clean ? 0 : Date.now()); // if Date.now() reached protect it from being removed unless forced
 
                 return (now - last_accessed) > this.hls_raw_audio_max_uphold_time;
             });

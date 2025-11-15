@@ -49,15 +49,15 @@ class MusicMediaManager {
         this.playlist_manager = new MusicPlaylistManager(this.media, this);
 
         // Attach event listener for buffer data loaded
-        this.buffer_controller.events.addEventListener('dataLoaded', (ev: Event) => {
-            try {
-                const cev = ev as CustomEvent;
-                console.log('📨 BufferController dataLoaded event:', cev.detail);
-                this.on_data_loaded();
-            } catch (e) {
-                console.error('Error handling dataLoaded event', e);
-            }
-        });
+        // this.buffer_controller.events.addEventListener('dataLoaded', (ev: Event) => {
+        //     try {
+        //         const cev = ev as CustomEvent;
+        //         console.log('📨 BufferController dataLoaded event:', cev.detail);
+        //         this.on_data_loaded();
+        //     } catch (e) {
+        //         console.error('Error handling dataLoaded event', e);
+        //     }
+        // });
     }
 
     public update_shuffle_queue(): void {
@@ -215,7 +215,7 @@ class MusicMediaManager {
             // load audio optimistically
             this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
                 if(!audio_source_url || audio_source_url === '' || !allow_optomistic_load) return;
-                await this.buffer_controller.load(audio_source_url);
+                await this.buffer_controller.load_and_play(audio_source_url);
             });
 
             try {
@@ -247,7 +247,8 @@ class MusicMediaManager {
         if(song_data.downloaded && song_data.download_audio_blob) {
             const blob = await this.create_blob_url_from_stale_blob(song_data.download_audio_blob);
             // if(load_source_into_audio_element) this.load_audio(blob, 'blob');
-            await this.buffer_controller.load_blob(blob);
+            // await this.buffer_controller.load_blob(blob);
+            console.log('Loading audio from downloaded blob for', song_key);
 
             // audio_data_reference.audio_source = blob;
             // audio_data_reference.source_type = 'blob';
@@ -262,7 +263,7 @@ class MusicMediaManager {
         else {
             this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
                 if(!audio_source_url || audio_source_url === '') throw new Error('No audio source URL retrieved');
-                await this.buffer_controller.load(audio_source_url);
+                await this.buffer_controller.load_and_play(audio_source_url);
             }).catch((error) => {
                 console.error('Error fetching audio stream for', song_key, error);
             });
