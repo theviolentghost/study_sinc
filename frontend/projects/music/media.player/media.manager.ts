@@ -2,6 +2,7 @@ import MusicPlaylistManager from "./playlist.manager";
 import BufferController from "./buffer.controller";
 import { MusicMediaService, Song_Data, Song_Identifier } from "../music.media.service";
 import { Skip_Event } from "./playlist.manager";
+import { SettingsService } from "../settings.service";
 
 class MusicMediaManager {
     public playlist_manager: MusicPlaylistManager;
@@ -42,22 +43,11 @@ class MusicMediaManager {
         return this.buffer_controller.duration;
     }
 
-    constructor(private media: MusicMediaService, buffer_controller?: BufferController) {
+    constructor(private media: MusicMediaService, private settings: SettingsService, buffer_controller?: BufferController) {
         // Use the provided BufferController or create a new one
         // This allows the service to share a single BufferController instance
-        this.buffer_controller = buffer_controller || new BufferController();
+        this.buffer_controller = buffer_controller || new BufferController(this.settings);
         this.playlist_manager = new MusicPlaylistManager(this.media, this);
-
-        // Attach event listener for buffer data loaded
-        // this.buffer_controller.events.addEventListener('dataLoaded', (ev: Event) => {
-        //     try {
-        //         const cev = ev as CustomEvent;
-        //         console.log('📨 BufferController dataLoaded event:', cev.detail);
-        //         this.on_data_loaded();
-        //     } catch (e) {
-        //         console.error('Error handling dataLoaded event', e);
-        //     }
-        // });
     }
 
     public update_shuffle_queue(): void {
@@ -100,15 +90,6 @@ class MusicMediaManager {
         }
     }
 
-    public on_data_loaded(): void {
-        // actions to take when data is loaded
-        this.audio_ready = true;
-        if(this.want_to_play) {
-            this.play();
-            this.want_to_play = false;
-        }
-    }
-
     public configure_media_session() {
         if (!('mediaSession' in navigator)) return;
 
@@ -126,6 +107,11 @@ class MusicMediaManager {
 
         navigator.mediaSession.setActionHandler('previoustrack', () => {
             this.playlist_manager?.previous();
+        });
+
+        navigator.mediaSession.setActionHandler('seekto', (event) => {
+            const seek_time = event.seekTime || 0;
+            this.seek_to(seek_time);
         });
     }
 

@@ -75,3 +75,233 @@
         }
     }
 }
+
+/* New styles for settings panel */
+.settings-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.genre-list {
+    width: 60%;
+}
+
+.settings-panel {
+    width: 80%;
+    padding: var(--space-4);
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+.panel-header .back {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text);
+    font-size: 16px;
+}
+
+.settings-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.setting-row {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+    border-radius: 8px;
+    background: var(--color-background-200);
+}
+
+.setting-row.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.setting-main {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.setting-main .label {
+    font-weight: 500;
+}
+
+.control {
+    margin-left: auto;
+}
+
+/* Simple switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input { 
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-background-100);
+  transition: .2s;
+  border-radius: 24px;
+}
+
+.switch input:checked + .slider {
+  background-color: var(--color-primary);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Notes container and individual notes */
+.notes-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+}
+
+.note {
+    display: flex;
+    align-items: flex-start;
+}
+
+.note-text {
+    font-size: 13px;
+    color: var(--color-neutral-600);
+    line-height: 1.4;
+}
+
+.note-text.info {
+    color: var(--color-neutral-600);
+}
+
+.note-text.warning {
+    color: var(--color-warning);
+    font-weight: 500;
+}
+
+/* Custom dropdown styles */
+.custom-dropdown {
+    position: relative;
+}
+
+.dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 6px 12px;
+    background: var(--color-background-100);
+    border: 1px solid var(--color-background-300);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--color-text);
+    transition: all 0.2s;
+    min-width: 180px;
+}
+
+.dropdown-trigger:hover {
+    background: var(--color-background-300);
+}
+
+.dropdown-trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.selected-label {
+    flex: 1;
+    text-align: left;
+}
+
+.dropdown-arrow {
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.custom-dropdown.expanded .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+/* Dropdown options list */
+.dropdown-options {
+    margin-top: var(--space-2);
+    padding: var(--space-2) 0;
+    background: var(--color-background-100);
+    border: 1px solid var(--color-background-300);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.dropdown-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.dropdown-option:hover {
+    background: var(--color-background-300);
+}
+
+.dropdown-option.selected {
+    background: var(--color-background-300);
+}
+
+.option-label {
+    flex: 1;
+    font-size: 14px;
+}
+
+.checkmark {
+    color: var(--color-primary);
+    font-weight: bold;
+    font-size: 16px;
+}
+
+/* info value (for type=info)
+ * keep simple */
+.info-value {
+    color: var(--color-neutral-600);
+}
+
+.empty {
+    padding: var(--space-4);
+    color: var(--color-neutral-500);
+}

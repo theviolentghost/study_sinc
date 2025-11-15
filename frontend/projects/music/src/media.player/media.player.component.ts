@@ -134,7 +134,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private get window_height(): number {
         return window.innerHeight;
     }
-    private velocityThreshold = 4;
+    private velocityThreshold = 2.5;
     private lastTouchTime = 0;
     private lastTouchY = 0;
 
@@ -376,8 +376,8 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         // Only allow downward dragging
         if (deltaY > 0) {
-            // Apply resistance
-            this.currentDragOffset = Math.min(deltaY * 0.8, window.innerHeight * 0.85);
+            // Apply - resistance
+            this.currentDragOffset = Math.min(deltaY * 1.2, window.innerHeight * 0.85);
             this.dragOffset = this.currentDragOffset;
             this.animationState = 'dragging';
 

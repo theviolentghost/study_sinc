@@ -1,6 +1,7 @@
 import Hls from 'hls.js';
 import { Events } from 'hls.js';
 import type { MediaAttachingData } from 'hls.js';
+import { SettingsService } from '../settings.service';
 
 class BufferController {
     private audio_element: HTMLMediaElement;
@@ -19,6 +20,7 @@ class BufferController {
     public events: EventTarget = new EventTarget();
     public has_audio: boolean = false;
     public fully_buffered: boolean = false;
+    private using_silent_source: boolean = false;
 
     get buffered_percent(): number {
         if (!this.audio_element || !this.media_source) return 0;
@@ -42,10 +44,10 @@ class BufferController {
     }
 
     private get is_safari(): boolean {
-        return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        return this.settings.is_safari;
     }
 
-    constructor() {
+    constructor(private settings: SettingsService) {
         console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
     }
 
@@ -179,10 +181,15 @@ class BufferController {
         });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
-            this.has_audio = data.type === 'audio' || this.has_audio;
+            if(!this.using_silent_source) {
+                this.has_audio = data.type === 'audio' || this.has_audio;
+            } else {
+                // non-silent source loaded, disable silent mode
+                this.using_silent_source = false;
+            }
 
-            console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
-            
+            // console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
+
             if (data.data && data.type === 'audio') {
                 const uint_8_data = new Uint8Array(data.data);
                 this.append_to_buffer(uint_8_data);
@@ -206,7 +213,12 @@ class BufferController {
                 const current_time = this.audio_element?.currentTime || 0;
                 const duration = this.audio_element?.duration || 0;
                 
-                if (duration > 0 && duration - current_time < 1) {
+                // 3 second threshold
+                if (duration > 0 && duration - current_time < 3) {
+
+                    if(this.using_silent_source) {
+                        this.current_time = 0; // Reset to start
+                    }
                     console.log('✅ Song finished, emitting end event');
                     
                     // Emit song end event so your app can skip to next track
@@ -243,8 +255,10 @@ class BufferController {
     public async load_and_play(url: string) {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
-        this.has_audio = false;
-        this.fully_buffered = false;
+        if(!this.using_silent_source) {
+            this.has_audio = false;
+            this.fully_buffered = false;
+        }
 
         if (this.is_first_track) {
             // ✅ FIRST TRACK
@@ -352,8 +366,9 @@ class BufferController {
             console.warn('⚠️ Audio element not set for silent source');
             return;
         }
+        this.using_silent_source = true;
 
-        this.load_and_play('/music/audio/silent/audio/master.m3u8');
+        await this.load_and_play('/music/audio/silent/audio/master.m3u8');
     }
 
     /**

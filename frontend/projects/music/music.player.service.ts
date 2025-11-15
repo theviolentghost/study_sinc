@@ -5,6 +5,7 @@ import BufferController from './media.player/buffer.controller';
 import MusicMediaManager from './media.player/media.manager';
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Playlist_Identifier } from './music.media.service';
 import { Skip_Event, Skip_Result } from './media.player/playlist.manager';
+import { SettingsService } from './settings.service';
 
 @Injectable({
   providedIn: 'root'
@@ -37,7 +38,7 @@ export class MusicPlayerService {
     }
     get player_status(): 'playing' | 'paused' | 'stopped' {
         // if(this.buffer_controller?.is_stalled) return 'stopped';
-        if(!this.media_controller?.audio_ready) return 'stopped';
+        if(!this.buffer_controller?.has_audio || this.buffer_controller?.using_silent_source) return 'stopped';
         if(this.buffer_controller?.is_playing) return 'playing';
         return 'paused';
     }
@@ -85,10 +86,10 @@ export class MusicPlayerService {
         return this.buffer_controller.buffered_percent;
     }
 
-    constructor(private media: MusicMediaService) {
-        this.buffer_controller = new BufferController();
+    constructor(private media: MusicMediaService, private settings: SettingsService) {
+        this.buffer_controller = new BufferController(this.settings);
         // Pass the buffer_controller to media_controller so they share the same instance
-        this.media_controller = new MusicMediaManager(this.media, this.buffer_controller);
+        this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller);
     }
 
     public play(): void {
@@ -116,6 +117,8 @@ export class MusicPlayerService {
             //     // dont skip, juts confirm length and that we are fully buffered
             //     return;
             // }
+
+            console.log('song_ended event received in MusicPlayerService:', customEvent.detail);
             
             // Auto-skip to next track
             if (
@@ -127,21 +130,10 @@ export class MusicPlayerService {
         });
 
         element.addEventListener('ended', () => {
-            console.log('ended event fired on audio element.');
-            // if(this.media_controller.buffer_controller.has_audio) {
-                // this.skip_to_next(Skip_Event.DEFAULT);
-            // }
-            
-            // this.skip_to_next(Skip_Event.DEFAULT);
-        });
-
-        element.addEventListener('loadeddata', () => {
-            console.log('Audio element loaded data.');
-            this.media_controller.on_data_loaded();
-        });
-
-        element.addEventListener('canplay', () => {
-            this.media_controller.on_data_loaded();
+            // for other browsers that dont need safari workaround
+            if(this.media_controller.buffer_controller.has_audio) {
+                this.skip_to_next(Skip_Event.DEFAULT);
+            }
         });
     }
 

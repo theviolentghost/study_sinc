@@ -190,18 +190,35 @@ class Adaptive_Stream {
     }
 
     setup_endpoints(app) {
+        // Enable CORS for all HLS requests
+        app.options('/hls/*', (req, res) => {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+            res.setHeader('Access-Control-Max-Age', '86400');
+            res.status(204).send();
+        });
+
         app.use('/hls', express.static(this.hls_root, {
-            setHeaders: (res, path) => {
-                if (path.endsWith('.m3u8')) {
+            setHeaders: (res, filePath) => {
+                // Set CORS headers for all files
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+                res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+                res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+                res.setHeader('Accept-Ranges', 'bytes');
+                
+                if (filePath.endsWith('.m3u8')) {
                     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                    res.setHeader('Access-Control-Allow-Origin', '*');
-                    res.setHeader('Access-Control-Allow-Headers', 'Range');
-                    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
-                } else if (path.endsWith('.ts')) {
-                    res.setHeader('Content-Type', 'video/mp2t');
-                    res.setHeader('Access-Control-Allow-Origin', '*');
-                    res.setHeader('Access-Control-Allow-Headers', 'Range');
-                    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+                    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                } else if (filePath.endsWith('.ts')) {
+                    // MPEG-TS segments for HLS
+                    res.setHeader('Content-Type', 'video/MP2T');
+                    res.setHeader('Cache-Control', 'public, max-age=31536000');
+                } else if (filePath.endsWith('.m4s') || filePath.endsWith('.mp4')) {
+                    // fMP4 segments (if you switch to fMP4 later)
+                    res.setHeader('Content-Type', 'video/mp4');
+                    res.setHeader('Cache-Control', 'public, max-age=31536000');
                 }
             }
         }));
