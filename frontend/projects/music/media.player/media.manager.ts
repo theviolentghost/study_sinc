@@ -189,7 +189,7 @@ class MusicMediaManager {
         }
 
         // pause current audio and reset silent audio state
-        this.buffer_controller.pause();
+        this.buffer_controller.set_audio_source_to_silent(); // request silent audio to stop current playback, b/c some browsers require user interaction to start audio again
         this.audio_ready = false;
 
         // song identifier must be set now

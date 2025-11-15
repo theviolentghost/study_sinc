@@ -64,7 +64,9 @@ class File_Manager {
         '/music/users.svg',
         '/music/world-search.svg',
         '/music/x.svg',
-        '/music/audio/constant_noise_30db_1min.mp3',
+        '/music/audio/silent/audio/master.m3u8',
+        '/music/audio/silent/audio/aac/ultra-low/32k.m3u8',
+        '/music/audio/silent/audio/aac/ultra-low/32k_0.ts',
     ];
     static STATIC_ASSET_DIRECTORIES = [
         '/music/app/'

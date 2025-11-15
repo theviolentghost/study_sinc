@@ -14,6 +14,11 @@ class BufferController {
     private codec = 'audio/mp4; codecs="mp4a.40.2"';
     
     private blob_url: string | null = null;
+    
+    // Event target for custom events
+    public events: EventTarget = new EventTarget();
+    public has_audio: boolean = false;
+    public fully_buffered: boolean = false;
 
     get buffered_percent(): number {
         if (!this.audio_element || !this.media_source) return 0;
@@ -174,6 +179,8 @@ class BufferController {
         });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
+            this.has_audio = data.type === 'audio' || this.has_audio;
+
             console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
             
             if (data.data && data.type === 'audio') {
@@ -182,8 +189,37 @@ class BufferController {
             }
         });
 
+        hls.on(Events.BUFFERED_TO_END, async () => {
+            console.log('✅ Buffer has reached end of stream');
+            console.log(this.media_source.sourceBuffers);
+
+            this.fully_buffered = true;
+        });
+
         hls.on(Events.ERROR, (event, data) => {
             console.error('❌ HLS Error:', data.details, 'fatal:', data.fatal);
+
+            if (data.details === 'bufferStalledError' && !data.fatal) {
+                console.log('🎵 Song appears to have ended (buffer stalled)');
+                
+                // Check if we're near the end of the track
+                const current_time = this.audio_element?.currentTime || 0;
+                const duration = this.audio_element?.duration || 0;
+                
+                if (duration > 0 && duration - current_time < 1) {
+                    console.log('✅ Song finished, emitting end event');
+                    
+                    // Emit song end event so your app can skip to next track
+                    const ev = new CustomEvent('song_ended', { 
+                        detail: { 
+                            current_time,
+                            duration,
+                            url: this.current_url
+                        } 
+                    });
+                    this.events.dispatchEvent(ev);
+                }
+            }
             
             if (data.fatal) {
                 switch (data.type) {
@@ -203,16 +239,12 @@ class BufferController {
         });
     }
 
+    private current_url: string = '';
     public async load_and_play(url: string) {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
-        console.log(url);
-        
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`🎵 Playing track: ${url}`);
-        console.log(`   Is first track: ${this.is_first_track}`);
-        console.log(`   Browser: ${this.is_safari ? 'Safari' : 'Chrome'}`);
-        console.log(`${'='.repeat(60)}\n`);
+        this.has_audio = false;
+        this.fully_buffered = false;
 
         if (this.is_first_track) {
             // ✅ FIRST TRACK
@@ -289,6 +321,7 @@ class BufferController {
 
         // Load new source
         this.hls.loadSource(url);
+        this.current_url = url;
         
         // Play
         try {
@@ -312,6 +345,15 @@ class BufferController {
                 throw error;
             }
         }
+    }
+
+    public async set_audio_source_to_silent(): Promise<void> {
+        if (!this.audio_element) {
+            console.warn('⚠️ Audio element not set for silent source');
+            return;
+        }
+
+        this.load_and_play('/music/audio/silent/audio/master.m3u8');
     }
 
     /**
