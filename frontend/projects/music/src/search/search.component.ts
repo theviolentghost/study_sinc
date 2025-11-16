@@ -302,7 +302,6 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
 
         this.player.pause();
         this.player.open_player.emit();
-        this.player.set_audio_ready_state(false);
 
         const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'spotify', source_id: video.id || video.uri || '', video_id: ''}));
         let track_data: Song_Data | null = cache || await this.hot_action.spotify_track_data(video);

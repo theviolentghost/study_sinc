@@ -3,7 +3,6 @@ import { Router } from '@angular/router';
 
 import { MusicMediaService, Song_Data, Song_Playlist, Song_Playlist_Identifier, Song_Identifier, DownloadQuality } from './music.media.service';
 import { MusicPlayerService } from './music.player.service';
-import { NotificationService } from './notification.service';
 
 @Injectable({
   providedIn: 'root'
@@ -21,7 +20,6 @@ export class PlaylistsService {
     selected_playlist_video_identifiers: Song_Identifier[] = [];
 
     private player?: MusicPlayerService;
-    private notification?: NotificationService;
     // sorting_method: 'recent_to_old' | 'old_to_recent' | 'alphabetical' = 'recent_to_old';
 
     constructor(
@@ -40,12 +38,12 @@ export class PlaylistsService {
         return this.player;
     }
 
-    private get notificationService(): NotificationService {
-        if (!this.notification) {
-            this.notification = this.injector.get(NotificationService);
-        }
-        return this.notification;
-    }
+    // private get notificationService(): NotificationService {
+    //     if (!this.notification) {
+    //         this.notification = this.injector.get(NotificationService);
+    //     }
+    //     return this.notification;
+    // }
 
     // checks to see if a playlist is stored (in playlist_identifiers or default_playlist_identifiers)
     public is_playlist_stored(playlist_identifier: Song_Playlist_Identifier): boolean {
@@ -227,7 +225,7 @@ export class PlaylistsService {
         await this.save_playlist(identifier, playlist);
         
         // Show notification
-        this.notificationService.show_notification(`Added "${identifier.name}"`);
+        // this.notificationService.show_notification(`Added "${identifier.name}"`);
     }
 
     async select_playlist(playlist: Song_Playlist_Identifier): Promise<void> {
@@ -275,7 +273,7 @@ export class PlaylistsService {
         await this.save_playlists();
 
         // Show notification
-        this.notificationService.show_notification(`Removed "${playlist_name}"`);
+        // this.notificationService.show_notification(`Removed "${playlist_name}"`);
 
         // If this was the selected playlist, clear selection and navigate away
         // if (this.selected_playlist_identifier?.id === playlist_identifier.id) {

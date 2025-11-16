@@ -3,6 +3,14 @@ import BufferController from "./buffer.controller";
 import { MusicMediaService, Song_Data, Song_Identifier } from "../music.media.service";
 import { Skip_Event } from "./playlist.manager";
 import { SettingsService } from "../settings.service";
+import { NotificationService } from "../src/app/services/notification.service";
+
+export enum Audio_Error {
+    UNKNOWN = 5000,
+    FETCH_VIDEO_ID = 5001,
+    FETCH_PLAYBACK_URL = 5002,
+    DOES_NOT_EXIST = 5003,
+}
 
 class MusicMediaManager {
     public playlist_manager: MusicPlaylistManager;
@@ -43,11 +51,20 @@ class MusicMediaManager {
         return this.buffer_controller.duration;
     }
 
-    constructor(private media: MusicMediaService, private settings: SettingsService, buffer_controller?: BufferController) {
+    constructor(private media: MusicMediaService, private settings: SettingsService, buffer_controller?: BufferController, private notification_service?: NotificationService) {
         // Use the provided BufferController or create a new one
         // This allows the service to share a single BufferController instance
         this.buffer_controller = buffer_controller || new BufferController(this.settings);
         this.playlist_manager = new MusicPlaylistManager(this.media, this);
+
+        this.buffer_controller.events.addEventListener('has_audio', () => {
+            if(this.want_to_play) {
+                this.play();
+            }
+            this.want_to_play = false;
+        });
+
+        this.shuffle = this.settings.shuffle_playback;
     }
 
     public update_shuffle_queue(): void {
@@ -63,9 +80,8 @@ class MusicMediaManager {
     }
 
     public want_to_play: boolean = false;
-    public audio_ready: boolean = false;
     public play(): void {
-        if(this.audio_ready) this.buffer_controller?.play();
+        if(this.buffer_controller.has_audio) this.buffer_controller?.play();
         else {
             // wait for audio
             this.want_to_play = true;
@@ -83,6 +99,7 @@ class MusicMediaManager {
     }
 
     public toggle_play(): void {
+        console.log('Toggling play state. Currently playing:', this.buffer_controller.is_playing);
         if (this.buffer_controller.is_playing) {
             this.pause();
         } else {
@@ -125,6 +142,21 @@ class MusicMediaManager {
 
     public seek_to(time: number): void {
         this.buffer_controller.current_time = time;
+        this.update_media_session_position();
+    }
+
+    public update_media_session_position(progress: number = this.current_time, duration: number = this.song_duration): void {
+        if (!('mediaSession' in navigator) || !('setPositionState' in navigator.mediaSession)) return;
+
+        try {
+            navigator.mediaSession.setPositionState({
+                duration: duration,
+                playbackRate: 1.0,
+                position: progress
+            });
+        } catch (error) {
+            console.error('Error updating media session position:', error);
+        }
     }
 
     private is_string(data: any): data is string {
@@ -149,6 +181,11 @@ class MusicMediaManager {
         throw new Error('Failed to create blob URL');
     }
 
+    private load_error(video_id: string, error: Audio_Error = Audio_Error.UNKNOWN): void {
+        this.notification_service.error(`${error} - Failed to load track: ${video_id}`);
+        this.playlist_manager.next(Skip_Event.FORCE);
+    }
+
     public async load_track(data: Song_Identifier | Song_Data | string): Promise<void> {
         let song_data: Song_Data | null = null;
         let song_identifier: Song_Identifier | null = null;
@@ -171,17 +208,18 @@ class MusicMediaManager {
             song_key = this.media.song_key(data.id);
         } else {
             console.error('Invalid data provided to load_track:', data);
+            this.load_error(song_key, Audio_Error.DOES_NOT_EXIST);
             return;
         }
 
         // pause current audio and reset silent audio state
         this.buffer_controller.set_audio_source_to_silent(); // request silent audio to stop current playback, b/c some browsers require user interaction to start audio again
-        this.audio_ready = false;
 
         // song identifier must be set now
         // and so should song_data if it was available in the cache
         if(!song_identifier) {
             console.error('No valid song identifier provided to load_track');
+            this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID);
             return;
         }
 
@@ -200,8 +238,12 @@ class MusicMediaManager {
 
             // load audio optimistically
             this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
-                if(!audio_source_url || audio_source_url === '' || !allow_optomistic_load) return;
+                if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL);
+                if(!allow_optomistic_load) return;
                 await this.buffer_controller.load_and_play(audio_source_url);
+            }).catch((error) => {
+                this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL);
+                console.error('Error fetching audio stream for', song_key, error);
             });
 
             try {
@@ -218,15 +260,18 @@ class MusicMediaManager {
                     return;
                 }
 
+                this.load_error(song_key, Audio_Error.DOES_NOT_EXIST);
                 return console.error('Could not load song data for', song_key);
             } catch (error) {
                 console.error('Error fetching song data for', song_key, error);
+                this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL);
                 return;
             }
         }
 
         // here song_data and song_identifier must be set
         this.update_media_session(song_data);
+        this.update_media_session_position(0, (song_data.video_duration / 1000) || 0);
         // this.song_changed.emit();
         
         // load audio source
@@ -248,9 +293,10 @@ class MusicMediaManager {
         // }
         else {
             this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
-                if(!audio_source_url || audio_source_url === '') throw new Error('No audio source URL retrieved');
+                if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL);
                 await this.buffer_controller.load_and_play(audio_source_url);
             }).catch((error) => {
+                this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL);
                 console.error('Error fetching audio stream for', song_key, error);
             });
         }
@@ -275,6 +321,10 @@ class MusicMediaManager {
                 metadata.url.artwork.low
             : '';
 
+        if(this.thumbnail_element && !artwork_url) {
+            this.notification_service?.warning('No artwork available for the current track.');
+        }
+
         this.thumbnail_element.src = artwork_url;
 
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -285,6 +335,9 @@ class MusicMediaManager {
                 { src: artwork_url, sizes: '512x512', type: 'image/png' }
             ]
         });
+
+        // Update position state when metadata changes
+        this.update_media_session_position();
     }
 }
 

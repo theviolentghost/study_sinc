@@ -63,18 +63,9 @@ class BufferController {
         this.audio_element.setAttribute('webkit-playsinline', 'true');
         
         // Safari needs these
-        if (this.is_safari) {
-            this.audio_element.setAttribute('controls', 'false');
-        }
-
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: 'heyo song',
-            artist: 'heyo',
-            album: '',
-            artwork: [
-                
-            ]
-        });
+        // if (this.is_safari) {
+        //     this.audio_element.setAttribute('controls', 'false');
+        // }
 
         await this.initialize_media_source();
     }
@@ -181,9 +172,13 @@ class BufferController {
         });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
+            if(!this.has_audio) {
+                this.events.dispatchEvent(new Event('has_audio'));
+                this.current_time = 0; // Reset to start, because hls may have accounted for initial silence
+            }
             if(!this.using_silent_source) {
                 this.has_audio = data.type === 'audio' || this.has_audio;
-            } else {
+            } else if(this.current_url.indexOf('silent') === -1) {
                 // non-silent source loaded, disable silent mode
                 this.using_silent_source = false;
             }
@@ -197,8 +192,8 @@ class BufferController {
         });
 
         hls.on(Events.BUFFERED_TO_END, async () => {
-            console.log('✅ Buffer has reached end of stream');
-            console.log(this.media_source.sourceBuffers);
+            // console.log('✅ Buffer has reached end of stream');
+            // console.log(this.media_source.sourceBuffers);
 
             this.fully_buffered = true;
         });
@@ -362,6 +357,8 @@ class BufferController {
     }
 
     public async set_audio_source_to_silent(): Promise<void> {
+        if(!this.is_safari) return; // Silent source only needed for Safari
+        if(this.using_silent_source) return; // Already using silent source
         if (!this.audio_element) {
             console.warn('⚠️ Audio element not set for silent source');
             return;

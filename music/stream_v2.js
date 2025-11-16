@@ -404,13 +404,18 @@ class Adaptive_Stream {
         try {
             // max 10 concurrent streams for now
             Promise.all(video_ids.slice(0, 10).map(async (video_id) => {
-                this.create_hls_stream(video_id, this.codecs, this.profile_progression);
-                if(video_id !== video_ids[0]) {
-                    // confirm stream creation for non-priority videos
-                    this.confirm_stream_creation(video_id, 25000);
+                try {
+                    await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                    if(video_id !== video_ids[0]) {
+                        // confirm stream creation for non-priority videos
+                        await this.confirm_stream_creation(video_id, 25000);
+                    }
+                } catch (error) {
+                    console.error(`Failed to create stream for ${video_id}:`, error.message);
+                    // Don't throw, just log - allow other streams to continue
                 }
             })).catch((error) => {
-                throw error;
+                console.error('Error in stream creation promises:', error);
             });
 
             // console.log(path.join(this.hls_raw_audio_directory, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`))

@@ -4,6 +4,7 @@ import { RouterOutlet, RouterModule, Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { MediaPlayerComponent } from '../media.player/media.player.component';
+import { NotificationContainerComponent } from './global/notification.container/notification.container.component';
 import { AuthService } from '../../../../src/app/auth.service';
 import { MusicMediaService, DownloadQuality } from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
@@ -17,6 +18,7 @@ import { GlobalInfoService } from '../../global.info.service';
         CommonModule,
         RouterOutlet,
         MediaPlayerComponent,
+        NotificationContainerComponent,
         RouterModule,
     ],
     templateUrl: './app.component.html',

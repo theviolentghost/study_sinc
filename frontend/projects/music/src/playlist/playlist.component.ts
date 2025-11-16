@@ -10,7 +10,7 @@ import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
 import { HotActionService } from '../../hot.action.service';
 import { SettingsService } from '../../settings.service';
-import { NotificationService, Notification } from '../../notification.service';
+import { NotificationService } from '../app/services/notification.service';
 
 @Component({
     selector: 'app-playlist',
@@ -78,10 +78,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         });
 
         // Subscribe to notification service
-        this.notification_service.notification$.subscribe((notification: Notification) => {
-            this.notification_message = notification.message;
-            this.notification_visible = notification.visible;
-        });
+        // this.notification_service.notification$.subscribe((notification: Notification) => {
+        //     this.notification_message = notification.message;
+        //     this.notification_visible = notification.visible;
+        // });
     }
 
     ngAfterViewInit(): void {
@@ -425,7 +425,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     private trigger_add_to_next(video: Song_Data | null): void {
         if (!video) return;
         this.player.add_song_to_play_next(video);
-        
+        this.notification_service.info(`Queued "${video.song_name}" to play next`, {stackable: false, dismissTime: 3000, icon: 'add-to-queue.svg'});
+
         // Trigger success animation
         this.play_add_to_next_animation();
         
@@ -1301,7 +1302,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         this.dont_play = true;
 
         this.hot_action.open_hot_action(video, 'spotify');
-        this.hot_action.action = 'add_to_playlist';
+        this.hot_action.action = 'song_options';
         this.swipe_x = 0;
         
     }
@@ -1378,10 +1379,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         if (this.is_playlist_stored) {
             this.playlists.delete_playlist(this.playlists.selected_playlist_identifier);
-            this.notification_service.show_notification(`Removed "${playlist_name}"`);
+            this.notification_service.info(`Removed "${playlist_name}"`, {stackable: false, dismissTime: 3000});
         } else {
             this.playlists.add_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist);
-            this.notification_service.show_notification(`Added "${playlist_name}"`);
+            this.notification_service.info(`Added "${playlist_name}"`, {stackable: false, dismissTime: 3000});
         }
     }
 }

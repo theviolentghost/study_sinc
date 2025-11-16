@@ -27,6 +27,7 @@ export interface Setting {
     label: string;
     type: SettingType;
     // current value for toggle/dropdown
+    hidden?: boolean; // for info type
     value?: any;
     // for dropdowns
     options?: SettingOption[];
@@ -86,13 +87,24 @@ export class SettingsComponent {
                     value: this.settings_service.is_safari, // default
                     notes: [
                         { text: 'Useful for bypassing Safari web playing restrictions', severity: 'info' },
-                        { text: 'Setting is experimental. Avoid changing.', severity: 'warning' }
+                        { text: 'Setting is experimental. Avoid changing. \nOn change, reload the app to apply.', severity: 'warning' }
                     ],
                     onChange: (value: boolean) => {
                         this.settings_service.is_safari = value;
                         this.save_settings_to_local_storage();
                     }
                 },
+                // {
+                //     id: 'shuffle_playback',
+                //     label: 'Shuffle playback',
+                //     type: 'toggle',
+                //     hidden: true, // hide from UI, changed through other means
+                //     value: this.settings_service.shuffle_playback,
+                //     onChange: (value: boolean) => {
+                //         this.settings_service.shuffle_playback = value;
+                //         this.save_settings_to_local_storage();
+                //     }
+                // }
                 // { 
                 //     id: 'silent_quality', 
                 //     label: 'Silent audio quality', 
@@ -293,5 +305,63 @@ export class SettingsComponent {
     public getSettingNotes(s: Setting): SettingNote[] {
         if (!s.notes) return [];
         return Array.isArray(s.notes) ? s.notes : [s.notes];
+    }
+
+    /**
+     * Public method to programmatically update a setting from external components
+     * @param settingId - The ID of the setting to update
+     * @param newValue - The new value for the setting
+     * @param optionIndex - Optional: for dropdown settings, the index of the selected option
+     * @returns true if setting was found and updated, false otherwise
+     */
+    public update_setting(settingId: string, newValue: any, optionIndex?: number): boolean {
+        // Search through all genres to find the setting
+        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+            const setting = settings.find(s => s.id === settingId);
+            if (setting) {
+                // Don't update if setting is disabled due to dependencies
+                if (this.isSettingDisabled(setting)) {
+                    console.warn(`Setting ${settingId} is disabled due to dependency and cannot be updated`);
+                    return false;
+                }
+                
+                // Update the setting
+                this.onSettingChange(setting, newValue, optionIndex);
+                return true;
+            }
+        }
+        
+        console.warn(`Setting with id ${settingId} not found`);
+        return false;
+    }
+
+    /**
+     * Public method to get the current value of a setting
+     * @param settingId - The ID of the setting to retrieve
+     * @returns The current value of the setting, or undefined if not found
+     */
+    public getSetting(settingId: string): any {
+        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+            const setting = settings.find(s => s.id === settingId);
+            if (setting) {
+                return setting.value;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Public method to get a setting object by ID
+     * @param settingId - The ID of the setting to retrieve
+     * @returns The setting object, or undefined if not found
+     */
+    public getSettingObject(settingId: string): Setting | undefined {
+        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+            const setting = settings.find(s => s.id === settingId);
+            if (setting) {
+                return setting;
+            }
+        }
+        return undefined;
     }
 }

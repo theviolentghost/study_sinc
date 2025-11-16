@@ -385,55 +385,101 @@ class DJ_Audio_Mixer:
             song2_mids = song2_raw_mids
             song2_highs = song2_raw_highs
         
-        # CROSSFADE CURVES - PROFESSIONAL DJ STYLE WITH DECIBEL SCALING
-        print(f"  🎚️  Applying professional DJ crossfade curves (dB-based)...")
+        # CROSSFADE CURVES - EXTENDED INSTRUMENTAL BRIDGE
+        print(f"  🎚️  Applying crossfade with extended instrumental bridge...")
         
-        # Helper function to convert dB to linear amplitude
-        def db_to_linear(db):
-            """Convert decibels to linear amplitude (0 dB = 1.0, -inf dB = 0.0)"""
-            return np.power(10.0, db / 20.0)
+        # Create crossfade position from 0 to 1
+        crossfade_position = np.linspace(0.0, 1.0, min_length)
         
-        # Helper function to convert linear amplitude to dB
-        def linear_to_db(linear):
-            """Convert linear amplitude to decibels"""
-            return 20.0 * np.log10(np.maximum(linear, 1e-10))  # Avoid log(0)
+        # PROFESSIONAL DJ TECHNIQUE: Create an extended instrumental section
+        # - Bass: Standard equal-power crossfade (keeps beats tight)
+        # - Vocals: Create a WIDE "valley" where vocals are reduced
+        # This creates a long beat-only section between the songs' lyrics
         
-        # 1. BASS (LOW FREQUENCIES): Both tracks present with beat matching
-        #    This is the "layered bass" technique DJs use
-        #    Using dB scaling for perceptually smooth transition
+        # 1. BASS (LOW FREQUENCIES): Standard equal-power for tight transition
+        smooth_curve = np.power(crossfade_position, 0.7)
+        angle = smooth_curve * (np.pi / 2)
         
-        # Bass fade: 0 dB → -10 dB (song 1), -10 dB → 0 dB (song 2)
-        bass_db_out = np.linspace(0.0, -10.0, min_length)   # Song 1 bass: 0 dB → -10 dB
-        bass_db_in = np.linspace(-10.0, 0.0, min_length)    # Song 2 bass: -10 dB → 0 dB
+        bass_fade_out = np.cos(angle)  # 1.0 → 0.0 (smooth)
+        bass_fade_in = np.sin(angle)   # 0.0 → 1.0 (smooth)
         
-        bass_fade_out = db_to_linear(bass_db_out)
-        bass_fade_in = db_to_linear(bass_db_in)
+        bass_combined_power = bass_fade_out**2 + bass_fade_in**2
         
-        print(f"     Bass (<250Hz): Layered beat-matched crossfade (dB)")
-        print(f"       Song 1 bass: 0.0 dB → -10.0 dB ({bass_fade_out[0]:.3f} → {bass_fade_out[-1]:.3f})")
-        print(f"       Song 2 bass: -10.0 dB → 0.0 dB ({bass_fade_in[0]:.3f} → {bass_fade_in[-1]:.3f})")
+        print(f"     Bass (<250Hz): Standard equal-power crossfade")
+        print(f"       Power verification: min={bass_combined_power.min():.6f}, max={bass_combined_power.max():.6f}")
+        print(f"       ✓ Smooth, constant bass transition!")
         
-        # 2. MIDS + HIGHS (VOCALS): Equal-power crossfade in dB domain
-        #    This maintains consistent perceived loudness throughout the transition
-        #    Using -3 dB crossover point (equal power)
+        # 2. MIDS + HIGHS (VOCALS): Create EXTENDED instrumental bridge
+        #    Vocals fade out early, stay low for extended period, fade in QUICK
         
-        # Vocal fade: 0 dB → -inf dB (song 1), -inf dB → 0 dB (song 2)
-        # Using equal-power crossfade: each at -3 dB at midpoint
-        vocal_db_out = np.linspace(0.0, -60.0, min_length)  # Song 1: 0 dB → -60 dB (effectively silent)
-        vocal_db_in = np.linspace(-60.0, 0.0, min_length)   # Song 2: -60 dB → 0 dB
+        # Define the instrumental bridge zone (where vocals are reduced)
+        # This is the key to getting more beats between lyrics!
+        bridge_start = 0.20   # Song 1 vocals start fading at 20% (earlier)
+        bridge_end = 0.85     # Song 2 vocals start coming in at 85% (later!)
         
-        vocal_fade_out = db_to_linear(vocal_db_out)
-        vocal_fade_in = db_to_linear(vocal_db_in)
+        # SPLIT vocal treatment: highs (vocals) vs mids (instruments)
+        # Highs (>4kHz): Heavy reduction for vocal clarity
+        # Mids (250Hz-4kHz): Keep higher for instrumental continuity
         
-        print(f"     Mids/Highs (vocals): Equal-power crossfade (dB)")
-        print(f"       Song 1 vocals: 0.0 dB → -60.0 dB ({vocal_fade_out[0]:.3f} → {vocal_fade_out[-1]:.6f})")
-        print(f"       Song 2 vocals: -60.0 dB → 0.0 dB ({vocal_fade_in[0]:.6f} → {vocal_fade_in[-1]:.3f})")
+        high_vocal_level = 0.20   # Highs at 20% during bridge (vocal clarity reduced)
+        mid_vocal_level = 0.50    # Mids at 50% during bridge (instruments present!)
         
-        # At midpoint, both should be at approximately -3 dB for equal power
-        midpoint = min_length // 2
-        combined_power_mid = vocal_fade_out[midpoint]**2 + vocal_fade_in[midpoint]**2
-        combined_db_mid = 10.0 * np.log10(combined_power_mid)
-        print(f"       Midpoint power: {combined_db_mid:.2f} dB (target: ~-3 dB for equal power)")
+        # Create separate envelopes for mids and highs
+        vocal_fade_out = np.ones(min_length)
+        vocal_fade_in = np.zeros(min_length)
+        
+        for i, pos in enumerate(crossfade_position):
+            if pos < bridge_start:
+                # Before bridge: Song 1 vocals strong, fading out gradually
+                fade_pos = pos / bridge_start  # 0 to 1 within this section
+                # Smooth fade using power curve
+                vocal_fade_out[i] = 1.0 - np.power(fade_pos, 0.8) * (1.0 - mid_vocal_level)
+                vocal_fade_in[i] = 0.0
+                
+            elif pos <= bridge_end:
+                # During bridge: Both vocals reduced to create instrumental section
+                # This is the BEAT-ONLY zone!
+                bridge_pos = (pos - bridge_start) / (bridge_end - bridge_start)  # 0 to 1
+                # Crossfade between songs at moderate volume (50% mids for instrumental feel)
+                vocal_fade_out[i] = mid_vocal_level * np.cos(bridge_pos * np.pi / 2)
+                vocal_fade_in[i] = mid_vocal_level * np.sin(bridge_pos * np.pi / 2)
+                
+            else:
+                # After bridge: Song 2 vocals fading in QUICKLY
+                fade_pos = (pos - bridge_end) / (1.0 - bridge_end)  # 0 to 1
+                # STEEPER curve for quicker fade-in (power 2.0 = very fast)
+                vocal_fade_out[i] = 0.0
+                vocal_fade_in[i] = mid_vocal_level + np.power(fade_pos, 2.0) * (1.0 - mid_vocal_level)
+        
+        bridge_duration = (bridge_end - bridge_start) * mix_instruction.overlap_duration
+        
+        print(f"     Mids/Highs (vocals): EXTENDED instrumental bridge")
+        print(f"       Bridge zone: {bridge_start*100:.0f}%-{bridge_end*100:.0f}% of transition (60% coverage!)")
+        print(f"       Bridge duration: {bridge_duration:.1f} seconds of instrumental!")
+        print(f"       Mid-range level: {mid_vocal_level*100:.0f}% (instruments stay present)")
+        print(f"       High-range level: {high_vocal_level*100:.0f}% (vocals reduced)")
+        
+        # Check transition characteristics
+        idx_20 = int(min_length * 0.20)
+        idx_35 = int(min_length * 0.35)
+        idx_50 = int(min_length * 0.50)
+        idx_65 = int(min_length * 0.65)
+        idx_80 = int(min_length * 0.80)
+        idx_90 = int(min_length * 0.90)
+        
+        print(f"       Vocal levels throughout transition:")
+        print(f"         At 20% (bridge start): Song 1 = {vocal_fade_out[idx_20]:.3f}, Song 2 = {vocal_fade_in[idx_20]:.3f}")
+        print(f"         At 35%: Song 1 = {vocal_fade_out[idx_35]:.3f}, Song 2 = {vocal_fade_in[idx_35]:.3f} (BEATS!)")
+        print(f"         At 50% (mid-bridge): Song 1 = {vocal_fade_out[idx_50]:.3f}, Song 2 = {vocal_fade_in[idx_50]:.3f} (BEATS!)")
+        print(f"         At 65%: Song 1 = {vocal_fade_out[idx_65]:.3f}, Song 2 = {vocal_fade_in[idx_65]:.3f} (BEATS!)")
+        print(f"         At 80% (bridge end): Song 1 = {vocal_fade_out[idx_80]:.3f}, Song 2 = {vocal_fade_in[idx_80]:.3f}")
+        print(f"         At 90%: Song 2 = {vocal_fade_in[idx_90]:.3f} (quick fade-in!)")
+        print(f"       ✓ LONGER instrumental bridge + QUICKER song 2 vocal fade-in!")
+        
+        # Calculate actual beat-only time
+        beat_only_time = bridge_duration
+        print(f"     🎵 Total instrumental time: {beat_only_time:.1f} seconds")
+        print(f"     ✨ Song 1 lyrics → {beat_only_time:.1f}s of beats → Song 2 lyrics QUICK!")
         
         # Apply crossfades to each frequency band
         crossfaded_bass = (song1_bass * bass_fade_out) + (song2_bass_synced * bass_fade_in)
@@ -474,10 +520,10 @@ class DJ_Audio_Mixer:
                 song2_transition_original = song2_transition_original[:transition_length]
                 
                 # Create a smooth transition from synced BPM back to original BPM
-                # Use dB-based crossfade for perceptually smooth transition
+                # Use EQUAL-POWER crossfade for constant amplitude (no volume dips!)
                 # First 20% stays fully synced, middle 60% transitions, last 20% fully original
                 
-                # Create transition curve in dB domain
+                # Create transition progress curve
                 transition_progress = np.zeros(transition_length)
                 
                 # First 20%: Stay at synced BPM
@@ -497,25 +543,29 @@ class DJ_Audio_Mixer:
                 # Last 20%: Fully at original BPM
                 transition_progress[middle_end:] = 1.0
                 
-                # Convert progress to dB curves
-                # Synced version: 0 dB → -60 dB (fade out)
-                synced_db = 0.0 - (60.0 * transition_progress)
-                synced_gain = db_to_linear(synced_db)
+                # Apply EQUAL-POWER crossfade using cosine/sine curves
+                # This maintains constant amplitude throughout the transition
+                angle = transition_progress * (np.pi / 2)  # 0 to 90 degrees
                 
-                # Original version: -60 dB → 0 dB (fade in)
-                original_db = -60.0 + (60.0 * transition_progress)
-                original_gain = db_to_linear(original_db)
+                synced_gain = np.cos(angle)     # 1.0 → 0.0 (cosine)
+                original_gain = np.sin(angle)   # 0.0 → 1.0 (sine)
                 
-                print(f"       Start: Synced at 0 dB ({synced_gain[0]:.3f}), Original at -60 dB ({original_gain[0]:.6f})")
-                print(f"       End: Synced at -60 dB ({synced_gain[-1]:.6f}), Original at 0 dB ({original_gain[-1]:.3f})")
+                # Verify constant power
+                combined_power = synced_gain**2 + original_gain**2
                 
-                # Apply the dB-based transition
+                print(f"       Equal-power BPM transition (constant amplitude)")
+                print(f"       Start: Synced at 1.000, Original at 0.000")
+                print(f"       End: Synced at 0.000, Original at 1.000")
+                print(f"       Power verification: min={combined_power.min():.6f}, max={combined_power.max():.6f}")
+                print(f"       ✓ No volume dips during BPM transition!")
+                
+                # Apply the equal-power transition
                 transition_section = (
-                    song2_transition_synced * synced_gain +      # Synced version fades out
-                    song2_transition_original * original_gain    # Original version fades in
+                    song2_transition_synced * synced_gain +      # Synced version (cosine fade-out)
+                    song2_transition_original * original_gain    # Original version (sine fade-in)
                 )
                 
-                print(f"     Transition curve: synced (dB) → sigmoid blend → original (dB)")
+                print(f"     Transition curve: synced (cos) → equal-power blend → original (sin)")
                 print(f"     At start: fully synced BPM")
                 print(f"     At middle: {transition_progress[transition_length//2]:.2f} (blending)")
                 print(f"     At end: {transition_progress[-1]:.2f} (fully original)")

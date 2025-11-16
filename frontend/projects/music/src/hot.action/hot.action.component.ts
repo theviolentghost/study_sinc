@@ -41,6 +41,7 @@ export class HotActionComponent {
             case 'add_to_playlist': return '';
             case 'create_playlist': return 'Create Playlist';
             case 'import_playlist': return 'Import Playlist';
+            case 'song_options': return this.song_data ? `Options for "${this.song_data.song_name}"` : 'Song Options';
             default: return 'Hot Action';
         }
     }

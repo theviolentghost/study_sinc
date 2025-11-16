@@ -24,6 +24,7 @@
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.25s ease-in-out;
+        display: none;
     }
 
     &.dragged {
@@ -36,6 +37,7 @@
     .dimmer {
         pointer-events: auto;
         opacity: 1;
+        display: block;
     }
 }
 
@@ -122,7 +124,7 @@
 .preview, .action {
     position: relative;
     width: 80%;
-    height: 60px;
+    height: 80px;
     border-bottom: solid 1px var(--color-background-300);
     overflow: hidden;
     display: flex;
@@ -243,7 +245,7 @@
     text-align: left;
 }
 .preview .info .title {
-    font-size: calc(1.2 * var(--font-size-base));
+    font-size: calc(1 * var(--font-size-base));
     font-weight: 500;
     color: var(--color-text);
     display: -webkit-box;           /* REQUIRED */

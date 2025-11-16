@@ -29,6 +29,7 @@ def test_dj_mix_pipe():
     # Get available songs
     # songs = decoder.get_available_songs()
     songs = ['DXnS8mqUDyQ', 'oygrmJFKYZY']
+    # songs = ['QaTRB-2kR0U', '2RIX4bb2Sgc']
     if len(songs) < 2:
         print("❌ Need at least 2 songs to test mixing")
         return False

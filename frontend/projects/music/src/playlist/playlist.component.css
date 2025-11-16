@@ -1106,6 +1106,7 @@
         font-weight: 600;
         word-wrap: none;
         white-space: nowrap;
+        touch-action: none;
     }
 
     &.hide-label::before {

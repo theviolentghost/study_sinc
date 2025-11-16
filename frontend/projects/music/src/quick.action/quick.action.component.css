@@ -25,6 +25,7 @@
         z-index: -1;
         pointer-events: none;
         opacity: 0;
+        display: none;
         transition: opacity 0.25s ease-in-out;
     }
 
@@ -38,6 +39,7 @@
     .dimmer {
         pointer-events: auto;
         opacity: 1;
+        display: block;
     }
 }
 .dot {

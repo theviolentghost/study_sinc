@@ -6,6 +6,7 @@ import MusicMediaManager from './media.player/media.manager';
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Playlist_Identifier } from './music.media.service';
 import { Skip_Event, Skip_Result } from './media.player/playlist.manager';
 import { SettingsService } from './settings.service';
+import { NotificationService } from './src/app/services/notification.service';
 
 @Injectable({
   providedIn: 'root'
@@ -86,10 +87,10 @@ export class MusicPlayerService {
         return this.buffer_controller.buffered_percent;
     }
 
-    constructor(private media: MusicMediaService, private settings: SettingsService) {
+    constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService) {
         this.buffer_controller = new BufferController(this.settings);
         // Pass the buffer_controller to media_controller so they share the same instance
-        this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller);
+        this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller, this.notification_service);
     }
 
     public play(): void {
@@ -135,10 +136,6 @@ export class MusicPlayerService {
                 this.skip_to_next(Skip_Event.DEFAULT);
             }
         });
-    }
-
-    public set_audio_ready_state(ready: boolean): void {
-        this.media_controller.audio_ready = ready;
     }
 
     public set_thumbnail_element(element: HTMLImageElement): void {

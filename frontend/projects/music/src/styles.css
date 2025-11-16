@@ -34,6 +34,7 @@
     --color-primary: hsl(38, 100%, 50%);
 
     --color-deny:rgb(185, 18, 18);
+    --color-warning: hsl(49, 100%, 50%);
     --color-success: hsl(142, 100%, 41%);
     --default-primary-color: hsl(38, 100%, 60%);
 }
