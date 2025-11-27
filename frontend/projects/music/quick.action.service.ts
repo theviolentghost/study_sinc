@@ -214,7 +214,7 @@ export class QuickActionService {
         }
         
         if (hex.length !== 6) {
-            console.warn(`Invalid color format: ${color}`);
+            // console.warn(`Invalid color format: ${color}`);
             return null;
         }
         

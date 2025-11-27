@@ -213,10 +213,14 @@ export class PlaylistsService {
         return updated_indentifier;
     }
 
+    public playlist_exists(identifier: Song_Playlist_Identifier): boolean {
+        return this.all_playlist_identifiers.find(p => p.id === identifier.id) !== undefined;
+    }
+
     async add_playlist(identifier: Song_Playlist_Identifier, playlist: Song_Playlist): Promise<void> {
         if (!identifier || !playlist) return;
 
-        if (this.all_playlist_identifiers.find(p => p.id === identifier.id)) {
+        if (this.playlist_exists(identifier)) {
             console.warn(`Playlist with id "${identifier.id}" already exists.`);
             return;
         }
@@ -291,15 +295,27 @@ export class PlaylistsService {
         return playlist;
     }
 
-    async load_playlist(playlist_identifier: Song_Playlist_Identifier): Promise<void> {
-        const playlist = await this.media.get_playlist_from_indexDB(playlist_identifier);
-        if (!playlist) return;
+    async get_playlist_identifier(playlist_id: string): Promise<Song_Playlist_Identifier | null> {
+        const playlist_identifier = this.all_playlist_identifiers.find(p => p.id === playlist_id);
+        if (!playlist_identifier) return null;
+        return playlist_identifier;
+    }
+
+    async load_playlist(playlist_identifier: Song_Playlist_Identifier, playlist?: Song_Playlist): Promise<void> {
+        if (!playlist_identifier) return;
+
+        if (!playlist) {
+            playlist = await this.get_playlist(playlist_identifier);
+            if (!playlist) return console.warn('Playlist not found:', playlist_identifier);
+        }
+
         // find proper identifier in playlist_identifiers
         const existing_identifier = this.all_playlist_identifiers.find(p => p.id === playlist_identifier.id);
         console.log('Loading playlist:', playlist_identifier, 'Existing identifier:', existing_identifier);
         this.selected_playlist_identifier = existing_identifier ?? playlist_identifier; // Use existing identifier if available, otherwise use the provided one as default 
         this.selected_playlist = playlist;
         this.selected_playlist_video_identifiers = Array.from(playlist.songs.values());
+        console.log('Loaded playlist:', this.selected_playlist_identifier, this.selected_playlist, this.selected_playlist_video_identifiers);
         // this.playerService.load_playlist(playlist, false, false); // Use playerService instead of this.player
     }
 

@@ -245,7 +245,7 @@
         <ng-container [ngTemplateOutlet]="normal_header"></ng-container>
         <div class="playlist_options">
             <div class="option title">Playlist Options</div>
-            <div class="option" *ngFor="let option of playlist_options" (click)="select_playlist_option(option[0], !(option[3] === 'false' && is_default_playlist))" [ngClass]="{disabled: option[3] === 'false' && is_default_playlist}">
+            <div class="option" *ngFor="let option of playlist_options" (click)="select_playlist_option(option[0], !(option[3] === 'false' && is_default_playlist) && !(option[0] === 'Playlist Color' && is_album_playlist))" [ngClass]="{disabled: (option[3] === 'false' && is_default_playlist) || (option[0] === 'Playlist Color' && is_album_playlist)}">
                 <div class="icon" [style.--mask]="'url(\'' + option[1] + '\')'" [style.--color]="option[2] === '#playlist_color' ? playlist_view_color || 'var(--color-primary)' : option[2]"></div>
                 <span [style.color]="option[0] === 'Delete Playlist' ? 'var(--color-deny)' : 'inherit'">{{ option[0] }}</span>
             </div>

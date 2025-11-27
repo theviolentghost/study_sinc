@@ -12,7 +12,6 @@ export class HotActionService {
     @Output() hot_action_opened: EventEmitter<boolean> = new EventEmitter<boolean>();
     _hot_action_open: boolean = false;
     song_data: Song_Data | null = null;
-    meta_song_data: Song_Data | null = null;
     action: string = 'add_to_playlist';
 
     get hot_action_open(): boolean {
@@ -65,7 +64,7 @@ export class HotActionService {
             }
             case 'spotify': {
                 // get bare minimum data from spotify video object
-                this.meta_song_data = await this.spotify_track_data_bare(video);
+                this.song_data = await this.spotify_track_data_bare(video);
 
                 const video_data = await this.spotify_track_data(video);
                 const id = video_data?.id;
@@ -126,6 +125,7 @@ export class HotActionService {
     async spotify_track_data(video: any): Promise<Song_Data | null> {
         const video_uri = video.uri;
         if (!video_uri) return null;
+        const spotify_id = video.id || video.uri.split(':').pop();
 
         const video_id = await this.media.get_video_id_from_spotify_uri(video_uri);
 
@@ -144,7 +144,7 @@ export class HotActionService {
                 download_options: null,
                 id: {
                     video_id: video_id,
-                    source_id: video.id || video_uri || '', 
+                    source_id: spotify_id || '',
                     source: 'spotify',
                 },
                 url: {
@@ -164,8 +164,9 @@ export class HotActionService {
             }
     }
 
-    async spotify_track_data_bare(video: any): Promise<Song_Data | null> {
+    public spotify_track_data_bare(video: any): Song_Data {
         const video_uri = video.uri;
+        const spotify_id = video.id || video.uri.split(':').pop();
         if (!video_uri) return null;
 
         return {
@@ -178,7 +179,7 @@ export class HotActionService {
             download_options: null,
             id: {
                 video_id: '',
-                source_id: video_uri || '', 
+                source_id: spotify_id || '', 
                 source: 'spotify',
             },
             url: {

@@ -290,7 +290,7 @@ export class ArtistComponent implements OnInit {
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;
-            this.player.current = track_data; 
+            this.player.set_current_song(track_data); 
             this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
         }
     }

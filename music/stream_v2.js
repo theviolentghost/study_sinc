@@ -292,9 +292,30 @@ class Adaptive_Stream {
                 return res.status(200).json({ ...session_response, success: true });
             } catch(error) {
                 console.error('Error during session request:', error.message);
-                console.error('Stack trace:', error.stack);
-                return res.status(500).json({ 
-                    error: error.message || 'Internal server error', 
+                
+                // Determine appropriate status code based on error type
+                let status_code = 500;
+                let error_type = 'internal_error';
+                
+                if (error.message.includes('not found') || 
+                    error.message.includes('unavailable') ||
+                    error.message.includes('does not exist')) {
+                    status_code = 404;
+                    error_type = 'video_not_found';
+                } else if (error.message.includes('forbidden') || 
+                           error.message.includes('403') ||
+                           error.message.includes('not accessible')) {
+                    status_code = 403;
+                    error_type = 'access_forbidden';
+                } else if (error.message.includes('timeout') || 
+                           error.message.includes('Timeout')) {
+                    status_code = 504;
+                    error_type = 'timeout';
+                }
+                
+                return res.status(status_code).json({ 
+                    error: error.message || 'Internal server error',
+                    error_type,
                     success: false 
                 });
             }
@@ -581,14 +602,22 @@ class Adaptive_Stream {
             last_accessed: Date.now(),
         });
 
+        let audio_process = null;
+        let ffmpeg_process = null;
+
         try {
             const create_audio_metadata = async () => {
-                const json_dump_data = await this.get_json_dump(video_id);
-                this.create_properties_json(video_id, { permanent: false }, json_dump_data);
-                // this.create_lyrics_vtt(video_id, json_dump_data);
-                // replace with custom json data format 
+                try {
+                    const json_dump_data = await this.get_json_dump(video_id);
+                    await this.create_properties_json(video_id, { permanent: false }, json_dump_data);
+                    // this.create_lyrics_vtt(video_id, json_dump_data);
+                    // replace with custom json data format 
+                } catch (error) {
+                    console.warn(`Failed to create metadata for ${video_id}:`, error.message);
+                    // Non-fatal error - continue without metadata
+                }
             }
-            create_audio_metadata();
+            create_audio_metadata(); // Don't await - run in background
 
             // ensure the session directory folders and raw audio directory folders
             await this.ensure_directories([
@@ -600,10 +629,11 @@ class Adaptive_Stream {
             ]);
             const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
             await this.write_master_playlist(path.join(this.hls_raw_audio_directory, video_id, 'audio'), master_playlist);
+            
             // const audio_process = await this.get_video_audio_url(video_id);
             // console.log(`Obtained audio stream for video ID ${video_id} - url: ${audio_process}`);
-            const audio_process = await this.create_yt_dlp_process(video_id); // use inital video to create the HLS stream
-            const ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id, 'audio'), video_id, available_codecs, available_profiles);
+            audio_process = await this.create_yt_dlp_process(video_id); // use inital video to create the HLS stream
+            ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id, 'audio'), video_id, available_codecs, available_profiles);
 
             // Wait for first segment - use a specific profile to check
             const first_profile = available_profiles[0]; // 'ultra-low'
@@ -619,8 +649,33 @@ class Adaptive_Stream {
             return ffmpeg_process;
         } catch (error) {
             // cleanup on failure
-            this.delete_raw_audio(video_id);
             console.error(`Error creating HLS stream for video ID ${video_id}:`, error.message);
+            
+            // Kill any running processes
+            try {
+                if (audio_process && audio_process.kill) {
+                    audio_process.kill('SIGTERM');
+                }
+            } catch (killError) {
+                console.warn(`Failed to kill yt-dlp process for ${video_id}:`, killError.message);
+            }
+            
+            try {
+                if (ffmpeg_process && ffmpeg_process.kill) {
+                    ffmpeg_process.kill('SIGTERM');
+                }
+            } catch (killError) {
+                console.warn(`Failed to kill ffmpeg process for ${video_id}:`, killError.message);
+            }
+            
+            // Cleanup audio data
+            this.audio_data.delete(video_id);
+            
+            // Delete files (non-blocking)
+            this.delete_raw_audio(video_id).catch(deleteError => {
+                console.warn(`Failed to cleanup audio files for ${video_id}:`, deleteError.message);
+            });
+            
             throw error;
         }
     }
@@ -907,15 +962,54 @@ class Adaptive_Stream {
         }
 
         return new Promise((resolve, reject) => {
+            let resolved = false;
+            
+            // Add timeout for FFmpeg startup
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    try {
+                        ffmpeg_process.kill('SIGTERM');
+                    } catch (e) {
+                        // Ignore kill errors
+                    }
+                    reject(new Error(`FFmpeg timeout for video ${video_id}`));
+                }
+            }, 30000); // 30 second timeout
+            
             ffmpeg_process
                 .on('end', () => {
-                    resolve({
-                        process: ffmpeg_process,
-                        duration: null, // to do: calculate duration
-                    });
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        resolve({
+                            process: ffmpeg_process,
+                            duration: null, // to do: calculate duration
+                        });
+                    }
                 })
                 .on('error', (err, stdout, stderr) => {
-                    reject(new Error(`FFmpeg failed: I/O error - '${video_id}' may not exist`));
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        
+                        const error_message = err.message || '';
+                        const stderr_message = stderr || '';
+                        
+                        // Check for specific error types
+                        if (error_message.includes('SIGTERM') || error_message.includes('SIGKILL')) {
+                            reject(new Error(`FFmpeg was terminated for video ${video_id}`));
+                        } else if (stderr_message.includes('Invalid data found') || 
+                                   stderr_message.includes('moov atom not found') ||
+                                   error_message.includes('I/O error')) {
+                            reject(new Error(`Video ${video_id} has invalid or inaccessible audio data`));
+                        } else if (stderr_message.includes('403') || 
+                                   stderr_message.includes('Forbidden')) {
+                            reject(new Error(`Access forbidden for video ${video_id}`));
+                        } else {
+                            reject(new Error(`FFmpeg failed for video ${video_id}: ${error_message}`));
+                        }
+                    }
                 })
                 .run();
         });
@@ -1063,6 +1157,13 @@ class Adaptive_Stream {
                 let stdout_data = '';
                 let stderr_data = '';
 
+                const timeout = setTimeout(() => {
+                    if (process && !process.killed) {
+                        process.kill('SIGTERM');
+                    }
+                    reject(new Error(`Timeout getting JSON dump for ${video_id}`));
+                }, 15000); // 15 second timeout
+
                 process.stdout.on('data', (data) => {
                     stdout_data += data.toString();
                 });
@@ -1072,6 +1173,7 @@ class Adaptive_Stream {
                 });
 
                 process.on('close', (code) => {
+                    clearTimeout(timeout);
                     if (code === 0) {
                         try {
                             const json_data = JSON.parse(stdout_data);
@@ -1080,11 +1182,26 @@ class Adaptive_Stream {
                             reject(new Error(`Failed to parse yt-dlp JSON output: ${err.message}`));
                         }
                     } else {
-                        reject(new Error(`yt-dlp failed to get JSON dump: ${stderr_data.trim()}`));
+                        const error_message = stderr_data.trim() || 'Unknown error';
+                        
+                        // Check for specific error types
+                        if (error_message.includes('HTTP Error 403') || 
+                            error_message.includes('Forbidden') ||
+                            error_message.includes('fragment') ||
+                            error_message.includes('not available')) {
+                            reject(new Error(`Video ${video_id} is not accessible or not available`));
+                        } else if (error_message.includes('Video unavailable') || 
+                                   error_message.includes('Private video') ||
+                                   error_message.includes('does not exist')) {
+                            reject(new Error(`Video ${video_id} not found or unavailable`));
+                        } else {
+                            reject(new Error(`Failed to get JSON dump for ${video_id}: ${error_message}`));
+                        }
                     }
                 });
 
                 process.on('error', (err) => {
+                    clearTimeout(timeout);
                     reject(new Error(`yt-dlp process error: ${err.message}`));
                 });
             });

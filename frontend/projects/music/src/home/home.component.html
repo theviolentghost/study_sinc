@@ -1,0 +1,68 @@
+<div class="item-list hide-scrollbar">
+    <h3 class="greeting">{{ get_greeting() }}</h3>
+    <ng-container *ngFor="let carousel of categories">
+        <div class="carousel" *ngIf="carousel.type === 'carousel'">
+            <h3 class="label">{{ carousel.header }}</h3>
+            <div class="items hide-scrollbar" scrollSnapActive>
+                <div class="item" *ngFor="let item of carousel.items">
+                    <div class="cover">
+                        <img [src]="item.cover" alt="{{ item.title }}"/>
+                    </div>
+                    <div class="info">
+                        <div class="title">{{ item.title }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="album" *ngIf="carousel.type === 'album' && carousel.items && carousel.items.length > 0">
+            <div class="carousel hide-scrollbar" scrollSnapActive>
+                <div class="item" [style.--color]="get_album_primary_color(carousel?.artist?.images?.[0]?.url)">
+                    <div class="cover">
+                        <img [src]="carousel?.artist?.images?.[0]?.url" alt="{{ carousel?.artist?.name }}" *ngIf="carousel?.artist?.name"/>
+                    </div>
+                    <div class="info no-shift">
+                        <div class="title">{{ carousel.header }}</div>
+                        <div class="meta">
+                            <!-- <div class="line">
+                                <div class="artist-name">{{ item.artist?.name || 'Unknown Artist' }}</div>
+                            </div> -->
+                            <div class="line">
+                                <div class="type">Artist</div>
+                                <div class="dot"></div>
+                                <div class="source">{{ carousel?.artist_tab || 'New'}}</div>
+                                <div class="dot" *ngIf="carousel.total_tracks && carousel.total_tracks > 0"></div>
+                                <div class="tracks" *ngIf="carousel.total_tracks && carousel.total_tracks > 0">{{ carousel.total_tracks }} Tracks</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="play active" (click)="play_artist(carousel?.artist)" [style.--mask]="'url(\'' + playlist_play_pause_icon + '.svg\')'"></div>
+                </div>
+                <div class="item" *ngFor="let item of carousel.items" [style.--color]="get_album_primary_color(item?.cover)">
+                    <div class="cover">
+                        <img [src]="item?.cover" alt="{{ item?.title }}"/>
+                    </div>
+                    <div class="info">
+                        <div class="artist">
+                            <img [src]="carousel?.artist?.images?.[0]?.url" alt="{{ carousel?.artist?.name }}" *ngIf="carousel?.artist?.name"/>
+                        </div>
+                        <div class="title">{{ item?.title }}</div>
+                        <div class="meta">
+                            <!-- <div class="line">
+                                <div class="artist-name">{{ item.artist?.name || 'Unknown Artist' }}</div>
+                            </div> -->
+                            <div class="line">
+                                <div class="date">New</div>
+                                <div class="dot"></div>
+                                <div class="type">Album</div>
+                                <div class="dot"></div>
+                                <div class="source">Spotify</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="play active" (click)="play_album(item?.album_id)" [style.--mask]="'url(\'' + playlist_play_pause_icon + '.svg\')'"></div>
+                </div>
+            </div>
+        </div>
+    </ng-container>
+</div>

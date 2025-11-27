@@ -17,22 +17,6 @@ import playlist_importer from './music/import.js';
 import multer from 'multer';
 const upload = multer();
 
-// Global error handlers to prevent crashes
-process.on('uncaughtException', (error) => {
-    console.error('UNCAUGHT EXCEPTION! Shutting down gracefully...');
-    console.error(error.name, error.message);
-    console.error(error.stack);
-    // Log to file or error tracking service here
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION! Promise:', promise);
-    console.error('Reason:', reason);
-    // Log to file or error tracking service here
-    // Don't exit process for unhandled rejections, just log them
-});
-
 const app = Express();
 
 //
@@ -911,6 +895,25 @@ app.get('/music/top_releases', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+// /music/artists/new_releases param artist_ids[]
+app.get('/music/artists/new_releases', async (req, res) => {
+    const artist_ids = req.query.artist_ids;
+    if (!artist_ids || !Array.isArray(artist_ids)) {
+        return res.status(400).json({ error: 'Artist IDs are required as an array' });
+    }
+    try {
+        const new_releases = await Music.new_music.get_new_music_from_multiple_artists(artist_ids);
+        res.json(new_releases);
+    } catch (error) {
+        console.error('Error fetching artists new releases:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+
+
+
 
 
 
@@ -990,21 +993,4 @@ app.use((err, req, res, next) => {
 
 const server = app.listen(port, host, () => {
     console.log(`Server is running on http://${host}:${port}`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
 });

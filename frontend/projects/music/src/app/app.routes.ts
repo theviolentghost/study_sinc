@@ -2,7 +2,8 @@ import { Routes } from '@angular/router';
 
 import { SearchComponent } from '../search/search.component';
 import { PlaylistsComponent } from '../playlists/playlists.component';
-import { ArtistsComponent } from '../artists/artists.component';
+// import { ArtistsComponent } from '../artists/artists.component';
+import { HomeComponent } from '../home/home.component';
 import { SettingsComponent } from '../settings/settings.component';
 import { DiscoverComponent } from '../discover/discover.component';
 import { PlaylistComponent } from '../playlist/playlist.component';
@@ -31,9 +32,13 @@ export const routes: Routes = [
         path: 'playlist/:playlist_id',
         component: PlaylistComponent,
     },
+    // {
+    //     path: 'artists',
+    //     component: ArtistsComponent,
+    // },
     {
-        path: 'artists',
-        component: ArtistsComponent,
+        path: 'home',
+        component: HomeComponent,
     },
     {
         path: 'artist/:artist_id',

@@ -11,6 +11,7 @@ import { QuickActionService } from '../../quick.action.service';
 import { HotActionService } from '../../hot.action.service';
 import { SettingsService } from '../../settings.service';
 import { NotificationService } from '../app/services/notification.service';
+import { LoadingService } from '../app/services/loading.service';
 
 @Component({
     selector: 'app-playlist',
@@ -66,14 +67,15 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
 
     ngOnInit(): void {
         // Component initialization
-        this.loaded = false;
+        // this.loaded = false;
+        this.loading_service.loading = true;
         this.player.playlist_changed.subscribe(() => {
             this.update_main_color();
         });
         this.update_main_color();
         this.player.clear_playlist_color.subscribe(() => {
             // check to see if the navigation url is the same as this playlist
-            if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
+            // if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
             document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
         });
 
@@ -87,14 +89,17 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     ngAfterViewInit(): void {
         // Auto-scroll to hide search-filter when component loads
         // this.auto_scroll_past_search_filter();
-        this.loaded = true;
+        // this.loaded = true;
+        this.loading_service.loading = false;
+
         this.update_main_color();
         this.update_container_height();
     }
 
     update_main_color(): void {
         if(this.use_playlist_color_for_main) {
-            if(this.playlist_identifier?.id !== this.player?.playlist_identifier?.id) return;
+            // console.log(this.playlist_identifier, this.player.playlist_identifier);
+            // if(this.playlist_identifier?.id !== this.player?.playlist_identifier?.id) return;
             const color = this.get_playlist_primary_color();
             if( color.trim() !== 'var(--color-primary)' ) {
                 document.documentElement.style.setProperty('--color-primary', color);
@@ -515,6 +520,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         public hot_action: HotActionService,
         public settings: SettingsService,
         private notification_service: NotificationService,
+        public loading_service: LoadingService
     ) {
         this.route.paramMap.subscribe(async params => {
             const playlist_id = params.get('playlist_id');

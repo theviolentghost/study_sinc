@@ -1,5 +1,11 @@
 <!-- <div class="loader"></div> -->
 <notification-container></notification-container>
+<loading-overlay
+    [ngClass]="{
+        'hidden': !page_loading || true,
+        'global': page_loading_global
+    }"
+></loading-overlay>
 <div class="content-container" [ngClass]="{'music-idle': !is_music_idle}">
     <router-outlet></router-outlet>
 </div>

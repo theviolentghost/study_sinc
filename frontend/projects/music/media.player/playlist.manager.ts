@@ -15,7 +15,7 @@ export enum Skip_Result {
 }
 
 class MusicPlaylistManager {
-    public current_song: Song_Data | null = null;
+    public current_song_key: string | null = null;
     public playnext: string[] = []; // same as queue, jus has priority and doesnt get changed on playlist changes
     public queue: string[] = [];
     public history_stack: string[] = [];
@@ -53,8 +53,6 @@ class MusicPlaylistManager {
         if (!preserve_history) {
             this.history_stack = [];
         }
-        this.unshuffle();
-        // put into proper order
         // this.current_song = null;
 
         await Promise.all(this.queue.map(song_key => {
@@ -68,7 +66,12 @@ class MusicPlaylistManager {
             console.log('Preloaded all song data for playlist.');
         });
 
-
+        // put into proper order
+        if(this.manager.shuffle) {
+            this.shuffle();
+        } else {
+            this.unshuffle();
+        }
     }
 
     public next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
@@ -87,17 +90,21 @@ class MusicPlaylistManager {
         }
 
         const next_song_key = this.playnext.length > 0 ? this.playnext.shift()! : this.queue.shift()!;
-        if(this.current_song) {
-            const current_song_key = this.media.song_key(this.current_song.id);
+        if(this.current_song_key) {
+            const current_song_key = this.current_song_key;
             if(event !== Skip_Event.OMIT_HISTORY) {
                 this.history_stack.push(current_song_key);
             }
         }
+        this.current_song_key = next_song_key;
 
         this.manager.load_track(next_song_key).then(() => {
-            this.manager.play();
-        }).catch(error => {
-            console.error('Error loading next song:', next_song_key, error);
+            // this.manager.play();
+
+            // preload following song
+            // console.log('Preloading following song after next:', next_song_key);
+            const following_song_key = this.next_song_key;
+            this.manager.load_track(following_song_key, false);
         });
 
         return Skip_Result.SKIPPED;
@@ -117,9 +124,10 @@ class MusicPlaylistManager {
         }
 
         const previous_song_key = this.history_stack.pop()!;
-        this.queue.unshift(this.media.song_key(this.current_song!.id));
+        this.queue.unshift(this.current_song_key);
+        this.current_song_key = previous_song_key;
         this.manager.load_track(previous_song_key).then(() => {
-            this.manager.play();
+            // this.manager.play();
         }).catch(error => {
             console.error('Error loading previous song:', previous_song_key, error);
         });
@@ -169,12 +177,13 @@ class MusicPlaylistManager {
 
     public unshuffle(): void {
         const original_songs = Array.from(this.data.songs.values());
+        console.log('Unshuffling playlist to original order:', original_songs);
 
         if(!this.data?.song_added_timestamps || this.data?.song_added_timestamps?.size === 0) {
             // using third party playlist without timestamps, cannot unshuffle
             console.warn('Cannot unshuffle playlist without song added timestamps. Using order given as in in .songs');
             // make sure it only contains songs currently in queue
-            const current_song_key = this.current_song?.id ? this.media.song_key(this.current_song.id) : null;
+            const current_song_key = this.current_song_key;
             const queue_keys = new Set(this.queue);
             
             // Filter original songs to only include those in current queue
@@ -221,10 +230,10 @@ class MusicPlaylistManager {
         if (this.data && this.data.songs.size > 0) {
             // Reset to original order based on playlist
 
-            if (this.current_song?.id) {
+            if (this.current_song_key) {
                 // Find the current song's index in the original playlist
                 const current_song_index = original_order.findIndex(song =>
-                    this.media.song_key(song) === this.media.song_key(this.current_song.id)
+                    this.media.song_key(song) === this.current_song_key
                 );
                 
                 if (current_song_index !== -1) {
@@ -237,7 +246,7 @@ class MusicPlaylistManager {
                 } else {
                     // Current song not found in playlist, use original order without current song
                     this.queue = original_order.filter(identifier =>
-                        this.media.song_key(identifier) !== this.media.song_key(this.current_song.id)
+                        this.media.song_key(identifier) !== this.current_song_key
                     ).map(identifier => this.media.song_key(identifier));
                 }
             } else {
@@ -270,6 +279,10 @@ class MusicPlaylistManager {
     public add_song_to_play_next(song_key: string): void {
         console.log('Adding song to play next:', song_key);
         this.playnext.push(song_key);
+        // preload the song
+        this.manager.load_track(song_key, false).catch(error => {
+            console.error('Error preloading song for play next:', song_key, error);
+        });
     }
 }
 

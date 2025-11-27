@@ -5,10 +5,10 @@
         </div>
     </div>
     <div class="album-info">
-        <div class="title">{{ album_details?.name }}</div>
+        <div class="title">{{ album_details?.name || '#album_name' }}</div>
         <div style="display: flex; flex-direction: row; flex-wrap: wrap;">
             <div 
-                class="artist"
+                style="margin-right: 4px;"
                 *ngFor="let artist of album_details?.artists; let isLast = last"
             >
                 <!-- <img [src]="artist?.images?.[0]?.url || 'user.svg'" *ngIf="artist?.images?.length > 0" /> -->
@@ -17,20 +17,20 @@
             </div>
         </div>
         <div style="display: flex; flex-direction: row; flex-wrap: wrap;">
-            <div class="type">{{ album_details?.album_type[0]?.toUpperCase() + album_details?.album_type?.slice(1) }}</div>
+            <div class="type">{{ (album_details?.album_type[0]?.toUpperCase() + album_details?.album_type?.slice(1)) || 'Album' }}</div>
             <div class="dot" *ngIf="album_details?.release_date"></div>
             <div class="date">{{ parse_year(album_details?.release_date) }} </div>
             <div class="dot" *ngIf="album_details?.total_tracks"></div>
-            <div class="songs-count">{{ album_details?.total_tracks }} songs</div>
+            <div class="songs-count">{{ album_details?.total_tracks }} {{ album_details?.total_tracks ? (album_details?.total_tracks === 1 ? 'song' : 'songs') : '' }}</div>
             <div class="dot" *ngIf="album_details?.total_tracks"></div>
             <div class="songs-count">{{ get_album_duration(album_details?.tracks?.items) }}</div>
         </div>
     </div>
-    <div class="actions">
-        <div class="action add" [style.--mask]="'url(\'plus.svg\')'"></div>
+    <div class="actions" [style.--color]="primary_color">
+        <div class="action add" (click)="add_to_library()" [style.--mask]="'url(\'' + (saved_into_library ? 'check.svg' : 'plus.svg') + '\')'" [ngClass]="{'active': saved_into_library}"></div>
         <div class="action download" [style.--mask]="'url(\'download.svg\')'"></div>
         <div class="action more" [style.--mask]="'url(\'dots.svg\')'"></div>
-        <div class="action play" [style.--mask]="'url(\'' + this.playing_icon + '.svg\')'"></div>
+        <div class="action play" [style.--mask]="'url(\'' + this.playing_icon + '.svg\')'" [style.--color]="primary_color" (click)="play_album()"></div>
     </div>
     <div class="list">
         <button

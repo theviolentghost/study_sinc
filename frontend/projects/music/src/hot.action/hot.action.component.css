@@ -10,7 +10,7 @@
     align-items: center;
     justify-content: flex-end;
     flex-direction: column;
-    z-index: 100005;
+    z-index: 10000005;
     transition: transform 0.25s ease-in-out;
 
     .dimmer {
@@ -613,4 +613,85 @@
     100% {
         transform: rotate(360deg);
     }
+}
+
+.song_options {
+    position: relative;
+    width: 100%;
+    height: fit-content;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-4);
+    margin-bottom: var(--space-6);
+
+    .option {
+        position: relative;
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        font-size: calc(var(--font-size-base) * 1.2);
+        color: var(--color-text);
+        cursor: pointer;
+        gap: var(--space-2);
+
+        &.disabled {
+            cursor: default;
+            pointer-events: none;
+            color: white !important;
+            filter: grayscale(1) opacity(0.4);
+        }
+
+        .icon {
+            --color: var(--color-neutral);
+            width: var(--space-4);
+            height: var(--space-4);
+            mask: var(--mask);
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center;
+            background-color: var(--color);
+            opacity: 1;
+            transition: opacity 0.15s ease-in-out;
+            scale: 1.25;
+        }
+
+        &.title {
+            color: var(--color-neutral);
+            cursor: default;
+            font-size: calc(var(--font-size-base) * 1);
+        }
+    }
+}
+
+.color-grid {
+    position: relative;
+    width: 80%;
+    display: grid;
+    grid-template-columns: repeat(9, clamp(10px, 7%, 40px));
+    gap: var(--space-2);
+    padding: var(--space-6);
+    box-sizing: content-box;
+    align-items: center;
+    justify-content: center;
+}
+.color-column {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+.color-option {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    flex-grow: 0;
+    flex-shrink: 0;
+    border-radius: var(--space-1);
+    cursor: pointer;
+    background-color: var(--color);
+}
+.color-option.selected {
+    box-shadow: 0 0 0px 3px var(--color);
 }

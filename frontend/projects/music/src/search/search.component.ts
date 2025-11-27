@@ -8,6 +8,7 @@ import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
 import { GlobalInfoService } from '../../global.info.service';
 import { InViewDirective } from './in-view.directive';
+import { LoadingService } from '../app/services/loading.service';
 
 @Component({
   selector: 'media-search',
@@ -22,6 +23,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         setTimeout(() => {
             this.preload_visible_album_colors();
         }, 100);
+        this.loading_service.loading = true;
     }
     
     ngOnDestroy(): void {
@@ -156,13 +158,14 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         }
     }
 
-    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router, private global: GlobalInfoService) {}
+    constructor(private media: MusicMediaService, private player: MusicPlayerService, private hot_action: HotActionService, private router: Router, private global: GlobalInfoService, private loading_service: LoadingService) {}
 
     ngAfterViewInit(): void {
         // Auto-focus the search input when component loads
         if (this.searchInput) {
             this.searchInput.nativeElement.focus();
         }
+        this.loading_service.loading = false;
         
         // clear local storage search history
         // localStorage.removeItem('search_history');
@@ -264,7 +267,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;
-            this.player.current = track_data;
+            this.player.set_current_song(track_data);
             this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
         }
     }
@@ -334,7 +337,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         if(!cache) {
             track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
             if(!track_data) return;
-            this.player.current = track_data; 
+            this.player.set_current_song(track_data);
             this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
         }
     }

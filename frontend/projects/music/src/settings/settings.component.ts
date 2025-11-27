@@ -3,41 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 
 import { MusicPlayerService } from '../../music.player.service';
-import { SettingsService } from '../../settings.service';
-
-export interface Setting_Genre {
-    label: string;
-}
-
-// New types for settings
-export type SettingType = 'toggle' | 'dropdown' | 'info';
-
-export interface SettingOption {
-    label: string;
-    value: any;
-}
-
-export interface SettingNote {
-    text: string;
-    severity: 'info' | 'warning';
-}
-
-export interface Setting {
-    id: string;
-    label: string;
-    type: SettingType;
-    // current value for toggle/dropdown
-    hidden?: boolean; // for info type
-    value?: any;
-    // for dropdowns
-    options?: SettingOption[];
-    // Optional dependency: this setting is enabled only when the referenced setting has this value
-    dependsOn?: { id: string; value: any };
-    // Optional notes - can be a single note object or array of notes
-    notes?: SettingNote | SettingNote[];
-    // Optional callback function: for toggles receives (value: boolean), for dropdowns receives (index: number, value: any)
-    onChange?: (valueOrIndex: any, value?: any) => void;
-}
+import { SettingsService, Setting_Genre, Setting, Setting_Type, Setting_Option, Setting_Note } from '../../settings.service';
 
 @Component({
   selector: 'app-settings',
@@ -53,9 +19,6 @@ export class SettingsComponent {
         { label: 'Appearance' },
         { label: 'About' },
     ];
-
-    // New: mapping of genre label -> settings
-    public genre_settings: Record<string, Setting[]> = {};
 
     // UI state
     public selectedGenre: string | null = null;
@@ -78,145 +41,9 @@ export class SettingsComponent {
 
     constructor(private player: MusicPlayerService, private settings_service: SettingsService) {
         // Initialize genreSettings after services are available
-        this.genre_settings = {
-            Playback: [
-                { 
-                    id: 'is_safari', 
-                    label: 'Using Safari as browser', 
-                    type: 'toggle', 
-                    value: this.settings_service.is_safari, // default
-                    notes: [
-                        { text: 'Useful for bypassing Safari web playing restrictions', severity: 'info' },
-                        { text: 'Setting is experimental. Avoid changing. \nOn change, reload the app to apply.', severity: 'warning' }
-                    ],
-                    onChange: (value: boolean) => {
-                        this.settings_service.is_safari = value;
-                        this.save_settings_to_local_storage();
-                    }
-                },
-                // {
-                //     id: 'shuffle_playback',
-                //     label: 'Shuffle playback',
-                //     type: 'toggle',
-                //     hidden: true, // hide from UI, changed through other means
-                //     value: this.settings_service.shuffle_playback,
-                //     onChange: (value: boolean) => {
-                //         this.settings_service.shuffle_playback = value;
-                //         this.save_settings_to_local_storage();
-                //     }
-                // }
-                // { 
-                //     id: 'silent_quality', 
-                //     label: 'Silent audio quality', 
-                //     type: 'dropdown', 
-                //     value: '32k', 
-                //     options: [
-                //         { label: '32 kbps (recommended)', value: '32k' },
-                //         { label: '64 kbps', value: '64k' }
-                //     ], 
-                //     dependsOn: { id: 'use_silent_audio', value: true },
-                //     onChange: (index: number, value: string) => {
-                //         console.log('Silent quality changed - Index:', index, 'Value:', value);
-                //     }
-                // },
-                // { 
-                //     id: 'gapless', 
-                //     label: 'Gapless playback', 
-                //     type: 'toggle', 
-                //     value: false, 
-                //     notes: { text: 'May increase CPU usage', severity: 'warning' },
-                //     onChange: (value: boolean) => {
-                //         console.log('Gapless playback toggled:', value);
-                //     }
-                // },
-            ],
-            'Media quality': [
-                // { 
-                //     id: 'stream_quality', 
-                //     label: 'Streaming quality', 
-                //     type: 'dropdown', 
-                //     value: 'auto', 
-                //     options: [
-                //         { label: 'Auto', value: 'auto' },
-                //         { label: 'High', value: 'high' },
-                //         { label: 'Low (data saver)', value: 'low' }
-                //     ] 
-                // },
-                // { 
-                //     id: 'hq_on_cellular', 
-                //     label: 'Allow high quality on cellular', 
-                //     type: 'toggle', 
-                //     value: false, 
-                //     notes: { text: 'May use significant data on mobile networks', severity: 'warning' }
-                // }
-            ],
-            Appearance: [
-                // { 
-                //     id: 'theme', 
-                //     label: 'Theme', 
-                //     type: 'dropdown', 
-                //     value: 'system', 
-                //     options: [
-                //         { label: 'System', value: 'system' },
-                //         { label: 'Light', value: 'light' },
-                //         { label: 'Dark', value: 'dark' }
-                //     ] 
-                // },
-                // { 
-                //     id: 'compact_mode', 
-                //     label: 'Compact UI', 
-                //     type: 'toggle', 
-                //     value: false 
-                // }
-            ],
-            About: [
-                // { 
-                //     id: 'version', 
-                //     label: 'App version', 
-                //     type: 'info', 
-                //     value: '1.0.0' 
-                // }
-            ]
-        };
+        
 
-        this.load_settings_from_local_storage();
-    }
-
-    private save_settings_to_local_storage(): void {
-        // loop through all genres and their settings and save their values to their ids
-        for (const [genre, settings] of Object.entries(this.genre_settings)) {
-            for (const setting of settings) {
-                localStorage.setItem(setting.id, JSON.stringify(setting.value));
-            }
-        }
-    }
-
-    private load_settings_from_local_storage(): void {
-        // loop through all genres and their settings and load their values from local storage if available
-        for (const [genre, settings] of Object.entries(this.genre_settings)) {
-            for (const setting of settings) {
-                const storedValue = localStorage.getItem(setting.id);
-                if (storedValue !== null) {
-                    const parsedValue = JSON.parse(storedValue);
-                    setting.value = parsedValue;
-                    
-                    // Call the onChange handler to update the service/state
-                    if (setting.onChange) {
-                        if (setting.type === 'dropdown' && setting.options) {
-                            // For dropdown: find the index of the stored value
-                            const index = setting.options.findIndex(o => o.value === parsedValue);
-                            if (index !== -1) {
-                                setting.onChange(index, parsedValue);
-                            }
-                        } else if (setting.type === 'toggle') {
-                            // For toggle: call with the boolean value
-                            setting.onChange(parsedValue);
-                        }
-                    }
-                }
-                // if value is still null, use the default (which is already set in the initial definition)
-            }
-        }
+        // this.load_settings_from_local_storage();
     }
 
 
@@ -237,19 +64,19 @@ export class SettingsComponent {
     // Helper: get settings for current genre
     public get currentSettings(): Setting[] {
         if (!this.selectedGenre) return [];
-        return this.genre_settings[this.selectedGenre] || [];
+        return this.settings_service.genre_settings[this.selectedGenre] || [];
     }
 
     // Check whether a setting should be disabled because of dependency
     public isSettingDisabled(s: Setting): boolean {
-        if (!s.dependsOn) return false;
+        if (!s.depends_on) return false;
         const all = this.currentSettings.reduce((map, st) => {
             map[st.id] = st;
             return map;
         }, {} as Record<string, Setting>);
-        const dep = all[s.dependsOn.id];
+        const dep = all[s.depends_on.id];
         if (!dep) return false;
-        return dep.value !== s.dependsOn.value;
+        return dep.value !== s.depends_on.value;
     }
 
     // When user changes a setting value
@@ -257,13 +84,13 @@ export class SettingsComponent {
         s.value = newValue;
         
         // Call custom onChange handler if provided
-        if (s.onChange) {
+        if (s.on_change) {
             if (s.type === 'dropdown' && optionIndex !== undefined) {
                 // For dropdown: pass (index, value)
-                s.onChange(optionIndex, newValue);
+                s.on_change(optionIndex, newValue);
             } else if (s.type === 'toggle') {
                 // For toggle: pass (value)
-                s.onChange(newValue);
+                s.on_change(newValue);
             }
         }
         
@@ -289,7 +116,7 @@ export class SettingsComponent {
     }
 
     // Select an option from custom dropdown
-    public selectDropdownOption(s: Setting, option: SettingOption, index: number): void {
+    public selectDropdownOption(s: Setting, option: Setting_Option, index: number): void {
         this.onSettingChange(s, option.value, index);
         this.expandedDropdowns.delete(s.id); // Collapse after selection
     }
@@ -302,7 +129,7 @@ export class SettingsComponent {
     }
 
     // Helper: Get notes as an array (handles both single note and array of notes)
-    public getSettingNotes(s: Setting): SettingNote[] {
+    public getSettingNotes(s: Setting): Setting_Note[] {
         if (!s.notes) return [];
         return Array.isArray(s.notes) ? s.notes : [s.notes];
     }
@@ -316,7 +143,7 @@ export class SettingsComponent {
      */
     public update_setting(settingId: string, newValue: any, optionIndex?: number): boolean {
         // Search through all genres to find the setting
-        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+        for (const [genre, settings] of Object.entries(this.settings_service.genre_settings)) {
             const setting = settings.find(s => s.id === settingId);
             if (setting) {
                 // Don't update if setting is disabled due to dependencies
@@ -341,7 +168,7 @@ export class SettingsComponent {
      * @returns The current value of the setting, or undefined if not found
      */
     public getSetting(settingId: string): any {
-        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+        for (const [genre, settings] of Object.entries(this.settings_service.genre_settings)) {
             const setting = settings.find(s => s.id === settingId);
             if (setting) {
                 return setting.value;
@@ -356,7 +183,7 @@ export class SettingsComponent {
      * @returns The setting object, or undefined if not found
      */
     public getSettingObject(settingId: string): Setting | undefined {
-        for (const [genre, settings] of Object.entries(this.genre_settings)) {
+        for (const [genre, settings] of Object.entries(this.settings_service.genre_settings)) {
             const setting = settings.find(s => s.id === settingId);
             if (setting) {
                 return setting;

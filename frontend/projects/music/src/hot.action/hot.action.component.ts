@@ -56,9 +56,6 @@ export class HotActionComponent {
     get song_data(): Song_Data | null {
         return this.hot_action.song_data;
     }
-    get meta_song_data(): Song_Data | null {
-        return this.hot_action.meta_song_data;
-    }
 
     // get playlist_identifiers(): Song_Playlist_Identifier[] {
     //     return this.playlists.playlist_identifiers;
@@ -136,7 +133,7 @@ export class HotActionComponent {
                 this.playlists.add_to_favorites(this.song_data);
 
                 if(this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
-                    this.player.current = this.song_data; // Update player song data to reflect changes
+                    this.player.set_current_song(this.song_data); // Update player song data to reflect changes
                 }
             },
             is_selectable: () => !!this.song_data && !this.is_favorite
@@ -165,7 +162,7 @@ export class HotActionComponent {
             action: async () => {
                 if(!this.song_data) return;
                 const run = async () => {
-                    this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id),this.song_data);
+                    this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
                     this.player.add_song_to_play_next(this.song_data);
                 };
                 run();
@@ -446,5 +443,225 @@ export class HotActionComponent {
 
     linear(t: number): number {
         return t;
+    }
+
+    // Song options properties and methods
+    song_options: [string, string, string, string, string][] = [
+        ['Rename', 'edit.svg', 'var(--color-primary)', '', 'not_spotify'],
+        // ['Edit Artists', 'users.svg', 'var(--color-primary)', '', 'not_spotify'],
+        ['Song Color', 'palette.svg', '#song_color', '', ''],
+        ['Add to Playlist', 'plus.svg', 'var(--color-primary)', '', ''],
+        ['Play Similar', 'disco-ball-fill.svg', 'var(--color-primary)', '', ''],
+        ['Share', 'share.svg', 'var(--color-primary)', '', ''],
+        ['Remove from Playlist', 'trash.svg', 'var(--color-deny)', '', ''],
+    ];
+
+    // Rename song
+    new_song_name: string = '';
+    
+    is_song_name_valid(): boolean {
+        return this.new_song_name && this.new_song_name.trim().length > 0;
+    }
+
+    async confirm_rename_song(): Promise<void> {
+        if (!this.song_data || !this.is_song_name_valid()) return;
+        
+        this.song_data.song_name = this.new_song_name.trim();
+        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
+        
+        // Update player if this is the current song
+        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+            this.player.set_current_song(this.song_data);
+        }
+        
+        this.hot_action.close_hot_action();
+    }
+
+    // Edit artists
+    new_artists: string[] = [''];
+
+    add_artist_input(): void {
+        this.new_artists.push('');
+    }
+
+    remove_artist_input(index: number): void {
+        if (this.new_artists.length > 1) {
+            this.new_artists.splice(index, 1);
+        }
+    }
+
+    are_artists_valid(): boolean {
+        return this.new_artists.some(artist => artist && artist.trim().length > 0);
+    }
+
+    async confirm_edit_artists(): Promise<void> {
+        if (!this.song_data || !this.are_artists_valid()) return;
+        
+        // Filter out empty artists and create artist objects
+        const valid_artists = this.new_artists
+            .filter(name => name && name.trim().length > 0)
+            .map(name => ({
+                id: name.trim().toLowerCase().replace(/\s+/g, '-'),
+                name: name.trim(),
+                source: this.song_data!.id.source
+            }));
+
+        this.song_data.original_artists = valid_artists;
+        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
+        
+        // Update player if this is the current song
+        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+            this.player.set_current_song(this.song_data);
+        }
+        
+        this.hot_action.close_hot_action();
+    }
+
+    // Song color picker
+    song_view_color: string = '';
+    song_text_contrast_color: string = 'white';
+    song_color_options: string[][] = [
+        ['hsl(0, 85%, 60%)', 'hsl(30, 85%, 60%)', 'hsl(60, 85%, 60%)', 'hsl(90, 85%, 60%)', 'hsl(120, 85%, 60%)'],
+        ['hsl(150, 85%, 60%)', 'hsl(180, 85%, 60%)', 'hsl(210, 85%, 60%)', 'hsl(240, 85%, 60%)', 'hsl(270, 85%, 60%)'],
+        ['hsl(300, 85%, 60%)', 'hsl(330, 85%, 60%)', 'hsl(0, 0%, 30%)', 'hsl(0, 0%, 50%)', 'hsl(0, 0%, 70%)']
+    ];
+
+    get is_song_color_same_as_original(): boolean {
+        return this.song_view_color === (this.song_data?.colors?.primary || 'var(--color-primary)');
+    }
+
+    select_song_color(color: string): void {
+        this.song_view_color = color;
+        this.song_text_contrast_color = this.get_contrast_color(color);
+    }
+
+    async set_song_color(): Promise<void> {
+        if (!this.song_data) return;
+        
+        if (!this.song_data.colors) {
+            this.song_data.colors = { primary: this.song_view_color };
+        } else {
+            this.song_data.colors.primary = this.song_view_color;
+        }
+        
+        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
+        
+        // Update player if this is the current song
+        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+            this.player.set_current_song(this.song_data);
+        }
+        
+        this.hot_action.close_hot_action();
+    }
+
+    private get_contrast_color(hsl: string): string {
+        // Extract lightness from HSL
+        const match = hsl.match(/hsl\(\d+,\s*\d+%,\s*(\d+)%\)/);
+        if (match) {
+            const lightness = parseInt(match[1]);
+            return lightness > 50 ? 'black' : 'white';
+        }
+        return 'white';
+    }
+
+    // Share song
+    url_copied: boolean = false;
+
+    get_song_share_url(): string {
+        if (!this.song_data) return '';
+        const base_url = window.location.origin;
+        const song_key = this.media.song_key(this.song_data.id);
+        return `${base_url}/track/${song_key}`;
+    }
+
+    async copy_song_url(url: string): Promise<void> {
+        try {
+            await navigator.clipboard.writeText(url);
+            this.url_copied = true;
+            
+            // Show notification
+            // You can integrate with your notification service here
+            console.log('URL copied to clipboard');
+            
+            setTimeout(() => {
+                this.url_copied = false;
+            }, 2000);
+        } catch (error) {
+            console.error('Failed to copy URL:', error);
+        }
+    }
+
+    // Remove from playlist
+    current_playlist_id: string | null = null;
+
+    async confirm_remove_from_playlist(): Promise<void> {
+        if (!this.song_data || !this.current_playlist_id) return;
+        
+        const playlist_identifier = this.playlists.playlist_identifiers.find(
+            p => p.id === this.current_playlist_id
+        );
+        
+        if (!playlist_identifier) return;
+        
+        const playlist = await this.playlists.get_playlist(playlist_identifier);
+        await this.playlists.remove_song_from_playlist(this.song_data, playlist_identifier, playlist);
+        
+        this.hot_action.close_hot_action();
+    }
+
+    // Play similar
+    async play_similar(): Promise<void> {
+        if (!this.song_data || !this.song_data.id.video_id) return;
+        
+        try {
+            const watch_playlist = await this.media.get_watch_playlist(this.song_data.id.video_id);
+            
+            if (watch_playlist && watch_playlist.tracks && watch_playlist.tracks.length > 0) {
+                // Clear current queue and add similar songs
+                // You can customize this behavior based on your player implementation
+                console.log('Playing similar songs:', watch_playlist);
+                
+                // Navigate to a similar songs view or start playing
+                // this.router.navigate(['/similar', this.song_data.id.video_id]);
+            }
+            
+            this.hot_action.close_hot_action();
+        } catch (error) {
+            console.error('Error fetching similar songs:', error);
+        }
+    }
+
+    // Select song option handler
+    select_song_option(option: string, enabled: boolean = true): void {
+        // if (!enabled) return;
+
+        console.log('Selecting song option:', option, enabled, this.song_data);
+        switch (option) {
+            case 'Rename':
+                this.new_song_name = this.song_data?.song_name || '';
+                this.hot_action.action = 'rename_song';
+                break;
+            // case 'Edit Artists':
+            //     this.new_artists = this.song_data?.original_artists?.map(a => a.name) || [''];
+            //     this.hot_action.action = 'edit_artists';
+            //     break;
+            case 'Song Color':
+                this.song_view_color = this.song_data?.colors?.primary || 'var(--color-primary)';
+                this.hot_action.action = 'pick_song_color';
+                break;
+            case 'Add to Playlist':
+                this.hot_action.action = 'add_to_playlist';
+                break;
+            case 'Play Similar':
+                this.play_similar();
+                break;
+            case 'Share':
+                this.url_copied = false;
+                this.hot_action.action = 'share_song';
+                break;
+            case 'Remove from Playlist':
+                this.hot_action.action = 'remove_from_playlist_confirm';
+                break;
+        }
     }
 }

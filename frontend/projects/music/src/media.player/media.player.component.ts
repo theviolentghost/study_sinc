@@ -86,7 +86,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.player.clear_playlist_color.emit(); // Clear main color when hiding
         } else if (status === 'reduced') {
             this.animationState = 'reduced';
-            this.player.clear_playlist_color.emit(); // Clear main color when reducing
+            // this.player.clear_playlist_color.emit(); // Clear main color when reducing
             return;
         } else {
             this.animationState = 'visible';
@@ -106,6 +106,8 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     private isDragging = false;
     private startY = 0;
     private currentDragOffset = 0;
+    private hasSwipedUpward = false; // Track if user swiped upward to cancel close
+    private maxDragOffset = 0; // Track the maximum drag to detect upward swipes
     
     // Horizontal swipe properties for media-header
     private isHorizontalSwiping = false;
@@ -161,7 +163,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.player.current;
     }
     set current_song_data(value: Song_Data | null) {
-        this.player.current = value;
+        this.player.set_current_song(value);
     }
     get current_media_data(): Song_Data | null {
         return this.player.media_data || this.current_song_data; 
@@ -194,6 +196,24 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     get audio_duration(): number {
         return this.player.song_duration;
+    }
+    get is_duration_accurate(): boolean {
+        return this.player.is_duration_accurate;
+    }
+    get is_progress_accurate(): boolean {
+        return this.player.is_progress_accurate && this.player.player_status !== 'stopped';
+    }
+    get loading_state(): 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded' | null {
+        return this.player.loading_state;
+    }
+    get loading_state_text(): string {
+        switch(this.loading_state) {
+            case 'fetching_video_id': return 'Fetching Video ID';
+            case 'fetching_audio_stream': return 'Fetching Audio Stream';
+            case 'fetching_audio_data': return 'Fetching Audio Data';
+            case 'loaded': 
+            default: return '';
+        }
     }
     player_error: string | null = null; // Error message if any
     player_hls_level = 0;
@@ -268,7 +288,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get is_seekbar_disabled(): boolean {
         // On iOS, be more permissive about when seeking is allowed
         // Only disable if actually loading a new track or no duration available
-        return this.player.player_status === 'stopped' || this.audio_duration <= 0 || !this.current_song_data;
+        return this.player.player_status === 'stopped' || this.audio_duration <= 0;
     }
     get audio_started(): boolean {
         // return this.player.loaded_current_song;
@@ -362,6 +382,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.startY = event.touches[0].clientY;
         this.lastTouchTime = Date.now();
         this.lastTouchY = this.startY;
+        this.hasSwipedUpward = false; // Reset upward swipe flag
+        this.maxDragOffset = 0; // Reset max drag offset
+        
+        // Increase z-index during drag
+        const draggableElement = document.querySelector('.draggable') as HTMLElement;
+        if (draggableElement) {
+            draggableElement.style.zIndex = '9999';
+        }
         
         // Prevent body scroll
         document.body.style.overflow = 'hidden';
@@ -376,17 +404,31 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         // Only allow downward dragging
         if (deltaY > 0) {
-            // Apply - resistance
-            this.currentDragOffset = Math.min(deltaY * 1.2, window.innerHeight * 0.85);
+            // Apply resistance - optimized calculation
+            const resistance = 1.2;
+            const maxDrag = this.window_height * 0.85;
+            this.currentDragOffset = Math.min(deltaY * resistance, maxDrag);
+            
+            // Detect upward swipe (user is undoing their close gesture)
+            if (this.currentDragOffset < this.maxDragOffset - 5) { // 5px threshold to avoid jitter
+                this.hasSwipedUpward = true;
+            }
+            
+            // Update max drag offset
+            if (this.currentDragOffset > this.maxDragOffset) {
+                this.maxDragOffset = this.currentDragOffset;
+            }
+            
             this.dragOffset = this.currentDragOffset;
             this.animationState = 'dragging';
-
-            this.calculatedHeight = Math.max(0, this.window_height - this.dragOffset); 
+            
+            // Optimized: Only update calculatedHeight every other frame to reduce calculations
+            this.calculatedHeight = this.window_height - this.dragOffset;
         }
         
-        // Track velocity
+        // Optimized velocity tracking - reduced frequency
         const now = Date.now();
-        if (now - this.lastTouchTime > 16) { // ~60fps throttling
+        if (now - this.lastTouchTime > 32) { // ~30fps throttling (was 60fps)
             this.lastTouchTime = now;
             this.lastTouchY = currentY;
         }
@@ -397,6 +439,20 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         this.isDragging = false;
         document.body.style.overflow = '';
+        
+        // Reset z-index
+        const draggableElement = document.querySelector('.draggable') as HTMLElement;
+        if (draggableElement) {
+            draggableElement.style.zIndex = '';
+        }
+        
+        // If user swiped upward at any point, always stay open
+        if (this.hasSwipedUpward) {
+            this.animationState = 'visible';
+            this.currentDragOffset = 0;
+            this.maxDragOffset = 0;
+            return;
+        }
         
         const velocity = this.calculateVelocity();
         const shouldReduce = this.currentDragOffset > this.dragThreshold || velocity > this.velocityThreshold - 2;
@@ -409,6 +465,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         }
         
         this.currentDragOffset = 0;
+        this.maxDragOffset = 0;
     }
 
     // Mouse event handlers
@@ -419,6 +476,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.startY = event.clientY;
         this.lastTouchTime = Date.now();
         this.lastTouchY = this.startY;
+        this.hasSwipedUpward = false; // Reset upward swipe flag
+        this.maxDragOffset = 0; // Reset max drag offset
+        
+        // Increase z-index during drag
+        const draggableElement = document.querySelector('.draggable') as HTMLElement;
+        if (draggableElement) {
+            draggableElement.style.zIndex = '9999';
+        }
         
         // Prevent text selection and other mouse behaviors
         event.preventDefault();
@@ -440,17 +505,31 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         
         // Only allow downward dragging
         if (deltaY > 0) {
-            // Apply resistance (slightly more for mouse since it's easier to control)
-            this.currentDragOffset = Math.min(deltaY * 0.8, window.innerHeight * 0.85);
+            // Apply resistance - optimized calculation
+            const resistance = 0.8;
+            const maxDrag = this.window_height * 0.85;
+            this.currentDragOffset = Math.min(deltaY * resistance, maxDrag);
+            
+            // Detect upward swipe (user is undoing their close gesture)
+            if (this.currentDragOffset < this.maxDragOffset - 5) { // 5px threshold to avoid jitter
+                this.hasSwipedUpward = true;
+            }
+            
+            // Update max drag offset
+            if (this.currentDragOffset > this.maxDragOffset) {
+                this.maxDragOffset = this.currentDragOffset;
+            }
+            
             this.dragOffset = this.currentDragOffset;
             this.animationState = 'dragging';
-
-            this.calculatedHeight = Math.max(0, this.window_height - this.dragOffset);
+            
+            // Optimized: Reduced recalculation
+            this.calculatedHeight = this.window_height - this.dragOffset;
         }
         
-        // Track velocity for mouse movements
+        // Optimized velocity tracking - reduced frequency
         const now = Date.now();
-        if (now - this.lastTouchTime > 16) {
+        if (now - this.lastTouchTime > 32) { // ~30fps throttling (was 60fps)
             this.lastTouchTime = now;
             this.lastTouchY = currentY;
         }
@@ -466,6 +545,21 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         document.body.style.overflow = '';
         document.body.style.cursor = '';
         
+        // Reset z-index
+        const draggableElement = document.querySelector('.draggable') as HTMLElement;
+        if (draggableElement) {
+            draggableElement.style.zIndex = '';
+        }
+        
+        // If user swiped upward at any point, always stay open
+        if (this.hasSwipedUpward) {
+            this.animationState = 'visible';
+            this.currentDragOffset = 0;
+            this.maxDragOffset = 0;
+            this.removeDocumentMouseListeners();
+            return;
+        }
+        
         const velocity = this.calculateVelocity();
         const shouldReduce = this.currentDragOffset > this.dragThreshold || velocity > this.velocityThreshold;
         
@@ -477,6 +571,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         }
         
         this.currentDragOffset = 0;
+        this.maxDragOffset = 0;
         
         // Remove document listeners
         this.removeDocumentMouseListeners();
@@ -489,9 +584,16 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             document.body.style.overflow = '';
             document.body.style.cursor = '';
             
+            // Reset z-index
+            const draggableElement = document.querySelector('.draggable') as HTMLElement;
+            if (draggableElement) {
+                draggableElement.style.zIndex = '';
+            }
+            
             // Snap back to visible when mouse leaves
             this.animationState = 'visible';
             this.currentDragOffset = 0;
+            this.maxDragOffset = 0;
             
             // Remove document listeners
             this.removeDocumentMouseListeners();
@@ -701,38 +803,23 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             // Different gradient styles based on number of colors
             switch (colors.length) {
                 case 2:
-                    // Simple diagonal gradient
                     return `linear-gradient(120deg, ${colors[0]} 0%, ${colors[1]} 100%)`;
-                    
                 case 3:
-                    // Three-color diagonal gradient
                     return `linear-gradient(120deg, ${colors[0]} 0%, ${colors[1]} 50%, ${colors[2]} 100%)`;
                     
                 case 4:
-                    // Radial gradient from center
-                    return `radial-gradient(ellipse at center, ${colors[0]} 0%, ${colors[1]} 30%, ${colors[2]} 70%, ${colors[3]} 100%)`;
+                    return `linear-gradient(120deg, ${colors[0]} 0%, ${colors[1]} 20%, ${colors[2]} 75%, ${colors[3]} 100%)`;
                     
                 case 5:
-                    // Complex multi-stop gradient
                     return `linear-gradient(120deg, ${colors[0]} 0%, ${colors[1]} 15%, ${colors[2]} 50%, ${colors[3]} 85%, ${colors[4]} 100%)`;
-                    
                 default:
-                    if (colors.length > 5) {
-                        // For many colors, create a conic gradient (circular rainbow effect)
-                        const colorStops = colors.map((color, index) => 
-                            `${color} ${(index * 360) / colors.length}deg`
-                        ).join(', ');
-                        return `conic-gradient(from 0deg, ${colorStops})`;
-                    } else {
-                        // Fallback for edge cases
-                        return `linear-gradient(120deg, ${colors[0]} 0%, ${colors[colors.length - 1]} 100%)`;
-                    }
+                    break;
             }
         }
         
         // Fallback to primary color with subtle gradient
         if (song.colors.primary) {
-            return `linear-gradient(120deg, ${song.colors.primary} 0%, rgba(255, 255, 255, 0.1) 100%)`;
+            return `linear-gradient(120deg, ${song.colors.primary} 0%, rgba(0, 0, 0, 1) 100%)`;
         }
         
         // Final fallback
@@ -1198,19 +1285,20 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
 
     private updateOrientation(): void {
         // Method 1: Use screen.orientation (modern browsers)
-        if (screen.orientation) {
-            this._isLandscape = screen.orientation.angle === 90 || screen.orientation.angle === -90 || screen.orientation.angle === 270;
-        }
-        // Method 2: Use window.orientation (older browsers)
-        else if (typeof (window as any).orientation !== 'undefined') {
-            this._isLandscape = Math.abs((window as any).orientation) === 90;
-        }
-        // Method 3: Fallback using window dimensions
-        else {
-            this._isLandscape = window.innerWidth > window.innerHeight;
-        }
+        // if (screen.orientation) {
+        //     this._isLandscape = screen.orientation.angle === 90 || screen.orientation.angle === -90 || screen.orientation.angle === 270;
+        // }
+        // // Method 2: Use window.orientation (older browsers)
+        // else if (typeof (window as any).orientation !== 'undefined') {
+        //     this._isLandscape = Math.abs((window as any).orientation) === 90;
+        // }
+        // // Method 3: Fallback using window dimensions
+        // else {
+        //     this._isLandscape = window.innerWidth > window.innerHeight;
+        // }
+        this._isLandscape = window.innerWidth > window.innerHeight;
         
-        console.log('📱 Orientation changed:', this._isLandscape ? 'Landscape' : 'Portrait');
+        // console.log('📱 Orientation changed:', this._isLandscape ? 'Landscape' : 'Portrait');
         
         // Trigger any orientation-specific logic here
         this.onOrientationChange();
@@ -1294,7 +1382,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
 
     is_song_in_playlist(song_data: Song_Data | null): boolean {
         if (!song_data) return false;
-        return this.media.get_playlists_containing_song(this.media.bare_song_key(song_data.id)).filter((playlist) => {
+        return Array.from(this.media.get_playlists_containing_song(this.media.bare_song_key(song_data.id))).filter((playlist) => {
             return playlist !== '#recently_played'
         }).length > 0;
     }

@@ -1,10 +1,11 @@
-import { Component } from '@angular/core';
+import { AfterViewInit, Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Playlist_Identifier } from '../../music.media.service';
 import { PlaylistsService } from '../../playlists.service';
 import { HotActionService } from '../../hot.action.service';
 import { MusicPlayerService } from '../../music.player.service';
+import { LoadingService } from '../app/services/loading.service';
 
 @Component({
   selector: 'app-playlists',
@@ -12,8 +13,15 @@ import { MusicPlayerService } from '../../music.player.service';
   templateUrl: './playlists.component.html',
   styleUrl: './playlists.component.css'
 })
-export class PlaylistsComponent {
-    constructor(private media: MusicMediaService, private playlists: PlaylistsService, private hot_action: HotActionService, private player: MusicPlayerService) {}
+export class PlaylistsComponent implements OnInit {
+    ngOnInit(): void {
+        this.loading_service.loading = false;
+    }
+    // ngAfterViewInit(): void {
+    //     this.loading_service.loading = false;
+    // }
+
+    constructor(private media: MusicMediaService, private playlists: PlaylistsService, private hot_action: HotActionService, private player: MusicPlayerService, private loading_service: LoadingService) {}
 
     get playlist_identifiers(): Song_Playlist_Identifier[] {
         return this.playlists.playlist_identifiers;

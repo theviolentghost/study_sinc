@@ -47,6 +47,10 @@ class BufferController {
         return this.settings.is_safari;
     }
 
+    // public is_stalled(): boolean {
+    //     return false;
+    // }
+
     constructor(private settings: SettingsService) {
         console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
     }
@@ -63,9 +67,9 @@ class BufferController {
         this.audio_element.setAttribute('webkit-playsinline', 'true');
         
         // Safari needs these
-        // if (this.is_safari) {
-        //     this.audio_element.setAttribute('controls', 'false');
-        // }
+        if (this.is_safari) {
+            this.audio_element.setAttribute('controls', 'true');
+        }
 
         await this.initialize_media_source();
     }
@@ -132,16 +136,28 @@ class BufferController {
             autoStartLoad: false,
             
             // Safari-friendly buffer settings
-            maxBufferLength: this.is_safari ? 20 : 30,
-            maxMaxBufferLength: this.is_safari ? 30 : 40,
-            backBufferLength: this.is_safari ? 10 : 20,
+            // maxBufferLength: this.is_safari ? 20 : 30,
+            // maxMaxBufferLength: this.is_safari ? 30 : 40,
+            // backBufferLength: this.is_safari ? 10 : 20,
             maxBufferHole: 0.5,
             
             // Safari needs more aggressive buffer management
             nudgeMaxRetry: this.is_safari ? 5 : 3,
+            startPosition: 0,
+            startLevel: -1, // -1 = auto, will be set to highest after manifest loads
         });
 
         this.configure_hls_events(hls);
+        
+        // Set to highest quality level after manifest is parsed
+        hls.once(Events.MANIFEST_PARSED, () => {
+            if (hls.levels.length > 0) {
+                const highestLevel = hls.levels.length - 1;
+                console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
+                hls.currentLevel = highestLevel;
+            }
+        });
+        
         return hls;
     }
 
@@ -196,6 +212,8 @@ class BufferController {
             // console.log(this.media_source.sourceBuffers);
 
             this.fully_buffered = true;
+            // emit event
+            this.events.dispatchEvent(new Event('fully_buffered'));
         });
 
         hls.on(Events.ERROR, (event, data) => {
@@ -293,8 +311,18 @@ class BufferController {
                 
             } else {
                 // CHROME/OTHER: Use transfer approach
-                console.log('🌐 Chrome: Using transfer approach');
+                console.log('Not Safari: Use new HLS instance');
                 
+                // this.hls.detachMedia();
+                // this.hls.destroy();
+
+                // this.hls = this.create_hls_instance();
+                // this.hls.attachMedia({
+                //     media: this.audio_element,
+                //     // mediaSource: this.media_source,
+                //     overrides: { endOfStream: false }
+                // });
+
                 await this.clear_buffer();
 
                 this.transfer_data = this.hls.transferMedia();
@@ -357,7 +385,11 @@ class BufferController {
     }
 
     public async set_audio_source_to_silent(): Promise<void> {
-        if(!this.is_safari) return; // Silent source only needed for Safari
+        if(!this.is_safari) {
+            this.pause();
+            this.has_audio = false;
+            return console.warn('⚠️ Silent source only needed for Safari, pausing instead'); // Silent source only needed for Safari
+        }
         if(this.using_silent_source) return; // Already using silent source
         if (!this.audio_element) {
             console.warn('⚠️ Audio element not set for silent source');
@@ -528,7 +560,7 @@ class BufferController {
             this.audio_element.currentTime = time;
             
             if (this.hls) {
-                this.hls.startLoad(time);
+                this.hls.startLoad(time, true);
             }
         }
     }

@@ -141,7 +141,16 @@
                 }
               ],
               "outputHashing": "all",
-              "serviceWorker": "projects/music/ngsw-config.json"
+              "serviceWorker": "projects/music/ngsw-config.json",
+              "namedChunks": false,
+              "optimization": {
+                "scripts": true,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
+                "fonts": false
+              }
             },
             "development": {
               "optimization": false,

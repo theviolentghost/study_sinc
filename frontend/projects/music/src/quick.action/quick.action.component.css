@@ -11,7 +11,7 @@
     justify-content: flex-end;
     flex-direction: column;
     /* background-color: var(--color-background-200); */
-    z-index: 10000;
+    z-index: 10000000005;
     transition: transform 0.25s ease-in-out;
 
     .dimmer {

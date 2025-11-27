@@ -10,6 +10,8 @@ import { MusicMediaService, DownloadQuality } from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { VersionService } from '../../version.service';
 import { GlobalInfoService } from '../../global.info.service';
+import { LoadingOverlayComponent } from './global/loading.overlay/loading.overlay.component';
+import { LoadingService } from './services/loading.service';
 
 @Component({
     selector: 'app-root',
@@ -20,6 +22,7 @@ import { GlobalInfoService } from '../../global.info.service';
         MediaPlayerComponent,
         NotificationContainerComponent,
         RouterModule,
+        LoadingOverlayComponent
     ],
     templateUrl: './app.component.html',
     styleUrl: './app.component.css'
@@ -27,13 +30,13 @@ import { GlobalInfoService } from '../../global.info.service';
 export class AppComponent implements OnInit, OnDestroy {
     navigation_links = [
         {
-            url: 'artists',
-            label: 'Artists',
-            icon: 'users.svg'
+            url: 'home',
+            label: 'Home',
+            icon: 'home.svg'
         },
         {
             url: 'playlists',
-            label: 'Playlists',
+            label: 'Library',
             icon: 'library.svg'
         },
         {
@@ -53,6 +56,13 @@ export class AppComponent implements OnInit, OnDestroy {
         },
     ];
 
+    get page_loading(): boolean {
+        return this.loading_service.loading;
+    }
+    get page_loading_global(): boolean {
+        return this.loading_service.global;
+    }
+
     private subscriptions: Subscription[] = [];
 
     constructor(
@@ -60,6 +70,7 @@ export class AppComponent implements OnInit, OnDestroy {
         private player: MusicPlayerService,
         private version_service: VersionService,
         private global: GlobalInfoService,
+        public loading_service: LoadingService
     ) {
         this.player.open_player.subscribe(() => {
             this.is_music_idle = false;
@@ -78,6 +89,12 @@ export class AppComponent implements OnInit, OnDestroy {
             }
         );
         this.subscriptions.push(criticalUpdateSub);
+
+        // on route change 
+        // const routeSub = this.router.events.subscribe(() => {
+            // this.loading_service.loading = true;
+        // });
+        // this.subscriptions.push(routeSub);
     }
 
     ngOnDestroy() {
@@ -99,8 +116,10 @@ export class AppComponent implements OnInit, OnDestroy {
     public cache_name: string = '';
 
     on_navigation_link_click(link: { url: string, label: string, icon: string }) {
+        if(this.active_link === link.url) return;
         this.active_link = link.url;
         this.router.navigate([link.url]);
+        // this.loading_service.loading = true;
         // this.elementRef.nativeElement.querySelector('.navigation').scrollTo({ top: 0, behavior: 'smooth' });
     }
 }

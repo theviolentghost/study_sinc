@@ -137,8 +137,6 @@ export class MusicMediaService {
 
     private artists_cache: Map<string, any> = new Map(); // artist id -> artist data
 
-    private _preload_duration: number = 15; // seconds (3-20)
-
     async initialize_all_songs_cache(playlist_identifiers: Song_Playlist_Identifier[]): Promise<void> {
         if (this.all_songs_cache_initialized) return;
 
@@ -260,30 +258,57 @@ export class MusicMediaService {
             console.warn('song_key called with null or undefined identifier');
             return '';
         }
-        if(!identifier.source_id) return `${identifier.source}:${identifier.video_id}`;
-        return `${identifier.source}:${identifier.source_id}:${identifier.video_id}`;
+        // if(!identifier.source_id) return `${identifier.source}:${identifier.video_id}`;
+        // return `${identifier.source}:${identifier.source_id}:${identifier.video_id}`;
+        const parts = [identifier.source, identifier.source_id, identifier.video_id].filter(part => part && part.trim() !== '');
+        return parts.join(':');
     }
 
-    public validate_song_key(song_key: string): boolean {
+    public valid_song_key(song_key: string): boolean {
         if (!song_key) {
-            console.warn('validate_song_key called with empty song_key');
+            console.warn('valid_song_key called with empty song_key');
             return false;
         }
         const parts = song_key.split(':');
         if (parts.length !== 3 && parts[0] !== 'youtube' && parts[0] !== 'musi') {
-            console.warn('validate_song_key: song_key does not have exactly 3 parts:', song_key);
+            console.warn('valid_song_key: song_key does not have exactly 3 parts:', song_key);
             return false;
         }
         if (parts.some(part => !part || part.trim() === '')) {
-            console.warn('validate_song_key: one or more parts are empty:', song_key);
+            console.warn('valid_song_key: one or more parts are empty:', song_key);
             return false;
         }
         return true;
     }
 
+    public song_key_missing_only_video_id(song_key: string): boolean {
+        if(this.valid_song_key(song_key)) return false;
+        const parts = song_key.split(':');
+        if (parts.length !== 3 && parts[0] !== 'youtube' && parts[0] !== 'musi') {
+            if(parts.length === 2 && parts[0] === 'spotify' && parts[1] && parts[1].trim() !== '') {
+                return true;
+            }
+        } else if(parts.length === 3) {
+            return (parts[2] === undefined || parts[2] === null || parts[2] === '' || parts[2].trim() === '');
+        }
+        return false;
+    }
+
+    public get_source_id_from_song_key(song_key: string): string | null {
+        if(this.valid_song_key(song_key)) {
+            // song key is valid
+            const parts = song_key.split(':');
+            return parts[1];
+
+        } else if(this.song_key_missing_only_video_id(song_key)) {
+            const parts = song_key.split(':');
+            return parts[1];
+        }
+    }
+
     public parse_song_key(song_key: string): Song_Identifier | null {
         const key_parts = song_key.split(':');
-        if(key_parts.length == 2) {
+        if(key_parts.length == 2 && key_parts[0] !== 'spotify') {
             return {
                 source: key_parts[0] as Song_Source,
                 source_id: null,
@@ -295,6 +320,260 @@ export class MusicMediaService {
             source: key_parts[0] as Song_Source,
             source_id: key_parts[1] || null,
             video_id: key_parts[2] || null
+        }
+    }
+
+    public remove_song_key(song_key: string): Promise<void> {
+        return del(song_key);
+    }
+
+    public async replace_song_key(old_song_key: string, new_song_key: string, new_song_data?: Song_Data): Promise<void> {
+        try {
+            const song_data = new_song_data || await get(old_song_key);
+            if (!song_data || !song_data?.id) {
+                console.warn(`No song data found for key: ${old_song_key}`);
+                return;
+            }
+
+            console.log(`Replacing song key: ${old_song_key} => ${new_song_key}`);
+
+            // Step 1: Save new song data (keep old one for now)
+            await this.save_song_to_indexDB(new_song_key, song_data);
+            console.log('✓ Saved new song key to IndexedDB');
+
+            // Step 2: Update caches
+            const bare_old_song_key = this.bare_song_key(this.parse_song_key(old_song_key));
+            const bare_new_song_key = this.bare_song_key(this.parse_song_key(new_song_key));
+
+            if (this.all_songs_cache.has(bare_old_song_key)) {
+                this.all_songs_cache.delete(bare_old_song_key);
+                this.all_songs_cache.add(bare_new_song_key);
+            }
+
+            // Get all playlists containing this song
+            const playlist_ids = this.playlist_songs_cache.get(bare_old_song_key);
+            if (playlist_ids) {
+                this.playlist_songs_cache.delete(bare_old_song_key);
+                this.playlist_songs_cache.set(bare_new_song_key, playlist_ids);
+            }
+
+            // Step 3: Create copies and update all playlists atomically
+            const playlists_to_update: Array<{ identifier: any, updated_playlist: any }> = [];
+
+            // Handle player's current playlist if it has this song
+            if (this.playerService?.current_playlist?.songs?.has(old_song_key)) {
+                console.log('Preparing player playlist update...');
+                
+                // Create a deep copy of the playlist
+                const playlist_copy = {
+                    ...this.playerService.current_playlist,
+                    songs: new Map(this.playerService.current_playlist.songs),
+                    song_added_timestamps: this.playerService.current_playlist.song_added_timestamps 
+                        ? new Map(this.playerService.current_playlist.song_added_timestamps) 
+                        : new Map()
+                };
+
+                const old_timestamp = playlist_copy.song_added_timestamps.get(old_song_key);
+                
+                // Update the copy
+                playlist_copy.songs.delete(old_song_key);
+                playlist_copy.songs.set(new_song_key, song_data.id);
+                
+                if (old_timestamp) {
+                    playlist_copy.song_added_timestamps.delete(old_song_key);
+                    playlist_copy.song_added_timestamps.set(new_song_key, old_timestamp);
+                }
+
+                // Update in-memory references
+                if (this.playerService.playlist_queue) {
+                    this.playerService.playlist_queue = this.playerService.playlist_queue.map(id => id === old_song_key ? new_song_key : id);
+                }
+                if (this.playerService.play_next_queue) {
+                    this.playerService.play_next_queue = this.playerService.play_next_queue.map(id => id === old_song_key ? new_song_key : id);
+                }
+
+                // change the song in the playlist manager
+                if(this.playerService.current_playlist.songs) {
+                    this.playerService.current_playlist.songs.delete(old_song_key);
+                    this.playerService.current_playlist.songs.set(new_song_key, song_data.id);
+                }
+
+                // Update playlist manager
+                if ((this.playerService as any).media_controller?.playlist_manager) {
+                    const playlist_manager = (this.playerService as any).media_controller.playlist_manager;
+                    
+                    if (playlist_manager.queue) {
+                        playlist_manager.queue = playlist_manager.queue.map((key: string) => key === old_song_key ? new_song_key : key);
+                    }
+                    if (playlist_manager.playnext) {
+                        playlist_manager.playnext = playlist_manager.playnext.map((key: string) => key === old_song_key ? new_song_key : key);
+                    }
+                    if (playlist_manager.history_stack) {
+                        playlist_manager.history_stack = playlist_manager.history_stack.map((key: string) => key === old_song_key ? new_song_key : key);
+                    }
+
+                    // Update song cache
+                    if ((this.playerService as any).media_controller?.song_cache) {
+                        const song_cache = (this.playerService as any).media_controller.song_cache;
+                        if (song_cache.has(old_song_key)) {
+                            const cached_song = song_cache.get(old_song_key);
+                            song_cache.delete(old_song_key);
+                            song_cache.set(new_song_key, cached_song);
+                        }
+                    }
+                }
+
+                if (this.playerService.playlist_identifier) {
+                    playlists_to_update.push({
+                        identifier: this.playerService.playlist_identifier,
+                        updated_playlist: playlist_copy
+                    });
+                    // Update the in-memory playlist in place
+                    this.playerService.current_playlist.songs.clear();
+                    playlist_copy.songs.forEach((value, key) => {
+                        this.playerService.current_playlist.songs.set(key, value);
+                    });
+                    this.playerService.current_playlist.song_added_timestamps?.clear();
+                    playlist_copy.song_added_timestamps.forEach((value, key) => {
+                        this.playerService.current_playlist.song_added_timestamps?.set(key, value);
+                    });
+                }
+            }
+
+            console.log(this.playerService.current_playlist, old_song_key, new_song_key);
+
+            // Handle playlists service's selected playlist if it has this song
+            if (this.playlist_service?.selected_playlist?.songs?.has(old_song_key)) {
+                console.log('Preparing selected playlist update...');
+                
+                // Create a deep copy
+                const playlist_copy = {
+                    ...this.playlist_service.selected_playlist,
+                    songs: new Map(this.playlist_service.selected_playlist.songs),
+                    song_added_timestamps: this.playlist_service.selected_playlist.song_added_timestamps 
+                        ? new Map(this.playlist_service.selected_playlist.song_added_timestamps) 
+                        : new Map()
+                };
+
+                const old_timestamp = playlist_copy.song_added_timestamps.get(old_song_key);
+                
+                // Update the copy
+                playlist_copy.songs.delete(old_song_key);
+                playlist_copy.songs.set(new_song_key, song_data.id);
+                
+                if (old_timestamp) {
+                    playlist_copy.song_added_timestamps.delete(old_song_key);
+                    playlist_copy.song_added_timestamps.set(new_song_key, old_timestamp);
+                }
+
+                // Update video identifiers array
+                if (this.playlist_service.selected_playlist_video_identifiers) {
+                    this.playlist_service.selected_playlist_video_identifiers = 
+                        this.playlist_service.selected_playlist_video_identifiers.map(identifier => 
+                            this.song_key(identifier) === old_song_key ? this.parse_song_key(new_song_key)! : identifier
+                        );
+                }
+
+                if (this.playlist_service.selected_playlist_identifier) {
+                    playlists_to_update.push({
+                        identifier: this.playlist_service.selected_playlist_identifier,
+                        updated_playlist: playlist_copy
+                    });
+                    // Update the in-memory playlist in place
+                    this.playlist_service.selected_playlist.songs.clear();
+                    playlist_copy.songs.forEach((value, key) => {
+                        this.playlist_service.selected_playlist.songs.set(key, value);
+                    });
+                    this.playlist_service.selected_playlist.song_added_timestamps?.clear();
+                    playlist_copy.song_added_timestamps.forEach((value, key) => {
+                        this.playlist_service.selected_playlist.song_added_timestamps?.set(key, value);
+                    });
+                }
+            }
+
+            // Handle all other playlists in storage
+            if (playlist_ids && playlist_ids.size > 0) {
+                console.log(`Preparing ${playlist_ids.size} playlist updates...`);
+                
+                for (const playlist_id of playlist_ids) {
+                    try {
+                        const playlist_identifier = await this.playlists.get_playlist_identifier(playlist_id);
+                        if (!playlist_identifier) {
+                            console.warn(`Could not find playlist identifier for: ${playlist_id}`);
+                            continue;
+                        }
+
+                        // Skip if already handled above
+                        const isPlayerPlaylist = this.player?.playlist_identifier?.id === playlist_id;
+                        const isSelectedPlaylist = this.playlist_service?.selected_playlist_identifier?.id === playlist_id;
+                        
+                        if (isPlayerPlaylist || isSelectedPlaylist) {
+                            console.log(`Skipping ${playlist_id} - already queued for update`);
+                            continue;
+                        }
+
+                        const playlist = await this.get_playlist_from_indexDB(playlist_identifier);
+                        if (!playlist || !playlist.songs) {
+                            console.warn(`Could not load playlist: ${playlist_id}`);
+                            continue;
+                        }
+
+                        // Check if this playlist has the old song key
+                        if (playlist.songs.has(old_song_key)) {
+                            console.log(`Queuing playlist ${playlist_id} for update`);
+                            
+                            // Create a deep copy
+                            const playlist_copy = {
+                                ...playlist,
+                                songs: new Map(playlist.songs),
+                                song_added_timestamps: playlist.song_added_timestamps 
+                                    ? new Map(playlist.song_added_timestamps) 
+                                    : new Map()
+                            };
+
+                            const timestamp = playlist_copy.song_added_timestamps.get(old_song_key);
+                            
+                            // Update the copy
+                            playlist_copy.songs.delete(old_song_key);
+                            playlist_copy.songs.set(new_song_key, song_data.id);
+                            
+                            if (timestamp) {
+                                playlist_copy.song_added_timestamps.delete(old_song_key);
+                                playlist_copy.song_added_timestamps.set(new_song_key, timestamp);
+                            }
+
+                            playlists_to_update.push({
+                                identifier: playlist_identifier,
+                                updated_playlist: playlist_copy
+                            });
+                        }
+                    } catch (error) {
+                        console.error(`Error preparing playlist ${playlist_id}:`, error);
+                    }
+                }
+            }
+
+            // Step 4: Save all updated playlists atomically
+            console.log(`Saving ${playlists_to_update.length} updated playlists...`);
+            for (const { identifier, updated_playlist } of playlists_to_update) {
+                try {
+                    // await this.save_playlist_to_indexDB(identifier, updated_playlist);
+                    await this.playlists.save_playlist(identifier, updated_playlist);
+                    console.log(`✓ Saved playlist: ${identifier.id}`);
+                } catch (error) {
+                    console.error(`✗ Failed to save playlist ${identifier.id}:`, error);
+                    throw error; // Stop if any save fails
+                }
+            }
+
+            // Step 5: Only now delete the old song key (after all playlists are saved)
+            await del(old_song_key);
+            console.log('✓ Deleted old song key from IndexedDB');
+
+            console.log(`✓ Successfully replaced song key: ${old_song_key} -> ${new_song_key}`);
+        } catch (error) {
+            console.error('✗ Error replacing song key:', error);
+            throw error;
         }
     }
 
@@ -441,7 +720,7 @@ export class MusicMediaService {
             }
 
             if(this.bare_song_key(this.playerService.current?.id) === this.bare_song_key(song_data.id)) {
-                this.playerService.current = song_data; // Update the player service with the new song data if the song is currently playing
+                this.playerService.current = this.song_key(song_data.id); // Update the player service with the new song data if the song is currently playing
                 // this.playerService.playlist_song_data_map.set(this.bare_song_key(song_data.id), song_data);
                 // this.playlists.update_song_in_playlist(song_data, null, null);
                 // this.song_data_updated.emit(song_data); 
@@ -755,7 +1034,7 @@ export class MusicMediaService {
         }
     }
 
-    async get_primary_color_from_artwork(artwork_url: string | null): Promise<string | null> {
+    async get_primary_color_from_artwork(artwork_url: string | null, minimum_brightness: number = 0.4): Promise<string | null> {
         if (!artwork_url) return null;
         
         return new Promise((resolve, reject) => {
@@ -868,14 +1147,26 @@ export class MusicMediaService {
                             }
                         }
 
-                        const [r, g, b] = dominantColor.split(',').map(Number);
+                        let [r, g, b] = dominantColor.split(',').map(Number);
                         
                         // Ensure values are valid
-                        const finalR = Math.max(0, Math.min(255, r));
-                        const finalG = Math.max(0, Math.min(255, g));
-                        const finalB = Math.max(0, Math.min(255, b));
+                        r = Math.max(0, Math.min(255, r));
+                        g = Math.max(0, Math.min(255, g));
+                        b = Math.max(0, Math.min(255, b));
                         
-                        const color = `rgb(${finalR}, ${finalG}, ${finalB})`;
+                        // Calculate brightness (perceived luminance)
+                        const brightness = this.calculate_luminance(r, g, b) / 255;
+                        
+                        // If brightness is below minimum, boost it proportionally
+                        if (brightness < minimum_brightness) {
+                            const boost_factor = minimum_brightness / Math.max(brightness, 0.01); // Avoid division by zero
+                            r = Math.min(255, Math.round(r * boost_factor));
+                            g = Math.min(255, Math.round(g * boost_factor));
+                            b = Math.min(255, Math.round(b * boost_factor));
+                            // console.log(`Boosted color from brightness ${(brightness * 100).toFixed(1)}% to ${(minimum_brightness * 100)}%`);
+                        }
+                        
+                        const color = `rgb(${r}, ${g}, ${b})`;
                         // console.log(`Final primary color: ${color}`);
                         resolve(color);
 
@@ -1355,5 +1646,11 @@ export class MusicMediaService {
         } catch (error) {
             console.error('Error adding to recently played:', error);
         }
+    }
+
+    public async get_new_releases_by_artists(artist_ids: string[]): Promise<any> {
+        return lastValueFrom(
+            this.http.get(`/music/artists/new_releases`, { params: { artist_ids } })
+        ) as Promise<any>;
     }
 }

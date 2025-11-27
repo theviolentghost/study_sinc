@@ -11,7 +11,7 @@
         'landscape': isLandscape,
         'portrait': isPortrait
     }"
-    [style.--background]="get_thumbnail_background(current_song_data)"
+    [style.--background]="get_thumbnail_background(current_media_data || current_song_data)"
 >
 <!-- [style.background]="get_thumbnail_background(current_song_data)" -->
     <canvas id="visualization-canvas" width="800" height="800"></canvas>
@@ -86,7 +86,7 @@
                 <div class="info">
                     <div class="title">{{current_media_data?.original_song_name || current_media_data?.song_name || "#no name"}}</div>
                     <!-- <div class="artist">{{current_media_data?.original_artists?.[0]?.name || "#no artist"}}</div> -->
-                    <div class="artists" style="display: flex; flex-direction: row; align-items: center;">
+                    <div class="artists" style="display: flex; flex-direction: row; align-items: center; width: 80vw; overflow: hidden;">
                         <div class="explicit" [style.--mask]="'url(\'explicit.svg\')'" *ngIf="current_media_data?.explicit"></div>
                         <div 
                             class="artist"
@@ -99,33 +99,39 @@
                     </div>
                 </div>
             </div>
-            <div class="audio-progress" 
-                [ngClass]="{
-                    'dragging': isSeekBarDragging,
-                    'disabled': is_seekbar_disabled
-                }"
+            <div 
+                class="audio-wrapper"
                 (mousedown)="onSeekBarMouseDown($event)"
                 (touchstart)="onSeekBarTouchStart($event)"
             >
-                <div 
-                    class="buffer-bar" 
-                    [style.--buffered-percent]="(is_seekbar_disabled ? 00 : buffered_percent) + '%'" 
-                    [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
-                    [ngClass]="{loading: is_seekbar_disabled}"
-                ></div>
-                <div class="progress"
-                    [style.--value]="is_seekbar_disabled ? 00 : (isSeekBarDragging ? seekBarPreviewValue : audio_current_time)"
-                    [style.--max]="is_seekbar_disabled ? 100 : audio_duration"
-                    [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
-                ></div>
-                <!-- <div class="seek-thumb" 
-                    [style.left.%]="(isSeekBarDragging ? seekBarPreviewValue : audio_current_time) / audio_duration * 100"
-                    [style.opacity]="isSeekBarDragging ? '1' : '0'"
-                ></div> -->
+                <div class="audio-progress" 
+                    [ngClass]="{
+                        'dragging': isSeekBarDragging,
+                        'disabled': is_seekbar_disabled
+                    }"
+                >
+                    <div 
+                        class="buffer-bar" 
+                        [style.opacity]="is_seekbar_disabled ? '0' : '1'"
+                        [style.--buffered-percent]="(is_seekbar_disabled ? 00 : buffered_percent) + '%'" 
+                        [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
+                        [ngClass]="{loading: is_seekbar_disabled}"
+                    ></div>
+                    <div class="progress"
+                        [style.--value]="is_seekbar_disabled ? 00 : (isSeekBarDragging ? seekBarPreviewValue : audio_current_time)"
+                        [style.--max]="is_seekbar_disabled ? 100 : audio_duration"
+                        [style.--color]="is_seekbar_disabled ? 'var(--color-neutral)' : 'var(--color-primary)'"
+                    ></div>
+                    <!-- <div class="seek-thumb" 
+                        [style.left.%]="(isSeekBarDragging ? seekBarPreviewValue : audio_current_time) / audio_duration * 100"
+                        [style.opacity]="isSeekBarDragging ? '1' : '0'"
+                    ></div> -->
+                </div>
             </div>
             <div class="duration">
-                <span class="time">{{ isSeekBarDragging ? seconds_to_time(seekBarPreviewValue) : seconds_to_time(audio_current_time) }}</span>
-                <span class="time">-{{ isSeekBarDragging ? seconds_to_time(audio_duration - seekBarPreviewValue) : seconds_to_time(audio_duration - audio_current_time) }}</span>
+                <span class="time" [ngClass]="{show: is_progress_accurate}">{{ isSeekBarDragging ? seconds_to_time(seekBarPreviewValue) : seconds_to_time(audio_current_time) }}</span>
+                <span class="time" [ngClass]="{show: is_duration_accurate}">-{{ isSeekBarDragging ? seconds_to_time(audio_duration - seekBarPreviewValue) : seconds_to_time(audio_duration - audio_current_time) }}</span>
+                <span class="loading-indicator" *ngIf="loading_state !== null">{{loading_state_text}}</span>
             </div>
             <!-- style="margin-bottom: auto;" -->
             <div class="controls">

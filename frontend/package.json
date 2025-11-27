@@ -5,6 +5,7 @@
     "ng": "ng",
     "start": "ng serve --host 0.0.0.0",
     "build": "ng build",
+    "build:music": "ng build music --configuration production && node normalize-build-hashes.js dist/music/browser",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "hls:build": "cd ../hls.js && npm run build && npm link && cd ../frontend && npm link hls.js"

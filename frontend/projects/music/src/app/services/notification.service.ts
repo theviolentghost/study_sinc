@@ -115,11 +115,11 @@ export class NotificationService {
     }
 
     public warning(message: string, options: NotificationOptions = {}): void {
-        this.show(message, NotificationType.WARNING, { ...options, autoDismiss: false });
+        this.show(message, NotificationType.WARNING, { ...options });
     }
 
     public error(message: string, options: NotificationOptions = {}): void {
-        this.show(message, NotificationType.ERROR, { ...options, autoDismiss: false });
+        this.show(message, NotificationType.ERROR, { ...options });
     }
 
     public dismiss(notificationId: string): void {

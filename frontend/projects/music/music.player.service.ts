@@ -25,28 +25,42 @@ export class MusicPlayerService {
     get current(): Song_Data | null {
         return this.media_controller.current_song;
     }
-    set current(song: Song_Data | null) {
+    set current(song: string | null) {
         this.media_controller.current_song = song;
+    }
+    public set_current_song(song: Song_Data | null): void {
+        if(song) {
+            const song_key = this.media.song_key(song.id);
+            this.media_controller.current_song = song_key;
+            this.media_controller.song_cache.set(song_key, song);
+            this.media.save_song_to_indexDB(song_key, song);
+        } else {
+            this.media_controller.current_song = null;
+        }
     }
     get media_data(): Song_Data | null {
         return this.media_controller.media_data;
     }
     get preloaded_next_song(): boolean {
-        return false;
+        return this.media_controller.preloaded_next_song;
     }
     get previous_song_exists(): boolean {
         return this.media_controller.playlist_manager.has_previous_song;
     }
     get player_status(): 'playing' | 'paused' | 'stopped' {
         // if(this.buffer_controller?.is_stalled) return 'stopped';
+        if(this.media_controller.is_current_song_loading()) return 'stopped';
         if(!this.buffer_controller?.has_audio || this.buffer_controller?.using_silent_source) return 'stopped';
         if(this.buffer_controller?.is_playing) return 'playing';
         return 'paused';
     }
     get song_time_elapsed(): number {
+        if(this.media_controller.is_current_song_loading()) return 0; // song loaded doesnt match media data (aka loading song)
         return this.buffer_controller.current_time;
     }
     get song_duration(): number {
+        if(this.media_controller?.current_song?.video_duration && this.media_controller?.current_song?.video_duration > 0) return (this.media_controller?.current_song?.video_duration || 0) / 1000;
+        if(this.media_controller.is_current_song_loading()) return 0; // song loaded doesnt match media data (aka loading song)
         return this.buffer_controller.duration;
     }
     get shuffle(): boolean {
@@ -54,7 +68,6 @@ export class MusicPlayerService {
     }
     set shuffle(value: boolean) {
         this.media_controller.shuffle = value;
-        this.media_controller.update_shuffle_queue();
     }
     get repeat(): boolean {
         return this.media_controller.repeat;
@@ -64,6 +77,12 @@ export class MusicPlayerService {
     }
     get playlist_identifier(): Song_Playlist_Identifier | null {
         return this.media_controller.playlist_manager.identifier;
+    }
+    get current_playlist(): Song_Playlist | null {
+        return this.media_controller.playlist_manager.data;
+    }
+    set current_playlist(playlist: Song_Playlist | null) {
+        this.media_controller.playlist_manager.data = playlist;
     }
     get play_next_queue(): string[] {
         return this.media_controller.play_next_queue;
@@ -85,6 +104,15 @@ export class MusicPlayerService {
     }
     get buffered_percent(): number {
         return this.buffer_controller.buffered_percent;
+    }
+    get is_duration_accurate(): boolean {
+        return this.media_controller?.current_song?.video_duration || (this.buffer_controller.fully_buffered && this.media_controller.is_current_song_loading() === false);
+    }
+    get is_progress_accurate(): boolean {
+        return this.is_duration_accurate || this.buffer_controller.using_silent_source === false;
+    }
+    get loading_state(): 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded' | null {
+        return this.media_controller.loading_state;
     }
 
     constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService) {
@@ -156,6 +184,7 @@ export class MusicPlayerService {
 
     public add_song_to_play_next(song: Song_Data): void {
         this.media_controller.playlist_manager.add_song_to_play_next(this.media.song_key(song.id));
+        this.add_song_to_cache(song);
     }
 
     public async load_and_play_track(song: Song_Data | Song_Identifier | string): Promise<void> {

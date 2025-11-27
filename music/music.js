@@ -1379,8 +1379,11 @@ async function spotify_get_top_releases(total_results = 50) {
     }
 }
 
+import new_music from './recommendation/new.music.js'
+
 export default {
     get: get_audio_file,
+    new_music,
     youtube: {
         search: youtube_search,
         search_videos: youtube_search_for_videos,
@@ -1391,6 +1394,8 @@ export default {
         get_audio_url: get_audio_url,
     },
     spotify: {
+        api: spotify_api,
+        spotify_api_with_retry,
         search: spotify_search,
         search_videos: spotify_search_for_videos,
         search_artists: spotify_search_for_artists,

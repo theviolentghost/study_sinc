@@ -391,7 +391,7 @@ class File_Manager {
         }
     }
 
-    async update_all_files_status_by_version_update(update_type) {
+    async update_all_files_status_by_version_update(update_type, stored_version, server_version) {
         if(update_type === 'tiny') {
             // update all files marked as 'updated' to 'needs_update'
             const files = await this.get_all_files_by_classification('tiny');
@@ -421,9 +421,9 @@ class File_Manager {
             if( LOGGING_ENABLED) console.warn('Clearing all files in IndexedDB');
         }
 
-        // For any version update, notify clients that a reload may be needed
+        // Notify clients about the update
         pending_critical_update = true;
-        this.notify_clients_critical_update();
+        this.notify_clients_update(stored_version, server_version, update_type);
     }
 
 
@@ -436,24 +436,25 @@ class File_Manager {
 
 
 
-    // Notify clients about critical updates that require reload
-    async notify_clients_critical_update() {
+    // Notify clients about updates
+    async notify_clients_update(stored_version, server_version, update_type) {
         try {
             if (self.clients && self.clients.matchAll) {
                 const clients = await self.clients.matchAll({ type: 'window' });
                 clients.forEach(client => {
-                    if (LOGGING_ENABLED) console.log('Notifying client of critical update');
+                    if (LOGGING_ENABLED) console.log('Notifying client of update:', stored_version, '->', server_version);
                     client.postMessage({
-                        type: 'critical_update_available',
+                        type: 'update_available',
                         payload: {
-                            message: 'A critical update is available that requires a reload.',
-                            requires_reload: true
+                            stored_version,
+                            server_version,
+                            update_type
                         }
                     });
                 });
             }
         } catch (error) {
-            console.error('Error notifying clients of critical update:', error);
+            console.error('Error notifying clients of update:', error);
         }
     }
 
@@ -711,7 +712,7 @@ async function check_version_and_cache() {
             const update_type = file_manager.get_version_update_type(stored_version, server_version);
             if(LOGGING_ENABLED) console.log('Version update detected:', stored_version, '->', server_version, 'Type:', update_type);
             
-            file_manager.update_all_files_status_by_version_update(update_type);
+            file_manager.update_all_files_status_by_version_update(update_type, stored_version, server_version);
             
             // For any version change, we should consider it critical since Angular apps
             // can have breaking changes even in minor updates

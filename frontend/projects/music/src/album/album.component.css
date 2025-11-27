@@ -320,6 +320,15 @@
                     mask-image: var(--mask);
                     background-color: var(--color-neutral);
                 }
+
+                &.active {
+                    background-color: var(--color);
+                    border-color: var(--color);
+
+                    &::after {
+                        background-color: var(--color-background);
+                    }
+                }
             }
 
             &.download, &.more {
@@ -347,6 +356,7 @@
                 margin-right: calc(var(--space-6));
                 width: 50px;
                 height: 50px;
+                background-color: var(--color);
 
                 /* position: sticky; */
 

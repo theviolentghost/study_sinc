@@ -12,7 +12,7 @@
     height: 100%;
     overflow: hidden;
     /* transition: height 0.65s ease-in-out, bottom 0.25s ease-in-out; */
-    z-index: 1000;
+    z-index: 10001;
     background-color: var(--color-background-200);
 
     &::after {
@@ -330,21 +330,31 @@
     border-bottom-right-radius: var(--space-3); */
 }
 .duration {
+    position: relative;
     width: 100%;
-    padding: var(--space-3) var(--space-2);
+    padding: var(--space-0) var(--space-2);
     display: flex;
     justify-content: space-between;
     opacity: 0;
     animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
 }
 .duration .time {
+    position: relative;
     font-size: var(--space-4);
     font-weight: 500;
     color: var(--color-neutral);
+    opacity: 0;
+    transform: translateY(-200%);
+    transition: opacity 0.3s ease, transform 0.2s ease;
+
+    &.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 .metadata {
     align-self: flex-start;
-    width: calc(100% - 4 * var(--space-5));
+    width: calc(100% - 2 * var(--space-5));
 }
 .glass {
     position: absolute;
@@ -456,34 +466,32 @@
         }
     }
 }
+.audio-wrapper {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 0;
+    z-index: 6;
+    opacity: 0;
+    animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
+}
 .audio-progress {
     position: relative;
     top: 0;
     left: 0;
     width: calc(100% - var(--space-4));
-    height: 9px;
-    z-index: 6;
+    height: 12px;
     background: var(--color-background-300);
     border-radius: 9999px;
     overflow: hidden;
     cursor: pointer;
     transition: height 0.2s ease-out, transform 0.2s ease-out;
-    opacity: 0;
-    animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
-    
-    /* Expand touch/click area */
-    &::before {
-        content: '';
-        position: absolute;
-        top: -10px;
-        left: -10px;
-        right: -10px;
-        bottom: -10px;
-        background: transparent;
-    }
+    opacity: 1;
+    /* animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards; */
 
     &.dragging {
-        height: 13px;
+        height: 15px;
         transform: translateY(-2px);
     }
 
@@ -496,10 +504,6 @@
     0% {
         width: 0%;
         opacity: 0.0;
-    }
-    0% {
-        width: 0%;
-        opacity: 0.6;
     }
     80% {
         width: 100%;
@@ -520,6 +524,8 @@
     background: var(--color);
     filter: grayscale(0.2) brightness(.55);
     pointer-events: none;
+    opacity: 1;
+    /* animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards; */
 
     &.loading {
         animation: buffer 1.6s linear infinite;
@@ -532,6 +538,7 @@
     height: 100%;
     width: calc(var(--value) / var(--max) * 100%);
     background: var(--color);
+    animation: fade-in-from-bottom 0.45s ease-in-out 0.2s forwards;
     /* transition: width 0.15s ease-in-out; */
 }
 
@@ -589,6 +596,18 @@
     cursor: pointer;
     background-color: transparent;
     z-index: 6;
+}
+.loading-indicator {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    --color: var(--color-neutral);
+    flex-shrink: 0;
+    background-color: transparent;
+    z-index: 2;
+    color: var(--color);
+    font-size: var(--space-4);
+    font-weight: 500;
 }
 .control-button::after, .modifiers .modifier-button::after, .player-status.like::after {
     position: absolute;
@@ -989,6 +1008,12 @@
     height: 100%;
     z-index: 5;
     background: transparent;
+    touch-action: pan-y; /* Allow only vertical panning */
+    will-change: z-index; /* Optimize z-index changes during drag */
+    cursor: grab;
+}
+.draggable:active {
+    cursor: grabbing;
 }
 .container.hidden .draggable, .container.reduced .draggable {
     display: none;
@@ -1048,6 +1073,8 @@
         position: relative;
         aspect-ratio: 1 / 1;
         height: 100%;
+        max-width: 65vh;
+        max-height: 65vh;
         width: auto;
         display: flex;
         align-items: center;
@@ -1062,6 +1089,12 @@
 
         #thumbnail {
             border-radius: 0;
+            /* background: rgba(255, 255, 255, 0.1);  
+            backdrop-filter: blur(20px) saturate(120%);
+            -webkit-backdrop-filter: blur(20px) saturate(120%); */
+            box-shadow: none;
+            object-fit: contain;
+            max-height: 40dvh;
         }
     }
 
@@ -1091,7 +1124,7 @@
     }
 
     .modifiers {
-        display: none;
+        /* display: none; */
     }
 
     .duration {
@@ -1107,34 +1140,47 @@
 
     /* Override all fade-in-from-bottom animations to slide-in-from-right for landscape mode */
     .duration {
+        opacity: 0;
+        animation: slide-in-from-right 0.45s ease-in-out 0.2s forwards;
+    }
+
+    .audio-wrapper {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0.2s forwards;
     }
 
     .info {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0s forwards;
     }
 
     .info .artists {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0.1s forwards;
     }
 
     .quick-playlist-action.like {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0s forwards;
     }
 
     .quick-playlist-action.add {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0s forwards;
     }
 
     .main-audio-progress {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0.2s forwards;
     }
 
     .controls {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0.3s forwards;
     }
 
     .modifiers {
+        opacity: 0;
         animation: slide-in-from-right 0.45s ease-in-out 0.4s forwards;
     }
 }

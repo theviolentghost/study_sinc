@@ -122,7 +122,7 @@ export class QuickActionComponent {
             this.visible_start_index = buffered_start;
             this.visible_end_index = buffered_end;
 
-            console.log('Updated visible range:', this.visible_start_index, 'to', this.visible_end_index);
+            // console.log('Updated visible range:', this.visible_start_index, 'to', this.visible_end_index);
         }
     }
 
@@ -855,6 +855,12 @@ export class QuickActionComponent {
         if (!this.playlists.selected_playlist_identifier) return false;
         return this.playlists.selected_playlist_identifier.default || false;
     }
+    
+    get is_album_playlist(): boolean {
+        if (!this.playlists.selected_playlist_identifier) return false;
+        return this.playlists.selected_playlist_identifier.playlist_type === 'album';
+    }
+    
     public playlist_options = [
         // true or false is whether to allow for default playlists
         ['Playlist Color', 'palette.svg', '#playlist_color', "true"],
@@ -865,6 +871,9 @@ export class QuickActionComponent {
     ];
     public select_playlist_option(option: string, allow: boolean = true): void {
         if (!allow) return;
+        
+        // Prevent color change for album playlists
+        if (option === 'Playlist Color' && this.is_album_playlist) return;
         switch(option) {
             case 'Playlist Color':this.quick_action.action = 'pick_playlist_color'; break;
             case 'Download Playlist': this.quick_action.action = 'download_playlist'; break;

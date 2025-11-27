@@ -1,7 +1,10 @@
 <div class="dimmer" (click)="hot_action.close_hot_action()"></div>
-<div class="content-wrapper" [style.transform]="header_transform">
+
+<!-- Template for colored header -->
+<ng-template #colored_header>
     <div 
-        class="header"
+        class="header" 
+        [style.--color-contrast]="(action === 'pick_song_color' ? (song_data?.colors?.primary || 'var(--color-primary)') : 'var(--color-neutral)')"
         (touchstart)="header_on_drag_start($event)"
         (touchmove)="header_on_drag_move($event)"
         (touchend)="header_on_drag_end($event)"
@@ -11,9 +14,27 @@
         (mouseleave)="header_on_drag_end($event)"
     >
         <div class="dragging-pill"></div>
-        <!-- <button class="close" (click)="cancel()">Cancel</button> -->
-        <!-- <h3 class="label">{{title}}</h3> -->
     </div>
+</ng-template>
+
+<!-- Template for normal header -->
+<ng-template #normal_header>
+    <div 
+        class="header" 
+        [style.--color-contrast]="'white'"
+        (touchstart)="header_on_drag_start($event)"
+        (touchmove)="header_on_drag_move($event)"
+        (touchend)="header_on_drag_end($event)"
+        (mousedown)="header_on_drag_start($event)"
+        (mousemove)="header_on_drag_move($event)"
+        (mouseup)="header_on_drag_end($event)"
+        (mouseleave)="header_on_drag_end($event)"
+    >
+        <div class="dragging-pill"></div>
+    </div>
+</ng-template>
+
+<div class="content-wrapper" [style.transform]="header_transform">
 
 <ng-container [ngSwitch]="action">
     
@@ -21,12 +42,12 @@
     <ng-container *ngSwitchCase="'add_to_playlist'">
         <div class="container disable-select">
             <div class="preview">
-                <div class="thumbnail" [style.background-color]="meta_song_data?.colors?.primary || song_data?.colors?.primary || 'transparent'">
-                    <img [src]="meta_song_data?.download_artwork_blob || meta_song_data?.url?.artwork?.low || meta_song_data?.url?.artwork?.high || song_data?.download_artwork_blob || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high || 'default-thumbnail.svg'" alt="Thumbnail" />
+                <div class="thumbnail" [style.background-color]="song_data?.colors?.primary || 'transparent'">
+                    <img [src]="song_data?.download_artwork_blob || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high || 'default-thumbnail.svg'" alt="Thumbnail" />
                 </div>
                 <div class="info">
-                    <div class="title">{{ meta_song_data?.song_name || song_data?.song_name || "" }}</div>
-                    <div class="artist">{{ meta_song_data?.original_artists?.[0]?.name || song_data?.original_artists?.[0]?.name || "" }}</div>
+                    <div class="title">{{ song_data?.song_name || "" }}</div>
+                    <div class="artist">{{ song_data?.original_artists?.[0]?.name || "" }}</div>
                 </div>
             </div>
             <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10))' : '100%'">
@@ -38,19 +59,30 @@
                     <div *ngIf="!action?.no_check" class="state" [style.--mask]="'url(\'check.svg\')'"></div>
                 </button>
                 <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%;">Add To Playlists</h2>
-                <button class="action playlist" *ngFor="let playlist of playlist_selectors" (click)="select_playlist(playlist)" [style.--primary]="get_playlist_primary_color(playlist.identifier)" [style.--color]="(playlist.selected ? 'var(--primary)' : 'var(--color-background-400)')" [style.--text]="(playlist.selected ? 'var(--primary)' : 'var(--color-text)')" [style.--background]="(playlist.selected ? 'var(--primary)' : 'var(--color-background)')" [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}">
-                    <div class="thumbnail" [ngClass]="{'single': playlist.identifier.images.length < 4}">
-                        <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" />
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: var(--space-1);">
-                        <div class="name">{{ playlist.identifier.name }}</div>
-                        <div class="info">
-                            <div class="count">{{ (playlist.identifier.track_count || 0) + (playlist.selected ? 1 : 0) }} tracks</div>
-                            <div class="playlist-duration"> {{ ms_to_time((playlist.identifier.duration || 0) + (playlist.selected ? (song_data?.video_duration ?? 0) : 0)) }}</div>
+                <ng-container *ngFor="let playlist of playlist_selectors">
+                    <button 
+                        class="action playlist" 
+                        *ngIf="playlist.identifier.playlist_type !== 'album'"
+                        (click)="select_playlist(playlist)" 
+                        [style.--primary]="get_playlist_primary_color(playlist.identifier)" 
+                        [style.--color]="(playlist.selected ? 'var(--primary)' : 'var(--color-background-400)')" 
+                        [style.--text]="(playlist.selected ? 'var(--primary)' : 'var(--color-text)')" 
+                        [style.--background]="(playlist.selected ? 'var(--primary)' : 'var(--color-background)')" 
+                        [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}"
+                    >
+                        <div class="thumbnail" [ngClass]="{'single': playlist.identifier.images.length < 4}">
+                            <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" />
                         </div>
-                    </div>
-                    <div class="state" [style.--mask]="'url(\'check.svg\')'"></div>
-                </button>
+                        <div style="display: flex; flex-direction: column; gap: var(--space-1);">
+                            <div class="name">{{ playlist.identifier.name }}</div>
+                            <div class="info">
+                                <div class="count">{{ (playlist.identifier.track_count || 0) + (playlist.selected ? 1 : 0) }} tracks</div>
+                                <div class="playlist-duration"> {{ ms_to_time((playlist.identifier.duration || 0) + (playlist.selected ? (song_data?.video_duration ?? 0) : 0)) }}</div>
+                            </div>
+                        </div>
+                        <div class="state" [style.--mask]="'url(\'check.svg\')'"></div>
+                    </button>
+                </ng-container>
             </div>
 
             <div class="finish-container" [ngClass]="{'hide': !are_any_actions_selected()}">
@@ -61,43 +93,92 @@
 
     <!-- Song Options Template -->
     <ng-container *ngSwitchCase="'song_options'">
-        <div class="container disable-select">
-            <div class="preview">
-                <div class="thumbnail" [style.background-color]="meta_song_data?.colors?.primary || song_data?.colors?.primary || 'transparent'">
-                    <img [src]="meta_song_data?.download_artwork_blob || meta_song_data?.url?.artwork?.low || meta_song_data?.url?.artwork?.high || song_data?.download_artwork_blob || song_data?.url?.artwork?.low || song_data?.url?.artwork?.high || 'default-thumbnail.svg'" alt="Thumbnail" />
-                </div>
-                <div class="info">
-                    <div class="title">{{ meta_song_data?.song_name || song_data?.song_name || "" }}</div>
-                    <div class="artist">{{ meta_song_data?.original_artists?.[0]?.name || song_data?.original_artists?.[0]?.name || "" }}</div>
-                </div>
+        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
+        <div class="song_options">
+            <div class="option title">Song Options</div>
+            <div class="option" *ngFor="let option of song_options" (click)="select_song_option(option[0], option[4] !== 'spotify_only' || song_data?.id?.source !== 'spotify')" [ngClass]="{disabled: option[4] === 'spotify_only' && song_data?.id?.source === 'spotify'}">
+                <div class="icon" [style.--mask]="'url(\'' + option[1] + '\')'" [style.--color]="option[2] === '#song_color' ? (song_data?.colors?.primary || 'var(--color-primary)') : option[2]"></div>
+                <span [style.color]="option[0] === 'Remove from Playlist' ? 'var(--color-deny)' : 'inherit'">{{ option[0] }}</span>
             </div>
-            <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10))' : '100%'">
-                <!-- <button class="action" *ngFor="let action of actions" (click)="action.select();" [style.--color]="!action?.no_check ? (action.selected ? 'var(--color-primary)' : 'var(--color-background-400)') : 'var(--color-primary)'" [style.--text]="!action?.no_check ? (action.selected ? 'var(--color-primary)' : 'var(--color-text)') : 'var(--color-primary)'" [ngClass]="{'null': !action_is_selectable(action.is_selectable)}">
-                    <div class="thumbnail">
-                        <div class="icon" [style.--mask]="'url(\'' + action.icon() + '\')'" alt="Action Thumbnail"></div>
-                    </div>
-                    <div class="name">{{ action.name }}</div>
-                    <div *ngIf="!action?.no_check" class="state" [style.--mask]="'url(\'check.svg\')'"></div>
-                </button>
-                <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%;">Add To Playlists</h2>
-                <button class="action playlist" *ngFor="let playlist of playlist_selectors" (click)="select_playlist(playlist)" [style.--primary]="get_playlist_primary_color(playlist.identifier)" [style.--color]="(playlist.selected ? 'var(--primary)' : 'var(--color-background-400)')" [style.--text]="(playlist.selected ? 'var(--primary)' : 'var(--color-text)')" [style.--background]="(playlist.selected ? 'var(--primary)' : 'var(--color-background)')" [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}">
-                    <div class="thumbnail" [ngClass]="{'single': playlist.identifier.images.length < 4}">
-                        <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" />
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: var(--space-1);">
-                        <div class="name">{{ playlist.identifier.name }}</div>
-                        <div class="info">
-                            <div class="count">{{ (playlist.identifier.track_count || 0) + (playlist.selected ? 1 : 0) }} tracks</div>
-                            <div class="playlist-duration"> {{ ms_to_time((playlist.identifier.duration || 0) + (playlist.selected ? (song_data?.video_duration ?? 0) : 0)) }}</div>
-                        </div>
-                    </div>
-                    <div class="state" [style.--mask]="'url(\'check.svg\')'"></div>
-                </button> -->
-            </div>
+        </div>
+    </ng-container>
 
-            <!-- <div class="finish-container" [ngClass]="{'hide': !are_any_actions_selected()}">
-                <button class="finish" (click)="add_to_playlist_done()">Done</button>
-            </div> -->
+    <!-- Rename Song -->
+    <ng-container *ngSwitchCase="'rename_song'">
+        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
+        <div class="rename_song">
+            <input type="text" [(ngModel)]="new_song_name" placeholder="Enter new song name" /> 
+            <button (click)="confirm_rename_song()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!is_song_name_valid()">{{ song_data?.song_name === new_song_name ? 'Keep' : 'Rename' }}</button>
+        </div>
+    </ng-container>
+
+    <!-- Edit Artists -->
+    <!-- <ng-container *ngSwitchCase="'edit_artists'">
+        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
+        <div class="edit_artists">
+            <div class="artist-inputs">
+                <div class="artist-input-group" *ngFor="let artist of new_artists; let i = index">
+                    <input type="text" [(ngModel)]="new_artists[i]" [placeholder]="'Artist ' + (i + 1)" />
+                    <button class="remove-artist" *ngIf="new_artists.length > 1" (click)="remove_artist_input(i)" [style.--mask]="'url(\'x.svg\')'"></button>
+                </div>
+            </div>
+            <button class="add-artist" (click)="add_artist_input()">
+                <div class="icon" [style.--mask]="'url(\'plus.svg\')'"></div>
+                Add Artist
+            </button>
+            <button class="confirm" (click)="confirm_edit_artists()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!are_artists_valid()">Update Artists</button>
+        </div>
+    </ng-container> -->
+
+    <!-- Song Color Picker -->
+    <ng-container *ngSwitchCase="'pick_song_color'">
+        <ng-container *ngTemplateOutlet="colored_header"></ng-container>
+        <div [style.--primary]="song_view_color || (song_data?.colors?.primary || 'var(--color-primary)')" class="backdrop"></div>
+        <div class="color-grid">
+            <div class="color-column" *ngFor="let color_column of song_color_options">
+                <button
+                    class="color-option"
+                    *ngFor="let color of color_column"
+                    [style.--color]="color"
+                    (click)="select_song_color(color)"
+                    [ngClass]="{'selected': color === song_view_color}"
+                ></button>
+            </div>
+        </div>
+        <div class="finish-container" [ngClass]="{'hide': false}">
+            <button class="finish" [style.background-color]="song_view_color" [style.color]="song_text_contrast_color" (click)="set_song_color()">{{ is_song_color_same_as_original ? 'Keep' : 'Confirm' }}</button>
+        </div>
+    </ng-container>
+
+    <!-- Share Song -->
+    <ng-container *ngSwitchCase="'share_song'">
+        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
+        <div class="share_song">
+            <div class="share-info">
+                <div class="icon" [style.--mask]="'url(\'share.svg\')'" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'"></div>
+                <h3>Share Song</h3>
+            </div>
+            <div class="share-url-container">
+                <input type="text" [value]="get_song_share_url()" readonly class="share-url" #shareUrlInput />
+                <button class="copy-button" (click)="copy_song_url(shareUrlInput.value)" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'">
+                    <div class="icon" [style.--mask]="'url(\'check.svg\')'" *ngIf="url_copied"></div>
+                    <span *ngIf="!url_copied">Copy</span>
+                </button>
+            </div>
+        </div>
+    </ng-container>
+
+    <!-- Remove from Playlist Confirmation -->
+    <ng-container *ngSwitchCase="'remove_from_playlist_confirm'">
+        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
+        <div class="remove-confirmation">
+            <div class="confirmation">
+                <p>Remove <strong [style.color]="song_data?.colors?.primary || 'var(--color-primary)'">{{ song_data?.song_name }}</strong><br>from this playlist?</p>
+                <div class="selection">
+                    <button class="select deny" (click)="hot_action.close_hot_action()">Cancel</button>
+                    <button class="select confirm" (click)="confirm_remove_from_playlist()">Remove</button>
+                </div>
+            </div>
         </div>
     </ng-container>
 
