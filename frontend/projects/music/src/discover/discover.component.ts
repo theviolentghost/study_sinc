@@ -81,6 +81,7 @@ export class DiscoverComponent implements AfterViewInit {
                     original_song_name: song_data.title,
                     original_artists: [{name: song_data.uploader, id: song_data.channel_id, source: 'musix'}],
                     song_name: song_data.title,
+                    artists: [{name: song_data.uploader, id: song_data.channel_id, source: 'musix'}],
                     downloaded: false,
                     download_audio_blob: null,
                     download_artwork_blob: null,

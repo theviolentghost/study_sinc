@@ -201,7 +201,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         return this.player.is_duration_accurate;
     }
     get is_progress_accurate(): boolean {
-        return this.player.is_progress_accurate && this.player.player_status !== 'stopped';
+        return this.player.is_progress_accurate;
     }
     get loading_state(): 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded' | null {
         return this.player.loading_state;

@@ -358,6 +358,10 @@
     justify-content: center;
     gap: var(--space-4);
     background-color: var(--color-background-100);
+
+    &.relative {
+        position: relative;
+    }
 }
 .finish-container.hide {
     display: none;
@@ -694,4 +698,296 @@
 }
 .color-option.selected {
     box-shadow: 0 0 0px 3px var(--color);
+}
+
+.rename_song {
+    position: relative;
+    width: 100%;
+    height: fit-content;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-4);
+    margin-bottom: var(--space-2);
+
+    h3 {
+        width: 100%;
+        font-weight: 500;
+        color: var(--color-text);
+        font-size: calc(var(--font-size-base) * 1.3);
+    }
+
+    input {
+        /* width: 100%; */
+        min-width: 180px;
+        flex: 1;
+        padding: var(--space-2);
+        font-size: calc(var(--font-size-base) * 1.2);
+        /* border: solid 2px var(--color-background-400); */
+        border-radius: var(--space-1);
+        background-color: var(--color-background-100);
+        color: var(--color-text);
+
+        &:focus {
+            outline: none;
+        }
+    }
+
+    button {
+        /* flex: 1; */
+        /* width: 100%; */
+        white-space: nowrap;
+        padding: var(--space-1) var(--space-4);
+        font-size: calc(var(--font-size-base) * 1.2);
+        border: none;
+        border-radius: var(--space-1);
+        font-weight: 700;
+        background-color: var(--color);
+        color: var(--color-background);
+        cursor: pointer;
+        transition: filter 0.15s ease-in-out, background-color 0.15s ease-in-out;
+
+        &[disabled] {
+            background-color: var(--color-background-400);
+            cursor: default;
+            filter: grayscale(1);
+        }
+    }
+}
+
+.rename_artists {
+    position: relative;
+    width: 100%;
+    /* height: fit-content; */
+    max-height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-4);
+    margin-bottom: var(--space-6);
+
+    h3 {
+        width: 100%;
+        font-weight: 500;
+        color: var(--color-text);
+        font-size: calc(var(--font-size-base) * 1.3);
+    }
+
+    .artist-inputs, .edit_artists {
+        width: 100%;
+    }
+    .artist-inputs {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+    }
+
+    .artist-input-group {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--space-2);
+        width: 100%;
+
+        input {
+            width: 100%;
+            min-width: 180px;
+            /* flex: 5; */
+            padding: var(--space-2);
+            font-size: calc(var(--font-size-base) * 1.2);
+            /* border: solid 2px var(--color-background-400); */
+            border-radius: var(--space-1);
+            background-color: var(--color-background-100);
+            color: var(--color-text);
+
+            &:focus {
+                outline: none;
+            }
+        }
+
+        button {
+            flex: 1;
+            width: 100%;
+            white-space: nowrap;
+            padding: var(--space-1) var(--space-4);
+            font-size: calc(var(--font-size-base) * 1.2);
+            border: none;
+            border-radius: var(--space-1);
+            font-weight: 700;
+            background-color: var(--color, var(--color-neutral));
+            color: var(--color-background);
+            cursor: pointer;
+            transition: filter 0.15s ease-in-out, background-color 0.15s ease-in-out;
+
+            &[disabled] {
+                background-color: var(--color-background-400);
+                cursor: default;
+                filter: grayscale(1);
+            }
+        }
+    }
+
+    .add-artist {
+        flex: 1;
+        width: 100%;
+        white-space: nowrap;
+        padding: var(--space-1) var(--space-4);
+        font-size: calc(var(--font-size-base) * 1.2);
+        border: none;
+        border-radius: var(--space-1);
+        font-weight: 700;
+        background-color: var(--color, var(--color-primary));
+        color: var(--color-background);
+        cursor: pointer;
+        transition: filter 0.15s ease-in-out, background-color 0.15s ease-in-out;
+    }
+}
+
+.share-song {
+    position: relative;
+    width: 100%;
+    height: fit-content;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-4);
+    margin-bottom: var(--space-6);
+
+    .share-info {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--space-2);
+        width: 80%;
+        padding: var(--space-2);
+
+        .icon {
+            --color: var(--color-primary);
+            width: var(--space-5);
+            height: var(--space-5);
+            mask: var(--mask);
+            mask-size: contain;
+            mask-repeat: no-repeat;
+            mask-position: center;
+            background-color: var(--color);
+            opacity: 1;
+            transition: opacity 0.15s ease-in-out;
+            scale: 1.25;
+        }
+
+        h3 {
+            font-weight: 500;
+            color: var(--color-text);
+            font-size: calc(var(--font-size-base) * 1.3);
+        }
+    }
+
+    .share-url-container {
+        width: 80%;
+        display: flex;
+        flex-direction: row;
+        gap: var(--space-2);
+
+        input {
+            width: 100%;
+            padding: var(--space-2);
+            font-size: calc(var(--font-size-base) * 1.1);
+            border-radius: 2px;
+            background-color: var(--color-background-100);
+            color: var(--color-text);
+
+            &:focus {
+                outline: none;
+            }
+        }
+
+        .copy-button {
+            padding: var(--space-2) var(--space-4);
+            font-size: calc(var(--font-size-base) * 1.1);
+            border: none;
+            border-radius: 2px;
+            font-weight: 700;
+            background-color: var(--color-primary);
+            color: var(--color-background);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+
+            .icon {
+                --color: var(--color-background);
+                width: var(--space-5);
+                height: var(--space-5);
+                mask: var(--mask);
+                mask-size: contain;
+                mask-repeat: no-repeat;
+                mask-position: center;
+                background-color: var(--color);
+                opacity: 1;
+                transition: opacity 0.15s ease-in-out;
+                scale: 1.25;
+            }
+
+            span.hidden {
+                color: transparent;
+                height: 0;
+                display: block;
+                overflow: hidden;
+            }
+        }
+    }
+}
+
+.remove-confirmation {
+    width: 80%;
+
+    .confirmation {
+        width: 100%;
+        padding: var(--space-3);
+
+        h3 {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: var(--space-1);
+            width: 100%;
+            font-weight: 500;
+
+            span {
+                color: var(--color-text);
+                white-space: nowrap;
+            }
+        }
+
+        .selection {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: var(--space-1);
+            width: 100%;
+            font-weight: 500;
+            margin-top: var(--space-2);
+            justify-content: space-between;
+
+            button {
+                padding: var(--space-1) var(--space-3);
+                border: none;
+                border-radius: var(--space-1);
+                background-color: var(--color-text);
+                color: var(--color-background);
+                font-weight: 700;
+                font-size: calc(var(--font-size-base) * 1.4);
+                cursor: pointer;
+                transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+            }
+        }
+    }
 }

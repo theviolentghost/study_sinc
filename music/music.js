@@ -1195,6 +1195,11 @@ async function get_watch_playlist(track_id) {
                     })),
                     original_song_name: track?.title,
                     song_name: track?.title,
+                    artists: track.artists.map(artist => ({
+                        name: artist?.name,
+                        id: artist?.id,
+                        source: 'youtube'
+                    })),
                     downloaded: false,
                     download_audio_blob: null,
                     download_artwork_blob: null,

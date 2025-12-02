@@ -12,7 +12,7 @@ export class HotActionService {
     @Output() hot_action_opened: EventEmitter<boolean> = new EventEmitter<boolean>();
     _hot_action_open: boolean = false;
     song_data: Song_Data | null = null;
-    action: string = 'add_to_playlist';
+    action: string = 'song_options';
 
     get hot_action_open(): boolean {
         return this._hot_action_open;
@@ -90,6 +90,7 @@ export class HotActionService {
             original_song_name: video.snippet?.title || '',
             original_artists: [{ id: video.snippet?.channelId || '', name: video.snippet?.channelTitle || '', source: 'youtube' }],
             song_name: video.snippet?.title || '',
+            artists: [{ id: video.snippet?.channelId || '', name: video.snippet?.channelTitle || '', source: 'youtube' }],
             downloaded: false,
             download_audio_blob: null,
             download_artwork_blob: null,
@@ -138,6 +139,7 @@ export class HotActionService {
                 original_song_name: video.name || '',
                 original_artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
                 song_name: video.name || '',
+                artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
                 downloaded: false,
                 download_audio_blob: null,
                 download_artwork_blob: null,
@@ -173,6 +175,7 @@ export class HotActionService {
             original_song_name: video.name || '',
             original_artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
             song_name: video.name || '',
+            artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'spotify' } }) || [],
             downloaded: false,
             download_audio_blob: null,
             download_artwork_blob: null,
@@ -219,6 +222,7 @@ export class HotActionService {
             original_song_name: video.title || '',
             original_artists: [{ name: video.artist || '', id: '', source: 'musi' }],
             song_name: video.title || '',
+            artists: [{ name: video.artist || '', id: '', source: 'musi' }],
             downloaded: false,
             download_audio_blob: null,
             download_artwork_blob: null,

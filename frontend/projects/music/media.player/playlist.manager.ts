@@ -39,6 +39,12 @@ class MusicPlaylistManager {
         }
         return null;
     }
+    get next_song_key_in_queue(): string | null {
+        if(this.queue.length > 0) {
+            return this.queue[0];
+        }
+        return null;
+    }
 
     constructor(private media: MusicMediaService, private manager: MusicMediaManager) {}
 
@@ -98,13 +104,13 @@ class MusicPlaylistManager {
         }
         this.current_song_key = next_song_key;
 
-        this.manager.load_track(next_song_key).then(() => {
+        this.manager.load_track_and_play(next_song_key).then(() => {
             // this.manager.play();
 
             // preload following song
             // console.log('Preloading following song after next:', next_song_key);
-            const following_song_key = this.next_song_key;
-            this.manager.load_track(following_song_key, false);
+            // const following_song_key = this.next_song_key;
+            // this.manager.load_track(following_song_key, false);
         });
 
         return Skip_Result.SKIPPED;
@@ -126,7 +132,7 @@ class MusicPlaylistManager {
         const previous_song_key = this.history_stack.pop()!;
         this.queue.unshift(this.current_song_key);
         this.current_song_key = previous_song_key;
-        this.manager.load_track(previous_song_key).then(() => {
+        this.manager.load_track_and_play(previous_song_key).then(() => {
             // this.manager.play();
         }).catch(error => {
             console.error('Error loading previous song:', previous_song_key, error);
@@ -220,8 +226,8 @@ class MusicPlaylistManager {
                     );
                 case 'artist':
                     return this.custom_alpha_sort(
-                        this.manager.song_cache.get(this.media.song_key(a))?.original_artists?.[0]?.name || '',
-                        this.manager.song_cache.get(this.media.song_key(b))?.original_artists?.[0]?.name || ''
+                        this.manager.song_cache.get(this.media.song_key(a))?.artists?.[0]?.name || '',
+                        this.manager.song_cache.get(this.media.song_key(b))?.artists?.[0]?.name || ''
                     );
                 default: return 0;
             }

@@ -76,7 +76,11 @@ export class PlaylistsService {
             return;
         }
 
-        this.remove_song_from_playlist(song_data, this.favorite_playlist_identifier, playlist);
+        // remove liked status
+        song_data.liked = false;
+        this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
+
+        // this.remove_song_from_playlist(song_data, this.favorite_playlist_identifier, playlist);
     }
     get downloads_playlist_identifier(): Song_Playlist_Identifier | null {
         return this.default_playlist_identifiers.find(p => p.name === 'Downloads') || null;
@@ -99,7 +103,14 @@ export class PlaylistsService {
             return;
         }
 
-        this.remove_song_from_playlist(song_data, this.downloads_playlist_identifier, playlist);
+        song_data.downloaded = false;
+        song_data.download_hls_bundle = null;
+        song_data.download_artwork_blob = null;
+        song_data.download_options = null; // temp
+        song_data.download_audio_blob = null; // temp
+        this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
+
+        // this.remove_song_from_playlist(song_data, this.downloads_playlist_identifier, playlist);
     }
     get recently_played_playlist_identifier(): Song_Playlist_Identifier | null {
         return this.default_playlist_identifiers.find(p => p.name === 'Recently Played') || null;
@@ -115,6 +126,13 @@ export class PlaylistsService {
             return;
         }
 
+        if(playlist.songs.has(this.media.song_key(song_data.id))) {
+            // already exists, update timestamp
+            playlist.song_added_timestamps.set(this.media.song_key(song_data.id), Date.now());
+            this.save_playlist(this.recently_played_playlist_identifier, playlist);
+            return;
+        }
+
         this.add_song_to_playlist(song_data, this.recently_played_playlist_identifier, playlist);
     }
     async remove_from_recently_played(song_data: Song_Data): Promise<void> {
@@ -126,7 +144,7 @@ export class PlaylistsService {
             return;
         }
 
-        this.remove_song_from_playlist(song_data, this.recently_played_playlist_identifier, playlist);
+        // this.remove_song_from_playlist(song_data, this.recently_played_playlist_identifier, playlist);
     }
     get recently_added_playlist_identifier(): Song_Playlist_Identifier | null {
         return this.default_playlist_identifiers.find(p => p.name === 'Recently Added') || null;
@@ -151,7 +169,7 @@ export class PlaylistsService {
             return;
         }
 
-        this.remove_song_from_playlist(song_data, this.recently_added_playlist_identifier, playlist);
+        // this.remove_song_from_playlist(song_data, this.recently_added_playlist_identifier, playlist);
     }
 
     async load_playlists(): Promise<void> {
@@ -353,6 +371,7 @@ export class PlaylistsService {
             }
         }
         this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
+        this.player?.media_controller?.song_cache?.set(this.media.song_key(song_data.id), song_data);
 
         this.save_playlist(playlist_identifier, playlist);
     }
@@ -402,6 +421,13 @@ export class PlaylistsService {
         if (!playlist.songs.has(this.media.song_key(song_data.id))) {
             console.warn(`Song ${this.media.song_key(song_data.id)} does not exist in playlist ${playlist_identifier.name}`);
             return;
+        }
+
+        switch(playlist_identifier.id) {
+            case this.favorite_playlist_identifier?.id: this.remove_from_favorites(song_data); break;
+            case this.downloads_playlist_identifier?.id: this.remove_from_downloads(song_data); break;
+            case this.recently_played_playlist_identifier?.id: this.remove_from_recently_played(song_data); break;
+            case this.recently_added_playlist_identifier?.id: this.remove_from_recently_added(song_data); break;
         }
 
         this.media.remove_song_from_cache(this.media.bare_song_key(song_data.id), playlist_identifier.id);

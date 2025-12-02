@@ -563,9 +563,9 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
 
         const searchFields = [
             video.song_name?.toLowerCase() || '',
-            video.original_artists?.[0]?.name?.toLowerCase() || '',
+            video.artists?.[0]?.name?.toLowerCase() || '',
             // Add more fields as needed
-            ...(video.original_artists?.map(artist => artist.name?.toLowerCase() || '') || [])
+            ...(video.artists?.map(artist => artist.name?.toLowerCase() || '') || [])
         ].filter(field => field.length > 0);
 
         // Check for exact substring matches first (highest priority)
@@ -695,8 +695,8 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
                         return this.custom_alpha_sort(a?.song_name || '', b?.song_name || '');
                     case 'artist':
                         return this.custom_alpha_sort(
-                            a?.original_artists?.[0]?.name || '',
-                            b?.original_artists?.[0]?.name || ''
+                            a?.artists?.[0]?.name || '',
+                            b?.artists?.[0]?.name || ''
                         );
                     default:
                         return 0;
@@ -999,7 +999,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
                 this.scrollbar_text = is_letter ? `'${first_letter}'` : (first_letter ? `'#'` : '');
                 break;
             case 'artist':
-                const artist_letter = current_video.original_artists?.[0]?.name?.[0]?.toUpperCase() || '';
+                const artist_letter = current_video.artists?.[0]?.name?.[0]?.toUpperCase() || '';
                 const is_artist_letter = /^[A-Z]$/i.test(artist_letter);
                 this.scrollbar_text = is_artist_letter ? `'${artist_letter}'` : (artist_letter ? `'#'` : '');
                 break;
@@ -1327,7 +1327,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             // console.log('Adding song to favorites:', video);
             this.playlists.add_to_favorites(video);
         } else {
-            this.playlists.remove_from_favorites(video);
+            this.playlists.remove_song_from_playlist(video, this.playlists.favorite_playlist_identifier);
         }
     }
 

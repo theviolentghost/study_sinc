@@ -2,6 +2,7 @@ import Hls from 'hls.js';
 import { Events } from 'hls.js';
 import type { MediaAttachingData } from 'hls.js';
 import { SettingsService } from '../settings.service';
+import MusicMediaManager from './media.manager';
 
 class BufferController {
     private audio_element: HTMLMediaElement;
@@ -17,7 +18,7 @@ class BufferController {
     private blob_url: string | null = null;
     
     // Event target for custom events
-    public events: EventTarget = new EventTarget();
+    // public events: EventTarget = new EventTarget();
     public has_audio: boolean = false;
     public fully_buffered: boolean = false;
     public using_silent_source: boolean = false;
@@ -51,8 +52,12 @@ class BufferController {
     //     return false;
     // }
 
-    constructor(private settings: SettingsService) {
+    constructor(private settings: SettingsService, private controller: MusicMediaManager | null = null) {
         console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
+    }
+
+    public set_controller(controller: MusicMediaManager): void {
+        this.controller = controller;
     }
 
     public set_audio_element(audio: HTMLMediaElement | HTMLAudioElement) {
@@ -189,7 +194,8 @@ class BufferController {
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
             if(!this.has_audio) {
-                this.events.dispatchEvent(new Event('has_audio'));
+                this.has_audio = data.type === 'audio';
+                this.controller?.on_has_audio();
                 this.current_time = 0; // Reset to start, because hls may have accounted for initial silence
             }
             if(!this.using_silent_source) {
@@ -213,7 +219,8 @@ class BufferController {
 
             this.fully_buffered = true;
             // emit event
-            this.events.dispatchEvent(new Event('fully_buffered'));
+            // this.events.dispatchEvent(new Event('fully_buffered'));
+            this.controller?.on_fully_buffered();
         });
 
         hls.on(Events.ERROR, (event, data) => {
@@ -235,14 +242,15 @@ class BufferController {
                     console.log('✅ Song finished, emitting end event');
                     
                     // Emit song end event so your app can skip to next track
-                    const ev = new CustomEvent('song_ended', { 
-                        detail: { 
-                            current_time,
-                            duration,
-                            url: this.current_url
-                        } 
-                    });
-                    this.events.dispatchEvent(ev);
+                    // const ev = new CustomEvent('song_ended', { 
+                    //     detail: { 
+                    //         current_time,
+                    //         duration,
+                    //         url: this.current_url
+                    //     } 
+                    // });
+                    // this.events.dispatchEvent(ev);
+                    this.controller?.on_song_ended();
                 }
             }
             
@@ -288,18 +296,11 @@ class BufferController {
             this.is_first_track = false;
             
         } else {
-            // ✅ SUBSEQUENT TRACKS
-            console.log('🔄 Subsequent track');
-            
             if (!this.hls) {
                 throw new Error('HLS instance not initialized');
             }
 
             if (this.is_safari) {
-                // SAFARI: Don't transfer, just stop and reload
-                // Safari doesn't handle transferMedia well
-                console.log('🍎 Safari: Using simple stop/load approach');
-                
                 // Stop current loading
                 this.hls.stopLoad();
                 
@@ -311,7 +312,6 @@ class BufferController {
                 
             } else {
                 // CHROME/OTHER: Use transfer approach
-                console.log('Not Safari: Use new HLS instance');
                 
                 // this.hls.detachMedia();
                 // this.hls.destroy();
@@ -331,11 +331,6 @@ class BufferController {
                     console.warn('⚠️ Transfer failed, falling back to simple approach');
                     this.hls.stopLoad();
                 } else {
-                    console.log('📦 Transfer data obtained');
-                    
-                    const isSameMediaSource = this.transfer_data.mediaSource === this.media_source;
-                    console.log('   Same MediaSource:', isSameMediaSource);
-
                     this.hls.detachMedia();
                     this.hls.destroy();
                     
@@ -350,8 +345,6 @@ class BufferController {
                     
                     new_hls.attachMedia(attach_data);
                     this.hls = new_hls;
-                    
-                    console.log('✅ MediaSource transferred');
                 }
             }
         }
@@ -361,30 +354,31 @@ class BufferController {
         this.current_url = url;
         
         // Play
-        try {
-            await this.audio_element.play();
-            console.log('✅ Playback started successfully');
-        } catch (error) {
-            console.error('❌ Playback failed:', error);
+        // try {
+        //     await this.audio_element.play();
+        //     console.log('✅ Playback started successfully');
+        // } catch (error) {
+        //     console.error('❌ Playback failed:', error);
             
-            // Safari sometimes needs a delay
-            if (this.is_safari) {
-                console.log('🍎 Safari: Retrying play after delay...');
-                await new Promise(resolve => setTimeout(resolve, 500));
-                try {
-                    await this.audio_element.play();
-                    console.log('✅ Playback started on retry');
-                } catch (retryError) {
-                    console.error('❌ Retry also failed:', retryError);
-                    throw retryError;
-                }
-            } else {
-                throw error;
-            }
-        }
+        //     // Safari sometimes needs a delay
+        //     if (this.is_safari) {
+        //         console.log('🍎 Safari: Retrying play after delay...');
+        //         await new Promise(resolve => setTimeout(resolve, 500));
+        //         try {
+        //             await this.audio_element.play();
+        //             console.log('✅ Playback started on retry');
+        //         } catch (retryError) {
+        //             console.error('❌ Retry also failed:', retryError);
+        //             throw retryError;
+        //         }
+        //     } else {
+        //         throw error;
+        //     }
+        // }
     }
 
     public async set_audio_source_to_silent(): Promise<void> {
+        // return console.warn('⚠️ Silent source disabled temporarily');
         if(!this.is_safari) {
             this.pause();
             this.has_audio = false;

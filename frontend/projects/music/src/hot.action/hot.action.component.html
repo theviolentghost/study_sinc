@@ -47,7 +47,7 @@
                 </div>
                 <div class="info">
                     <div class="title">{{ song_data?.song_name || "" }}</div>
-                    <div class="artist">{{ song_data?.original_artists?.[0]?.name || "" }}</div>
+                    <div class="artist">{{ song_data?.artists?.[0]?.name || "" }}</div>
                 </div>
             </div>
             <div class="actions" [style.height]="are_any_actions_selected() ? 'calc(100% - var(--space-10))' : '100%'">
@@ -58,7 +58,7 @@
                     <div class="name">{{ action.name }}</div>
                     <div *ngIf="!action?.no_check" class="state" [style.--mask]="'url(\'check.svg\')'"></div>
                 </button>
-                <h2 *ngIf="playlist_selectors.length > 0" style="width: 80%;">Add To Playlists</h2>
+                <h2 *ngIf="playlist_selectors_length > 0" style="width: 80%;">Add To Playlists</h2>
                 <ng-container *ngFor="let playlist of playlist_selectors">
                     <button 
                         class="action playlist" 
@@ -107,28 +107,35 @@
     <ng-container *ngSwitchCase="'rename_song'">
         <ng-container *ngTemplateOutlet="normal_header"></ng-container>
         <div class="rename_song">
+            <h3>Rename Song</h3>
             <input type="text" [(ngModel)]="new_song_name" placeholder="Enter new song name" /> 
-            <button (click)="confirm_rename_song()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!is_song_name_valid()">{{ song_data?.song_name === new_song_name ? 'Keep' : 'Rename' }}</button>
+            <!-- <button (click)="confirm_rename_song()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!is_song_name_valid()">{{ song_data?.song_name === new_song_name ? 'Keep' : 'Rename' }}</button> -->
+            <button (click)="reset_rename_song()" [style.--color]="'var(--color-neutral)'" [disabled]="song_data?.original_song_name === new_song_name">Reset</button>
         </div>
-    </ng-container>
-
-    <!-- Edit Artists -->
-    <!-- <ng-container *ngSwitchCase="'edit_artists'">
-        <ng-container *ngTemplateOutlet="normal_header"></ng-container>
-        <div class="edit_artists">
-            <div class="artist-inputs">
-                <div class="artist-input-group" *ngFor="let artist of new_artists; let i = index">
-                    <input type="text" [(ngModel)]="new_artists[i]" [placeholder]="'Artist ' + (i + 1)" />
-                    <button class="remove-artist" *ngIf="new_artists.length > 1" (click)="remove_artist_input(i)" [style.--mask]="'url(\'x.svg\')'"></button>
+        <div class="rename_artists">
+            <h3>Rename Artists</h3>
+            <div class="edit_artists">
+                <div class="artist-inputs">
+                    <div class="artist-input-group" *ngFor="let artist of new_artists; let i = index; trackBy: trackByArtistIndex">
+                        <input type="text" [(ngModel)]="new_artists[i]" [placeholder]="'Artist ' + (i + 1)" />
+                        <!-- <button class="remove-artist" *ngIf="new_artists.length > 1" (click)="remove_artist_input(i)" [style.--mask]="'url(\'x.svg\')'"></button> -->
+                        <button *ngIf="song_data?.original_artists?.length >= (i + 1)" class="reset-artist" (click)="reset_artist_input(i)" [style.--mask]="'url(\'reset.svg\')'" [disabled]="song_data?.artists?.[i]?.name === new_artists[i]">Reset</button>
+                        <button *ngIf="new_artists.length > 1" class="remove-artist" (click)="remove_artist_input(i)" [style.--mask]="'url(\'x.svg\')'">Remove</button>
+                    </div>
                 </div>
+                <button class="add-artist" (click)="add_artist_input()">
+                    <div class="icon" [style.--mask]="'url(\'plus.svg\')'"></div>
+                    Add Artist
+                </button>
+                <!-- <button class="confirm" (click)="confirm_edit_artists()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!are_artists_valid()">Update Artists</button> -->
             </div>
-            <button class="add-artist" (click)="add_artist_input()">
-                <div class="icon" [style.--mask]="'url(\'plus.svg\')'"></div>
-                Add Artist
-            </button>
-            <button class="confirm" (click)="confirm_edit_artists()" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'" [disabled]="!are_artists_valid()">Update Artists</button>
         </div>
-    </ng-container> -->
+
+        <div class="finish-container relative" [ngClass]="{'hide': !is_renaming_valid() && !are_artists_valid() }">
+            <button class="finish" (click)="confirm_rename_song()">Confirm</button>
+        </div>
+        
+    </ng-container>
 
     <!-- Song Color Picker -->
     <ng-container *ngSwitchCase="'pick_song_color'">
@@ -153,7 +160,7 @@
     <!-- Share Song -->
     <ng-container *ngSwitchCase="'share_song'">
         <ng-container *ngTemplateOutlet="normal_header"></ng-container>
-        <div class="share_song">
+        <div class="share-song">
             <div class="share-info">
                 <div class="icon" [style.--mask]="'url(\'share.svg\')'" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'"></div>
                 <h3>Share Song</h3>
@@ -162,7 +169,7 @@
                 <input type="text" [value]="get_song_share_url()" readonly class="share-url" #shareUrlInput />
                 <button class="copy-button" (click)="copy_song_url(shareUrlInput.value)" [style.--color]="song_data?.colors?.primary || 'var(--color-primary)'">
                     <div class="icon" [style.--mask]="'url(\'check.svg\')'" *ngIf="url_copied"></div>
-                    <span *ngIf="!url_copied">Copy</span>
+                    <span [ngClass]="{'hidden': url_copied}">Copy</span>
                 </button>
             </div>
         </div>
@@ -173,7 +180,7 @@
         <ng-container *ngTemplateOutlet="normal_header"></ng-container>
         <div class="remove-confirmation">
             <div class="confirmation">
-                <p>Remove <strong [style.color]="song_data?.colors?.primary || 'var(--color-primary)'">{{ song_data?.song_name }}</strong><br>from this playlist?</p>
+                <h3><span>Remove</span> <span [style.color]="song_data?.colors?.primary || 'var(--color-primary)'">{{ song_data?.song_name || '#song_name' }}</span> <span>from this playlist?</span></h3>
                 <div class="selection">
                     <button class="select deny" (click)="hot_action.close_hot_action()">Cancel</button>
                     <button class="select confirm" (click)="confirm_remove_from_playlist()">Remove</button>

@@ -79,26 +79,52 @@ class MusicMediaManager {
     constructor(private media: MusicMediaService, private settings: SettingsService, buffer_controller?: BufferController, private notification_service?: NotificationService) {
         // Use the provided BufferController or create a new one
         // This allows the service to share a single BufferController instance
-        this.buffer_controller = buffer_controller || new BufferController(this.settings);
+        this.buffer_controller = buffer_controller || new BufferController(this.settings, this);
         this.playlist_manager = new MusicPlaylistManager(this.media, this);
 
-        this.buffer_controller.events.addEventListener('has_audio', () => {
-            if(this.want_to_play && !this.buffer_controller.is_playing) {
-                this.play();
-            }
-            this.auto_skip_failure_count = 0; // reset on successful load
-            this.want_to_play = false;
-            this.update_media_session_position();
+        // this.buffer_controller.events.addEventListener('has_audio', () => {
+        //     if(this.want_to_play && !this.buffer_controller.is_playing) {
+        //         this.play();
+        //     }
+        //     this.auto_skip_failure_count = 0; // reset on successful load
+        //     this.want_to_play = false;
+        //     this.update_media_session_position();
 
-            const song_key = this.playlist_manager.current_song_key;
-            this.loading_tracks.set(song_key, 'loaded');
-        });
-        this.buffer_controller.events.addEventListener('fully_buffered', () => {
-            // refresh media session position
-            this.update_media_session_position();
-        });
+        //     const song_key = this.playlist_manager.current_song_key;
+        //     this.loading_tracks.set(song_key, 'loaded');
+        // });
+        // this.buffer_controller.events.addEventListener('fully_buffered', () => {
+        //     // refresh media session position
+        //     this.update_media_session_position();
+        // });
 
         // this.shuffle = this.settings.shuffle_playback;
+    }
+
+    public on_fully_buffered(): void {
+        // refresh media session position
+        this.update_media_session_position();
+    }
+
+    public on_has_audio(): void {
+        if(this.want_to_play && !this.buffer_controller.is_playing) {
+            this.play();
+        }
+        this.auto_skip_failure_count = 0; // reset on successful load
+        this.want_to_play = false;
+        this.update_media_session_position();
+
+        const song_key = this.playlist_manager.current_song_key;
+        this.loading_tracks.set(song_key, 'loaded');
+    }
+
+    public on_song_ended(): void {
+        if (
+            this.buffer_controller.has_audio &&
+            this.buffer_controller.fully_buffered
+        ) {
+            this.playlist_manager.next(Skip_Event.DEFAULT);
+        }
     }
 
     public update_shuffle_queue(): void {
@@ -452,49 +478,81 @@ class MusicMediaManager {
         }
         // this.song_changed.emit();
         
-        // load audio source
-        if(song_data.downloaded && song_data.download_audio_blob) {
-            const blob = await this.create_blob_url_from_stale_blob(song_data.download_audio_blob);
-            // if(load_source_into_audio_element) this.load_audio(blob, 'blob');
-            // await this.buffer_controller.load_blob(blob);
-            console.log('Loading audio from downloaded blob for', song_key);
-            if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
-            
-            // If this is the current song, load it into the audio source
-            if(this.is_song_key_equal_to_current(song_key)) {
-                await this.buffer_controller.load_and_play(blob);
+        // load audio source - check for downloaded content first
+        if(song_data.downloaded) {
+            // Check for HLS bundle first (new format - preferred)
+            if(song_data.download_hls_bundle) {
+                console.log('Loading audio from downloaded HLS bundle for', song_key);
+                if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
+                    this.loading_tracks.set(song_key, 'fetching_audio_data');
+                }
+                
+                try {
+                    // Create blob URLs from the stored HLS bundle
+                    const hls_urls = await this.media.create_hls_blob_urls_from_bundle(song_key, song_data.download_hls_bundle);
+                    
+                    if(hls_urls && hls_urls.playlist_url) {
+                        // If this is the current song, load it into the audio source
+                        if(this.is_song_key_equal_to_current(song_key)) {
+                            await this.buffer_controller.load_and_play(hls_urls.playlist_url);
+                        }
+                        this.loading_tracks.set(song_key, 'loaded');
+                        
+                        // Preload next song
+                        const following_song_key = this.playlist_manager.next_song_key;
+                        this.load_track(following_song_key, false);
+                        return;
+                    } else {
+                        console.warn('Failed to create HLS blob URLs, falling back to other methods');
+                    }
+                } catch (error) {
+                    console.error('Error loading HLS bundle:', error);
+                    // Fall through to try other methods
+                }
             }
             
+            // Fallback to legacy MP3 blob (old format)
+            if(song_data.download_audio_blob) {
+                const blob = await this.create_blob_url_from_stale_blob(song_data.download_audio_blob);
+                console.log('Loading audio from downloaded MP3 blob for', song_key);
+                if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
+                    this.loading_tracks.set(song_key, 'fetching_audio_data');
+                }
+                
+                // If this is the current song, load it into the audio source
+                if(this.is_song_key_equal_to_current(song_key)) {
+                    await this.buffer_controller.load_and_play(blob);
+                }
+                
+                this.loading_tracks.set(song_key, 'loaded');
+
+                // Preload next song
+                const following_song_key = this.playlist_manager.next_song_key;
+                this.load_track(following_song_key, false);
+                return;
+            }
+        }
+        
+        // No downloaded content available, stream from network
+        this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
+            if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
+            if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
+            if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
+        }).catch((error) => {
+            this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
+            console.error('Error fetching audio stream for', song_key, error);
+        }).finally(() => {
             this.loading_tracks.set(song_key, 'loaded');
-
-            // audio_data_reference.audio_source = blob;
-            // audio_data_reference.source_type = 'blob';
-        }
-        // else if(song_data.url.audio && song_data.url.audio !== '') {
-            // using stored url
-            // if(load_source_into_audio_element) this.load_audio(song_data.url.audio, 'm3u8');
-
-            // audio_data_reference.audio_source = song_data.url.audio;
-            // audio_data_reference.source_type = 'm3u8';
-        // }
-        else {
-            // if(this.is_song_key_equal_to_current(song_key)) {
-                this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
-                    if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
-                    if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
-                    if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
-                }).catch((error) => {
-                    this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
-                    console.error('Error fetching audio stream for', song_key, error);
-                }).finally(() => {
-                    this.loading_tracks.set(song_key, 'loaded');
-                });
-            // }
-        }
+        });
 
         // preload next song
-        // const following_song_key = this.playlist_manager.next_song_key;
-        // this.load_track(following_song_key, true);
+        const following_song_key = this.playlist_manager.next_song_key;
+        this.load_track(following_song_key, false);
+    }
+
+    public async load_track_and_play(data: Song_Identifier | Song_Data | string): Promise<void> {
+        await this.load_track(data, true);
+        this.play();
     }
 
     public async update_media_session(metadata: Song_Data): Promise<void> {
@@ -524,7 +582,7 @@ class MusicMediaManager {
 
         navigator.mediaSession.metadata = new MediaMetadata({
             title: metadata.song_name,
-            artist: metadata.original_artists.map(artist => artist.name).join(', '),
+            artist: metadata.artists.map(artist => artist.name).join(', '),
             album: '',
             artwork: [
                 { src: artwork_url, sizes: '512x512', type: 'image/png' }

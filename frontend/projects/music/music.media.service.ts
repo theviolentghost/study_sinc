@@ -24,11 +24,13 @@ export interface Song_Data {
     original_song_name: string;
     original_artists: Artist_Identifier[];
     song_name: string; // modifiable
+    artists: Artist_Identifier[]; // modifiable
     downloaded: boolean;
-    download_audio_blob?: Blob | null; // the actual audio blob, if downloaded
+    download_audio_blob?: Blob | null; // the actual audio blob, if downloaded (legacy MP3 format)
     download_artwork_blob?: Blob | null; // the artwork blob, if available
+    download_hls_bundle?: HLS_Bundle | null; // HLS bundle data for offline playback
     download_options?: { 
-        quality: DownloadQuality,
+        // quality: DownloadQuality,
         bit_rate: string // set to specifrics laters
     } | null; 
     url?: {
@@ -47,6 +49,26 @@ export interface Song_Data {
     id: Song_Identifier; // the where this song was downloaded
     liked?: boolean; // whether the song is liked by the user
     explicit?: boolean; // whether the song is marked as explicit
+}
+
+// HLS Bundle for offline playback - stores all data needed to reconstruct HLS stream
+export interface HLS_Bundle {
+    master_playlist: string; // content of master.m3u8
+    quality_playlist: string; // content of the quality-specific .m3u8
+    segments: HLS_Segment[]; // array of segment data
+    codec: string; // e.g., 'aac'
+    profile: string; // e.g., 'high'
+    bitrate: string; // e.g., '192k'
+    segment_count: number;
+    total_size: number; // total size in bytes
+    base_path: string; // original base path for reference
+    downloaded_at: number; // timestamp when downloaded
+}
+
+export interface HLS_Segment {
+    filename: string; // e.g., 'segment0.ts'
+    data: string; // base64 encoded segment data
+    size: number; // size in bytes
 }
 
 export interface Song_Identifier {
@@ -647,6 +669,23 @@ export class MusicMediaService {
         }).length;
     }
 
+    // Map quality enum to HLS quality string
+    private quality_to_hls_quality(quality: DownloadQuality): string {
+        const quality_map: { [key: string]: string } = {
+            '0': 'ultra-high',
+            '1': 'high',
+            '2': 'high',
+            '3': 'medium',
+            '4': 'medium',
+            '5': 'medium',
+            '6': 'low',
+            '7': 'low',
+            '8': 'ultra-low',
+            '9': 'ultra-low',
+        };
+        return quality_map[quality] || 'high';
+    }
+
     public async download_audio(song_key: string, download_options: {quality: DownloadQuality, bit_rate: string}): Promise<void> {
         try {
             const video_id = song_key.split(':').pop() || ''; 
@@ -654,9 +693,11 @@ export class MusicMediaService {
                 original_song_name: '#no name', 
                 original_artists: [{ id: '', name: '#no name', source: 'youtube' as Song_Source }], 
                 song_name: '#no name', 
+                artists: [{ id: '', name: '#no name', source: 'youtube' as Song_Source }],
                 downloaded: false,
                 download_audio_blob: null,
                 download_artwork_blob: null,
+                download_hls_bundle: null,
                 download_options: download_options,
                 id: { video_id, source: 'youtube' as Song_Source },
                 video_duration: undefined, 
@@ -665,71 +706,160 @@ export class MusicMediaService {
             };
             
             this.download_progress_map.set(video_id, 0); 
-            const event_source = this.listen_to_progress(video_id);
-            let [audio_blob, artwork_blob] = await Promise.all([
-                lastValueFrom(
-                    this.http.post(
-                        `/audio/download/${video_id}`,
-                        { ...download_options },
-                        { responseType: 'blob' }
-                    )
-                ),
-                null
-                // lastValueFrom(
-                //     this.http.get(
-                //         `/audio/artwork/${video_id}`,
-                //         { responseType: 'blob' }
-                //     )
-                // )
-            ]);
-            console.log('Audio blob received:', audio_blob);
-
-            setTimeout(()=>{
-                this.download_progress_map.delete(video_id); //temp
-            }, 850); // allow the progress bar to finish visually before removing it
-            (await event_source).close();
-
-            if(!audio_blob || audio_blob.size === 0 || audio_blob.type !== 'audio/mpeg') {
-                console.error('No audio blob received from server');
-                clearInterval(this._fake_update_interval);
-                this.download_progress_map.delete(video_id);
-                this.download_queue_set.delete(video_id); // just in case
-                return;
-            }
-            if(!artwork_blob) {
-                console.warn('No artwork blob received from server, using default');
-                // artwork_blob = new Blob(); // Create an empty blob if no artwork is available
-            }
             
-            console.log('Audio blob downloaded:', audio_blob);
-            console.log('Artwork blob downloaded:', artwork_blob);
+            // Use the new HLS bundle endpoint
+            const hls_quality = this.quality_to_hls_quality(download_options.quality);
+            
+            console.log(`Downloading HLS bundle for ${video_id} with quality: ${hls_quality}`);
+            
+            // Simulate progress since HLS bundle download doesn't have streaming progress
+            let progress_interval = setInterval(() => {
+                const current = this.download_progress_map.get(video_id) || 0;
+                if (current < 90) {
+                    this.download_progress_map.set(video_id, current + Math.random() * 5);
+                }
+            }, 500);
 
-            this.playlists.add_to_downloads(song_data);
+            try {
+                const hls_response = await lastValueFrom(
+                    this.http.get<{
+                        success: boolean;
+                        video_id: string;
+                        master_playlist: string;
+                        quality_playlist: string;
+                        segments: { filename: string; data: string; size: number }[];
+                        codec: string;
+                        profile: string;
+                        bitrate: string;
+                        segment_count: number;
+                        total_size: number;
+                        base_path: string;
+                    }>(`/download/hls/bundle`, {
+                        params: { 
+                            video_id: video_id,
+                            quality: hls_quality 
+                        }
+                    })
+                );
 
-            song_data.downloaded = true;
-            song_data.download_audio_blob = audio_blob;
-            song_data.download_artwork_blob = artwork_blob;
-            song_data.download_options = download_options;
+                clearInterval(progress_interval);
+                this.download_progress_map.set(video_id, 95);
 
-            // alert(`got audio blob of size ${audio_blob.size} bytes, Mb: ${(audio_blob.size / (1024 * 1024)).toFixed(2)}`);
+                if (!hls_response || !hls_response.success) {
+                    console.error('Failed to download HLS bundle:', hls_response);
+                    this.download_progress_map.delete(video_id);
+                    this.download_queue_set.delete(video_id);
+                    return;
+                }
 
-            const result = await this.save_song_to_indexDB(song_key, song_data);
-            if (!result) {
-                alert('Failed to save song data to IndexedDB');
-                return;
+                console.log('HLS bundle received:', {
+                    segments: hls_response.segment_count,
+                    total_size: `${(hls_response.total_size / (1024 * 1024)).toFixed(2)} MB`,
+                    codec: hls_response.codec,
+                    profile: hls_response.profile
+                });
+
+                // Create the HLS bundle object
+                const hls_bundle: HLS_Bundle = {
+                    master_playlist: hls_response.master_playlist,
+                    quality_playlist: hls_response.quality_playlist,
+                    segments: hls_response.segments,
+                    codec: hls_response.codec,
+                    profile: hls_response.profile,
+                    bitrate: hls_response.bitrate,
+                    segment_count: hls_response.segment_count,
+                    total_size: hls_response.total_size,
+                    base_path: hls_response.base_path,
+                    downloaded_at: Date.now()
+                };
+
+                this.download_progress_map.set(video_id, 100);
+
+                setTimeout(() => {
+                    this.download_progress_map.delete(video_id);
+                }, 850);
+
+                this.playlists.add_to_downloads(song_data);
+
+                song_data.downloaded = true;
+                song_data.download_hls_bundle = hls_bundle;
+                song_data.download_options = { bit_rate: hls_response.bitrate };
+
+                const result = await this.save_song_to_indexDB(song_key, song_data);
+                if (!result) {
+                    alert('Failed to save song data to IndexedDB');
+                    return;
+                }
+
+                if (this.bare_song_key(this.playerService.current?.id) === this.bare_song_key(song_data.id)) {
+                    this.playerService.current = this.song_key(song_data.id);
+                }
+                this.song_data_updated.emit(song_data);
+
+            } catch (hlsError) {
+                clearInterval(progress_interval);
+                console.error('HLS download failed, falling back to MP3:', hlsError);
+                
+                // Fallback to legacy MP3 download
+                await this.download_audio_legacy(song_key, download_options, song_data, video_id);
             }
-
-            if(this.bare_song_key(this.playerService.current?.id) === this.bare_song_key(song_data.id)) {
-                this.playerService.current = this.song_key(song_data.id); // Update the player service with the new song data if the song is currently playing
-                // this.playerService.playlist_song_data_map.set(this.bare_song_key(song_data.id), song_data);
-                // this.playlists.update_song_in_playlist(song_data, null, null);
-                // this.song_data_updated.emit(song_data); 
-                // this.playlists.add_song_to_playlist(song_data, null, null)
-            }
-            this.song_data_updated.emit(song_data); 
         } catch (error) {
-            console.error('Error downloading audio blob:', error);
+            console.error('Error downloading audio:', error);
+            const video_id = song_key.split(':').pop() || '';
+            this.download_progress_map.delete(video_id);
+            this.download_queue_set.delete(video_id);
         }
+    }
+
+    // Legacy MP3 download method (fallback)
+    private async download_audio_legacy(
+        song_key: string, 
+        download_options: {quality: DownloadQuality, bit_rate: string},
+        song_data: Song_Data,
+        video_id: string
+    ): Promise<void> {
+        this.download_progress_map.set(video_id, 0); 
+        const event_source = this.listen_to_progress(video_id);
+        
+        let audio_blob = await lastValueFrom(
+            this.http.post(
+                `/audio/download/${video_id}`,
+                { ...download_options },
+                { responseType: 'blob' }
+            )
+        );
+        
+        console.log('Audio blob received (legacy):', audio_blob);
+
+        setTimeout(() => {
+            this.download_progress_map.delete(video_id);
+        }, 850);
+        (await event_source).close();
+
+        if (!audio_blob || audio_blob.size === 0 || audio_blob.type !== 'audio/mpeg') {
+            console.error('No audio blob received from server');
+            clearInterval(this._fake_update_interval);
+            this.download_progress_map.delete(video_id);
+            this.download_queue_set.delete(video_id);
+            return;
+        }
+
+        this.playlists.add_to_downloads(song_data);
+
+        song_data.downloaded = true;
+        song_data.download_audio_blob = audio_blob;
+        song_data.download_options = download_options;
+
+        const result = await this.save_song_to_indexDB(song_key, song_data);
+        if (!result) {
+            alert('Failed to save song data to IndexedDB');
+            return;
+        }
+
+        if (this.bare_song_key(this.playerService.current?.id) === this.bare_song_key(song_data.id)) {
+            this.playerService.current = this.song_key(song_data.id);
+        }
+        this.song_data_updated.emit(song_data);
     }
 
     private _fake_update_interval: any = null;
@@ -790,12 +920,134 @@ export class MusicMediaService {
         }
     }
 
+    // Cache for HLS blob URLs to avoid recreating them
+    private hls_blob_url_cache: Map<string, { playlist_url: string; segment_urls: Map<string, string>; created_at: number }> = new Map();
+    private hls_blob_url_cache_ttl = 30 * 60 * 1000; // 30 minutes
+
     async get_audio_source_from_indexDB(key: string): Promise<string | null> {
         const song_data = await this.get_song_from_indexDB(key);
-        if (song_data && song_data.downloaded && song_data.download_audio_blob) {
-            return URL.createObjectURL(song_data.download_audio_blob);
+        
+        if (song_data && song_data.downloaded) {
+            // Check for HLS bundle first (new format)
+            if (song_data.download_hls_bundle) {
+                const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
+                return hls_urls?.playlist_url || null;
+            }
+            
+            // Fallback to legacy MP3 blob
+            if (song_data.download_audio_blob) {
+                return URL.createObjectURL(song_data.download_audio_blob);
+            }
         }
+        
         return await this.get_audio_stream(key); 
+    }
+
+    // Get HLS stream info - either from bundle or network
+    async get_offline_hls_stream(key: string): Promise<{ playlist_url: string; is_offline: boolean } | null> {
+        const song_data = await this.get_song_from_indexDB(key);
+        
+        if (song_data?.downloaded && song_data.download_hls_bundle) {
+            const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
+            if (hls_urls) {
+                return { playlist_url: hls_urls.playlist_url, is_offline: true };
+            }
+        }
+        
+        // Fallback to network stream
+        const stream_response = await this.get_hls_stream(key);
+        if (stream_response?.playlist_url) {
+            return { playlist_url: stream_response.playlist_url, is_offline: false };
+        }
+        
+        return null;
+    }
+
+    // Create blob URLs from stored HLS bundle for offline playback
+    async create_hls_blob_urls_from_bundle(
+        key: string, 
+        bundle: HLS_Bundle
+    ): Promise<{ playlist_url: string; segment_urls: Map<string, string> } | null> {
+        // Check cache first
+        const cached = this.hls_blob_url_cache.get(key);
+        if (cached && (Date.now() - cached.created_at) < this.hls_blob_url_cache_ttl) {
+            return { playlist_url: cached.playlist_url, segment_urls: cached.segment_urls };
+        }
+
+        // Clean up old cached URLs if exists
+        if (cached) {
+            URL.revokeObjectURL(cached.playlist_url);
+            cached.segment_urls.forEach(url => URL.revokeObjectURL(url));
+            this.hls_blob_url_cache.delete(key);
+        }
+
+        try {
+            // Create blob URLs for each segment
+            const segment_urls = new Map<string, string>();
+            
+            for (const segment of bundle.segments) {
+                // Convert base64 to Uint8Array
+                const binary_string = atob(segment.data);
+                const bytes = new Uint8Array(binary_string.length);
+                for (let i = 0; i < binary_string.length; i++) {
+                    bytes[i] = binary_string.charCodeAt(i);
+                }
+                
+                // Create blob and URL
+                const segment_blob = new Blob([bytes], { type: 'video/mp2t' });
+                const segment_url = URL.createObjectURL(segment_blob);
+                segment_urls.set(segment.filename, segment_url);
+            }
+
+            // Modify the playlist to use blob URLs
+            let modified_playlist = bundle.quality_playlist;
+            segment_urls.forEach((blob_url, filename) => {
+                // Replace segment filenames with blob URLs in the playlist
+                modified_playlist = modified_playlist.replace(
+                    new RegExp(filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+                    blob_url
+                );
+            });
+
+            // Create blob URL for the modified playlist
+            const playlist_blob = new Blob([modified_playlist], { type: 'application/vnd.apple.mpegurl' });
+            const playlist_url = URL.createObjectURL(playlist_blob);
+
+            // Cache the URLs
+            this.hls_blob_url_cache.set(key, {
+                playlist_url,
+                segment_urls,
+                created_at: Date.now()
+            });
+
+            console.log(`Created HLS blob URLs for offline playback: ${bundle.segment_count} segments`);
+
+            return { playlist_url, segment_urls };
+        } catch (error) {
+            console.error('Error creating HLS blob URLs from bundle:', error);
+            return null;
+        }
+    }
+
+    // Clean up blob URLs when no longer needed
+    cleanup_hls_blob_urls(key: string): void {
+        const cached = this.hls_blob_url_cache.get(key);
+        if (cached) {
+            URL.revokeObjectURL(cached.playlist_url);
+            cached.segment_urls.forEach(url => URL.revokeObjectURL(url));
+            this.hls_blob_url_cache.delete(key);
+            console.log(`Cleaned up HLS blob URLs for: ${key}`);
+        }
+    }
+
+    // Clean up all expired blob URLs
+    cleanup_expired_hls_blob_urls(): void {
+        const now = Date.now();
+        this.hls_blob_url_cache.forEach((cached, key) => {
+            if ((now - cached.created_at) > this.hls_blob_url_cache_ttl) {
+                this.cleanup_hls_blob_urls(key);
+            }
+        });
     }
 
     async get_audio_stream(key: string): Promise<string | null> {

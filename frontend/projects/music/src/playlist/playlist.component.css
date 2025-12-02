@@ -41,10 +41,7 @@
     &.searching {
         /* margin-top: var(--space-4); */
 
-        .sort {
-            /* width: 0; */
-            /* padding: var(--space-1) 0; */
-            /* display: none; */
+        /* .sort {
             left: 100%;
         }
 
@@ -55,7 +52,7 @@
             input {
                 font-size: calc(var(--font-size-base) * 1.2);
             }
-        }
+        } */
     }
 
     .sort {
@@ -229,8 +226,9 @@
 }
 .result.video .duration {
     color: var(--color-neutral);
-    font-size: calc(var(--font-size-base) * .9);
+    font-size: calc(var(--font-size-base) * .8);
     font-weight: 600;
+    margin-left: 4px;
 }
 .result.video .info {
     display: flex;
@@ -251,24 +249,19 @@
     flex-direction: row;
     align-items: center;
     flex-wrap: nowrap;
+    white-space: nowrap;
     gap: 0;
-    line-clamp: 2;
-    -webkit-line-clamp: 2;          
+    /* line-clamp: 2; */
+    /* -webkit-line-clamp: 2;           */
     max-height: calc(2.4 * var(--font-size-base));
     overflow: hidden;
     text-overflow: ellipsis;
     text-align: left;
 
     span {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: normal;
-        /* flex: 1; */
-        min-width: 0; /* Important for text truncation in flex */
+        white-space: nowrap;
     }
 
     .dot {

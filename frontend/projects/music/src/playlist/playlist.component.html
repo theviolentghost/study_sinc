@@ -6,9 +6,13 @@
         <div class="icon" [style.--mask]="'url(\'search.svg\')'"></div>
         <input #searchInput type="text" placeholder="Filter {{playlist_identifier?.name}}" (input)="on_search_input($event)" />
     </div>
-    <div class="sort" (click)="open_sort_options()">
+    <div class="sort" (click)="open_sort_options()" *ngIf="search_query.length === 0">
         <span>Sort</span>
         <div class="icon" [style.--mask]="'url(\'arrows-sort.svg\')'"></div>
+    </div>
+    <div class="sort" (click)="clear_search()" *ngIf="search_query.length > 0">
+        <span>Cancel</span>
+        <div class="icon" [style.--mask]="'url(\'x.svg\')'"></div>
     </div>
 </div>
 <div class="cover" [ngClass]="
@@ -77,22 +81,23 @@
             <!-- <div class="duration">{{ ms_to_time( video?.video_duration || 0) }}</div> -->
         </div>
         <div class="info">
-            <div class="title" [style.--color]="get_playlist_primary_color()"><span>{{ video?.song_name }}</span> <div class="dot" *ngIf="video?.video_duration"></div><div class="duration" *ngIf="video?.video_duration">{{ ms_to_time(video?.video_duration) }}</div></div>
+            <div class="title" [style.--color]="get_playlist_primary_color()"><span>{{ video?.song_name }}</span></div>
             <div style="display: flex; flex-direction: row; align-items: center;">
                 <div class="explicit" [style.--mask]="'url(\'explicit.svg\')'" *ngIf="video?.explicit"></div>
                 <div 
                     class="artist"
-                    *ngFor="let artist of video?.original_artists; let isLast = last"
+                    *ngFor="let artist of video?.artists; let isLast = last"
                 >
                     <div>{{ artist.name }}</div>
                     <span *ngIf="!isLast">, </span>
                 </div>
+                <div class="dot" *ngIf="video?.video_duration"></div><div class="duration" *ngIf="video?.video_duration">{{ ms_to_time(video?.video_duration) }}</div>
             </div>
         </div>
         <div class="extra-info" [style.--color]="get_playlist_primary_color()">
             <div class="source" [style.--color]="get_source_color(video?.id?.source)" [style.--mask]="'url(\'brand-' + video?.id?.source + '.svg\')'"></div>
             <div class="liked" *ngIf="video?.liked" [style.--mask]="'url(' + 'heart-fill.svg' + ')'"></div>
-            <div class="downloaded" *ngIf="video?.downloaded && video?.download_audio_blob" [style.--mask]="'url(' + 'cloud-download.svg' + ')'"></div>
+            <div class="downloaded" *ngIf="video?.downloaded && video?.download_hls_bundle" [style.--mask]="'url(' + 'cloud-download.svg' + ')'"></div>
         </div>
         <div class="extra-info-alignment">
             <button class="hot-action" [style.--mask]="'url(\'' + 'dots.svg' + '\')'" (click)="$event.preventDefault(); $event.stopPropagation(); open_video_options(video);">

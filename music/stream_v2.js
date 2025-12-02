@@ -394,6 +394,87 @@ class Adaptive_Stream {
                 });
             }
         });
+
+        // Download endpoint - creates permanent HLS files for offline use
+        // Returns all the data needed to reconstruct the HLS stream on the frontend
+        // app.get('/download/hls', async (req, res) => {
+        //     try {
+        //         const { video_id, quality = 'high' } = req.query;
+                
+        //         if (!this.is_valid_video_id(video_id)) {
+        //             return res.status(400).json({ error: 'Invalid video ID', success: false });
+        //         }
+                
+        //         console.log(`Download HLS request: ${video_id} (quality: ${quality})`);
+                
+        //         // Create HLS stream (will skip if already exists)
+        //         await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                
+        //         // Wait for stream to be fully ready
+        //         await this.wait_for_stream_complete(video_id, 60000);
+                
+        //         // Mark as permanent (won't be cleaned up)
+        //         // await this.mark_as_permanent(video_id);
+                
+        //         // Get the HLS bundle data
+        //         const bundle = await this.get_hls_bundle(video_id, quality);
+                
+        //         return res.status(200).json({
+        //             success: true,
+        //             video_id,
+        //             ...bundle
+        //         });
+                
+        //     } catch(error) {
+        //         console.error('Error during HLS download request:', error.message);
+        //         return res.status(500).json({ 
+        //             error: error.message || 'Internal server error',
+        //             success: false 
+        //         });
+        //     }
+        // });
+
+        // Download endpoint - streams all HLS segments as a single concatenated response
+        // This allows the frontend to receive all .ts segments in order
+        app.get('/download/hls/bundle', async (req, res) => {
+            try {
+                const { video_id, quality = 'high' } = req.query;
+                
+                if (!this.is_valid_video_id(video_id)) {
+                    return res.status(400).json({ error: 'Invalid video ID', success: false });
+                }
+                
+                console.log(`Download HLS bundle request: ${video_id} (quality: ${quality})`);
+                
+                // Create HLS stream (will skip if already exists)
+                await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                
+                // Wait for stream to be fully ready
+                await this.wait_for_stream_complete(video_id, 60000);
+                
+                // Mark as permanent
+                // await this.mark_as_permanent(video_id);
+                
+                // Stream the bundle as JSON with base64 encoded segments
+                const bundle = await this.get_hls_bundle_with_data(video_id, quality);
+                
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+                
+                return res.status(200).json({
+                    success: true,
+                    video_id,
+                    ...bundle
+                });
+                
+            } catch(error) {
+                console.error('Error during HLS bundle download:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error',
+                    success: false 
+                });
+            }
+        });
     }
 
     is_valid_video_id(video_id) {
@@ -540,6 +621,162 @@ class Adaptive_Stream {
         } catch (error) {
             throw error;
         }
+    }
+
+    // Mark a video's HLS files as permanent (won't be cleaned up)
+    async mark_as_permanent(video_id) {
+        const properties_path = path.join(this.hls_raw_audio_directory, video_id, 'properties.json');
+        try {
+            let properties = {};
+            try {
+                properties = await this.read_properties_json(video_id);
+            } catch (e) {
+                // File doesn't exist yet, create new
+            }
+            properties.permanent = true;
+            properties.downloaded_at = Date.now();
+            await file_system.promises.writeFile(properties_path, JSON.stringify(properties, null, 2));
+        } catch (error) {
+            console.error(`Error marking ${video_id} as permanent:`, error);
+            throw error;
+        }
+    }
+
+    // Wait for HLS stream to be fully generated (all segments written)
+    async wait_for_stream_complete(video_id, timeout = 60000) {
+        const start_time = Date.now();
+        const codec = this.codecs[0];
+        
+        // Map quality names to profile names
+        const profile = this.profile_progression[this.profile_progression.length - 1]; // Use highest quality
+        const playlist_path = path.join(
+            this.hls_raw_audio_directory, 
+            video_id, 
+            'audio', 
+            codec, 
+            profile, 
+            `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`
+        );
+
+        return new Promise((resolve, reject) => {
+            const check = async () => {
+                if (Date.now() - start_time > timeout) {
+                    return reject(new Error(`Timeout waiting for stream completion: ${video_id}`));
+                }
+
+                try {
+                    const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+                    
+                    // Check if playlist has #EXT-X-ENDLIST (stream complete)
+                    if (playlist_content.includes('#EXT-X-ENDLIST')) {
+                        return resolve(true);
+                    }
+                    
+                    // Not complete yet, check again
+                    setTimeout(check, 500);
+                } catch (error) {
+                    // File doesn't exist yet, try again
+                    setTimeout(check, 500);
+                }
+            };
+            check();
+        });
+    }
+
+    // Get HLS bundle info (paths to files) - for when frontend will fetch segments separately
+    async get_hls_bundle(video_id, quality = 'high') {
+        const codec = this.codecs[0];
+        const profile = this.quality_to_profile(quality);
+        
+        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+        
+        // Read the playlist
+        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+        
+        // Parse segment filenames from playlist
+        const segment_files = playlist_content
+            .split('\n')
+            .filter(line => line.endsWith('.ts'))
+            .map(line => line.trim());
+        
+        return {
+            master_playlist_url: `/hls/raw/${video_id}/audio/master.m3u8`,
+            quality_playlist_url: `/hls/raw/${video_id}/audio/${codec}/${profile}/${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`,
+            segment_urls: segment_files.map(seg => `/hls/raw/${video_id}/audio/${codec}/${profile}/${seg}`),
+            codec,
+            profile,
+            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
+            segment_count: segment_files.length
+        };
+    }
+
+    // Get HLS bundle with actual segment data (base64 encoded) - for storing in IndexedDB
+    async get_hls_bundle_with_data(video_id, quality = 'high') {
+        const codec = this.codecs[0];
+        const profile = this.quality_to_profile(quality);
+        
+        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+        
+        // Read the playlist
+        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+        
+        // Also read master playlist
+        const master_playlist_path = path.join(this.hls_raw_audio_directory, video_id, 'audio', 'master.m3u8');
+        const master_playlist_content = await file_system.promises.readFile(master_playlist_path, 'utf-8');
+        
+        // Parse segment filenames from playlist
+        const segment_files = playlist_content
+            .split('\n')
+            .filter(line => line.endsWith('.ts'))
+            .map(line => line.trim());
+        
+        // Read all segments and encode as base64
+        const segments = await Promise.all(
+            segment_files.map(async (filename) => {
+                const segment_path = path.join(audio_dir, filename);
+                const data = await file_system.promises.readFile(segment_path);
+                return {
+                    filename,
+                    data: data.toString('base64'),
+                    size: data.length
+                };
+            })
+        );
+        
+        // Calculate total size
+        const total_size = segments.reduce((sum, seg) => sum + seg.size, 0);
+        
+        return {
+            master_playlist: master_playlist_content,
+            quality_playlist: playlist_content,
+            segments,
+            codec,
+            profile,
+            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
+            segment_count: segments.length,
+            total_size,
+            // Include relative paths for reconstructing URLs
+            base_path: `/hls/raw/${video_id}/audio/${codec}/${profile}/`
+        };
+    }
+
+    // Convert quality string to profile name
+    quality_to_profile(quality) {
+        const quality_map = {
+            'ultra-low': 'ultra-low',
+            'low': 'low',
+            'medium': 'medium',
+            'high': 'high',
+            'ultra-high': 'ultra-high',
+            // Aliases
+            'lowest': 'ultra-low',
+            'highest': 'ultra-high',
+            'best': 'ultra-high',
+            'worst': 'ultra-low'
+        };
+        return quality_map[quality] || 'high';
     }
 
     async does_video_id_audio_exist(video_id) {

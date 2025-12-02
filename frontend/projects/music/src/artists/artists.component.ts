@@ -239,6 +239,7 @@ export class ArtistsComponent implements OnInit {
             original_song_name: video.name || '',
             original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
             song_name: video.name || '',
+            artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
             downloaded: false,
             download_audio_blob: null,
             download_artwork_blob: null,

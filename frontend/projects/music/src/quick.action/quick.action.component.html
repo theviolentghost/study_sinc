@@ -86,7 +86,7 @@
                     </div>
                     <div class="info">
                         <div class="title">{{ song_data?.song_name || "#no name" }}</div>
-                        <div class="artist">{{ song_data?.original_artists?.[0]?.name }}</div>
+                        <div class="artist">{{ song_data?.artists?.[0]?.name }}</div>
                     </div>
                 </div>
                 <div *ngIf="play_next_queue_length > 0" style="width: 100%; margin: var(--space-2) 0; display: flex; align-items: center; gap: 4px;">
@@ -135,7 +135,7 @@
                         </div>
                         <div class="info">
                             <div class="title">{{ video?.song_name }}</div>
-                            <div class="artist">{{ video?.original_artists?.[0]?.name }}</div>
+                            <div class="artist">{{ video?.artists?.[0]?.name }}</div>
                         </div>
                         <div class="extra-info">
                             <div class="source" [style.--color]="get_source_color(video?.id?.source)" [style.--mask]="'url(\'brand-' + video?.id?.source + '.svg\')'"></div>
@@ -207,7 +207,7 @@
                         </div>
                         <div class="info">
                             <div class="title">{{ video?.song_name }}</div>
-                            <div class="artist">{{ video?.original_artists?.[0]?.name }}</div>
+                            <div class="artist">{{ video?.artists?.[0]?.name }}</div>
                         </div>
                         <div class="extra-info">
                             <div class="source" [style.--color]="get_source_color(video?.id?.source)" [style.--mask]="'url(\'brand-' + video?.id?.source + '.svg\')'"></div>

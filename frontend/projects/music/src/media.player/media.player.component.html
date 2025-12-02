@@ -30,7 +30,7 @@
         <div class="media-info">
             <div class="media-info-background" [style.flex-direction]="visibility_status === 'reduced' ? 'column' : 'column-reverse'" style="width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;">
                 <span class="title" [style.font-size]="visibility_status === 'reduced' ? 'var(--space-4)' : 'var(--space-5)'">{{ visibility_status === "visible" ? (current_playlist_data?.name || '') : (current_media_data?.song_name || current_media_data?.original_song_name || "Unknown Song") }}</span>
-                <span class="subtitle" [style.font-size]="visibility_status === 'reduced' ? 'var(--space-3)' : 'var(--space-4)'">{{ visibility_status === "visible" ? (current_playlist_data?.name ? "Playing From" : '') : (current_media_data?.original_artists?.[0]?.name || "Unknown Artist") }}</span> 
+                <span class="subtitle" [style.font-size]="visibility_status === 'reduced' ? 'var(--space-3)' : 'var(--space-4)'">{{ visibility_status === "visible" ? (current_playlist_data?.name ? "Playing From" : '') : (current_media_data?.artists?.[0]?.name || "Unknown Artist") }}</span> 
             </div>
         </div>
         <!-- <div class="player-status" (click)="toggle_play(); $event.stopPropagation();" [style.display]="visibility_status === 'reduced' ? 'block' : 'none'" [style.--mask]="'url(' + (player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg') + ')'"></div> -->
@@ -90,7 +90,7 @@
                         <div class="explicit" [style.--mask]="'url(\'explicit.svg\')'" *ngIf="current_media_data?.explicit"></div>
                         <div 
                             class="artist"
-                            *ngFor="let artist of current_media_data?.original_artists; let isLast = last"
+                            *ngFor="let artist of current_media_data?.artists; let isLast = last"
                         >
                             <div>{{ artist.name }}</div>
                             <span *ngIf="!isLast">, </span>

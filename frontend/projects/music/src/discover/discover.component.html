@@ -52,7 +52,7 @@
                 <div style="display: flex; flex-direction: row;">
                     <div 
                         class="artist"
-                        *ngFor="let artist of item?.original_artists; let isLast = last"
+                        *ngFor="let artist of item?.artists; let isLast = last"
                     >
                         <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
                         <span *ngIf="!isLast">, </span>
@@ -88,7 +88,7 @@
                 <div style="display: flex; flex-direction: row;">
                     <div 
                         class="artist"
-                        *ngFor="let artist of current_card?.original_artists; let isLast = last"
+                        *ngFor="let artist of current_card?.artists; let isLast = last"
                     >
                         <div (click)="open_artist(artist.id); $event.stopPropagation()">{{ artist.name }}</div>
                         <span *ngIf="!isLast">, </span>

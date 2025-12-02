@@ -19,8 +19,8 @@ export class MusicPlayerService {
     @Output() clear_playlist_color: EventEmitter<void> = new EventEmitter();
 
 
-    private buffer_controller: BufferController;
-    private media_controller: MusicMediaManager;
+    public buffer_controller: BufferController;
+    public media_controller: MusicMediaManager;
 
     get current(): Song_Data | null {
         return this.media_controller.current_song;
@@ -56,7 +56,7 @@ export class MusicPlayerService {
     }
     get song_time_elapsed(): number {
         if(this.media_controller.is_current_song_loading()) return 0; // song loaded doesnt match media data (aka loading song)
-        return this.buffer_controller.current_time;
+        return this.buffer_controller.current_time || 0;
     }
     get song_duration(): number {
         if(this.media_controller?.current_song?.video_duration && this.media_controller?.current_song?.video_duration > 0) return (this.media_controller?.current_song?.video_duration || 0) / 1000;
@@ -114,11 +114,16 @@ export class MusicPlayerService {
     get loading_state(): 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded' | null {
         return this.media_controller.loading_state;
     }
+    get is_playing(): boolean {
+        return this.media_controller.buffer_controller.is_playing;
+    }
 
     constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService) {
-        this.buffer_controller = new BufferController(this.settings);
+        this.buffer_controller = new BufferController(this.settings, null);
         // Pass the buffer_controller to media_controller so they share the same instance
         this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller, this.notification_service);
+        // Now set the controller reference in buffer_controller
+        this.buffer_controller.set_controller(this.media_controller);
     }
 
     public play(): void {
@@ -139,24 +144,24 @@ export class MusicPlayerService {
         console.log('Audio element set in MusicPlayerService.');
 
         // Listen for custom song_ended event from BufferController
-        this.buffer_controller.events.addEventListener('song_ended', (event: Event) => {
-            const customEvent = event as CustomEvent;
+        // this.buffer_controller.events.addEventListener('song_ended', (event: Event) => {
+        //     const customEvent = event as CustomEvent;
 
-            // if(customEvent.detail.reason === 'buffered_to_end') {
-            //     // dont skip, juts confirm length and that we are fully buffered
-            //     return;
-            // }
+        //     // if(customEvent.detail.reason === 'buffered_to_end') {
+        //     //     // dont skip, juts confirm length and that we are fully buffered
+        //     //     return;
+        //     // }
 
-            console.log('song_ended event received in MusicPlayerService:', customEvent.detail);
+        //     console.log('song_ended event received in MusicPlayerService:', customEvent.detail);
             
-            // Auto-skip to next track
-            if (
-                this.media_controller.buffer_controller.has_audio &&
-                this.media_controller.buffer_controller.fully_buffered
-            ) {
-                this.skip_to_next(Skip_Event.DEFAULT);
-            }
-        });
+        //     // Auto-skip to next track
+        //     if (
+        //         this.media_controller.buffer_controller.has_audio &&
+        //         this.media_controller.buffer_controller.fully_buffered
+        //     ) {
+        //         this.skip_to_next(Skip_Event.DEFAULT);
+        //     }
+        // });
 
         element.addEventListener('ended', () => {
             // for other browsers that dont need safari workaround
@@ -273,8 +278,9 @@ export class MusicPlayerService {
         this.playlist_changed.emit();
         await this.media_controller.playlist_manager.load_playlist(identifier, data, preserve_history);
         if (auto_play) {
-            const next_song_key = this.media_controller.playlist_manager.next_song_key!;
-            this.skip_to_next(Skip_Event.OMIT_HISTORY);
+            const next_song_key = this.media_controller.playlist_manager.next_song_key_in_queue!;
+            // this.skip_to_next(Skip_Event.OMIT_HISTORY);
+            this.load_and_play_track(next_song_key);
             this.remove_song_from_playlist_queue(next_song_key);
         }
     }

@@ -52,9 +52,12 @@ export class HotActionComponent {
     get is_downloaded(): boolean {
         return (this.song_data?.downloaded && this.song_data?.download_audio_blob !== null) ?? false;
     }
-
     get song_data(): Song_Data | null {
         return this.hot_action.song_data;
+    }
+    get playlist_selectors_length(): number {
+        // returns the length without the non playlists, like albums
+        return this.playlist_selectors.filter(selector => selector.identifier.playlist_type !== 'album').length;
     }
 
     // get playlist_identifiers(): Song_Playlist_Identifier[] {
@@ -85,13 +88,14 @@ export class HotActionComponent {
                     }
                 },
                 is_selectable: () => {
-                    if (!this.song_data) return true;
+                    if (!this.song_data) return false;
                     return !this.media.is_song_in_playlist(this.media.bare_song_key(this.song_data.id), playlist.id);
                 },
                 action: async () => {
-                    if (!this.song_data) return;
+                    if (!this.song_data) return console.error('No song data to add to playlist');
+                    // console.log('Adding song to playlist:', playlist, this.song_data);
                     this.playlists.add_song_to_playlist(this.song_data, playlist, await this.playlists.get_playlist(playlist));
-                    console.log(`Adding song to playlist: ${playlist.id}`, this.song_data);
+                    console.log(`Added song to playlist: ${playlist.id}`, this.song_data);
                 },
             };
         });
@@ -104,7 +108,12 @@ export class HotActionComponent {
     }
 
     get actions(): {no_check?:boolean, name: string, icon: () => string, selected: boolean, select: () => void, action: () => void, is_selectable: () => boolean}[] {
-        return this.default_actions;
+        const actions = this.default_actions;
+        if(!this.player.is_playing) {
+            // remove up next option
+            return actions.slice(0,3);
+        }
+        return actions;
     }
 
     readonly default_actions: {no_check?:boolean, name: string, icon: () => string, selected: boolean, select: () => void, action: () => void, is_selectable: () => boolean}[] = [
@@ -132,7 +141,7 @@ export class HotActionComponent {
                 this.song_data.liked = true;
                 this.playlists.add_to_favorites(this.song_data);
 
-                if(this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+                if(this.player?.current?.id && this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
                     this.player.set_current_song(this.song_data); // Update player song data to reflect changes
                 }
             },
@@ -449,7 +458,7 @@ export class HotActionComponent {
     song_options: [string, string, string, string, string][] = [
         ['Rename', 'edit.svg', 'var(--color-primary)', '', 'not_spotify'],
         // ['Edit Artists', 'users.svg', 'var(--color-primary)', '', 'not_spotify'],
-        ['Song Color', 'palette.svg', '#song_color', '', ''],
+        // ['Song Color', 'palette.svg', '#song_color', '', ''],
         ['Add to Playlist', 'plus.svg', 'var(--color-primary)', '', ''],
         ['Play Similar', 'disco-ball-fill.svg', 'var(--color-primary)', '', ''],
         ['Share', 'share.svg', 'var(--color-primary)', '', ''],
@@ -464,17 +473,23 @@ export class HotActionComponent {
     }
 
     async confirm_rename_song(): Promise<void> {
-        if (!this.song_data || !this.is_song_name_valid()) return;
+        if (!this.song_data) return;
         
         this.song_data.song_name = this.new_song_name.trim();
-        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
+        // await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
         
         // Update player if this is the current song
-        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+        if (this.player?.current?.id && this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data?.id)) {
             this.player.set_current_song(this.song_data);
         }
+
+        await this.confirm_edit_artists(); // Close hot action after renaming
         
         this.hot_action.close_hot_action();
+    }
+
+    reset_rename_song(): void {
+        this.new_song_name = this.song_data ? this.song_data.original_song_name : '';
     }
 
     // Edit artists
@@ -490,12 +505,24 @@ export class HotActionComponent {
         }
     }
 
+    reset_artist_input(index: number): void {
+        this.new_artists[index] = this.song_data?.original_artists?.[index]?.name || '';
+    }
+
+    trackByArtistIndex(index: number): number {
+        return index;
+    }
+
     are_artists_valid(): boolean {
         return this.new_artists.some(artist => artist && artist.trim().length > 0);
     }
 
+    is_renaming_valid(): boolean {
+        return this.new_song_name.trim().length > 0 && this.new_song_name.trim() !== (this.song_data?.song_name || '');
+    }
+
     async confirm_edit_artists(): Promise<void> {
-        if (!this.song_data || !this.are_artists_valid()) return;
+        if (!this.song_data) return;
         
         // Filter out empty artists and create artist objects
         const valid_artists = this.new_artists
@@ -503,18 +530,16 @@ export class HotActionComponent {
             .map(name => ({
                 id: name.trim().toLowerCase().replace(/\s+/g, '-'),
                 name: name.trim(),
-                source: this.song_data!.id.source
+                source: this.song_data!.id?.source
             }));
 
-        this.song_data.original_artists = valid_artists;
-        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
+        this.song_data.artists = valid_artists;
+        await this.media.save_song_to_indexDB(this.media.song_key(this.song_data?.id), this.song_data);
         
         // Update player if this is the current song
-        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+        if (this.player?.current?.id && this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data?.id)) {
             this.player.set_current_song(this.song_data);
         }
-        
-        this.hot_action.close_hot_action();
     }
 
     // Song color picker
@@ -547,7 +572,7 @@ export class HotActionComponent {
         await this.media.save_song_to_indexDB(this.media.song_key(this.song_data.id), this.song_data);
         
         // Update player if this is the current song
-        if (this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
+        if (this.player?.current?.id && this.media.song_key(this.player.current.id) === this.media.song_key(this.song_data.id)) {
             this.player.set_current_song(this.song_data);
         }
         
@@ -640,6 +665,7 @@ export class HotActionComponent {
             case 'Rename':
                 this.new_song_name = this.song_data?.song_name || '';
                 this.hot_action.action = 'rename_song';
+                this.new_artists = (this.song_data?.artists ?? this.song_data?.original_artists)?.map(a => a.name) || [''];
                 break;
             // case 'Edit Artists':
             //     this.new_artists = this.song_data?.original_artists?.map(a => a.name) || [''];
