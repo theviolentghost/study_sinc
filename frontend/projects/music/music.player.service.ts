@@ -22,6 +22,14 @@ export class MusicPlayerService {
     public buffer_controller: BufferController;
     public media_controller: MusicMediaManager;
 
+    // Track state for visibility change handling
+    private was_playing_before_hide: boolean = false;
+    private last_visibility_state: DocumentVisibilityState = 'visible';
+    private visibility_change_handler: (() => void) | null = null;
+    private page_show_handler: ((e: PageTransitionEvent) => void) | null = null;
+    private page_hide_handler: ((e: PageTransitionEvent) => void) | null = null;
+    private before_unload_handler: (() => void) | null = null;
+
     get current(): Song_Data | null {
         return this.media_controller.current_song;
     }
@@ -124,6 +132,48 @@ export class MusicPlayerService {
         this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller, this.notification_service);
         // Now set the controller reference in buffer_controller
         this.buffer_controller.set_controller(this.media_controller);
+
+        // Handle visibility change
+        // this.visibility_change_handler = () => {
+        //     if (document.visibilityState === 'hidden') {
+        //         this.was_playing_before_hide = this.is_playing;
+        //         this.pause();
+        //     } else if (document.visibilityState === 'visible' && this.was_playing_before_hide) {
+        //         this.play();
+        //     }
+        //     this.last_visibility_state = document.visibilityState;
+        // };
+        // document.addEventListener('visibilitychange', this.visibility_change_handler);
+
+        // // Handle page hide (more reliable than beforeunload for PWAs)
+        // this.page_hide_handler = (e: PageTransitionEvent) => {
+        //     console.log('📴 Page hide event, persisted:', e.persisted);
+        //     this.was_playing_before_hide = this.is_playing;
+        //     // Release audio session to prevent stale state
+        //     this.buffer_controller.release();
+        // };
+        // window.addEventListener('pagehide', this.page_hide_handler);
+
+        // // Handle page show (returning to app)
+        // this.page_show_handler = async (e: PageTransitionEvent) => {
+        //     console.log('📱 Page show event, persisted:', e.persisted);
+        //     if (e.persisted || this.last_visibility_state === 'hidden') {
+        //         // Page was restored from bfcache or coming back from background
+        //         await this.buffer_controller.reinitialize();
+        //         if (this.was_playing_before_hide) {
+        //             // Small delay to let audio session settle
+        //             setTimeout(() => this.play(), 100);
+        //         }
+        //     }
+        // };
+        // window.addEventListener('pageshow', this.page_show_handler);
+
+        // Handle before unload (backup for browsers that don't fire pagehide)
+        this.before_unload_handler = () => {
+            console.log('🚪 Before unload event');
+            this.buffer_controller.release();
+        };
+        window.addEventListener('beforeunload', this.before_unload_handler);
     }
 
     public play(): void {

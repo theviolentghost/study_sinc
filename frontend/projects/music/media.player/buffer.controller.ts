@@ -656,6 +656,49 @@ class BufferController {
         }
     }
 
+    /**
+     * Release audio session without fully destroying.
+     * Call this on pagehide/beforeunload to prevent stale audio state.
+     */
+    public release(): void {
+        console.log('🔓 Releasing audio session');
+        
+        // Stop HLS loading but don't destroy
+        if (this.hls) {
+            this.hls.stopLoad();
+        }
+        
+        // Pause and reset audio element
+        if (this.audio_element) {
+            this.audio_element.pause();
+            this.audio_element.currentTime = 0;
+        }
+        
+        // Reset state flags so next play reinitializes properly
+        this.has_audio = false;
+        this.fully_buffered = false;
+        this.using_silent_source = false;
+    }
+
+    /**
+     * Reinitialize after returning from background/closed state.
+     * Call this on pageshow if audio was playing before.
+     */
+    public async reinitialize(): Promise<void> {
+        console.log('🔄 Reinitializing audio session');
+        
+        // If HLS exists but media is detached, we need to reattach
+        if (this.hls && this.audio_element && this.media_source) {
+            // Check if media source is still valid
+            if (this.media_source.readyState === 'closed') {
+                console.log('   MediaSource closed, need full reinit');
+                this.is_first_track = true;
+                this.is_media_source_attached = false;
+                await this.initialize_media_source();
+            }
+        }
+    }
+
     public destroy() {
         console.log('🗑️ Destroying BufferController');
         
