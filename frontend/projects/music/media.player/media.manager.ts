@@ -4,6 +4,8 @@ import { MusicMediaService, Song_Data, Song_Identifier } from "../music.media.se
 import { Skip_Event } from "./playlist.manager";
 import { SettingsService } from "../settings.service";
 import { NotificationService } from "../src/app/services/notification.service";
+import MediaMixer from "./media.mixer";
+import { MusicPlayerService } from "../music.player.service";
 
 export enum Audio_Error {
     UNKNOWN = 5000,
@@ -23,6 +25,7 @@ export enum Audio_Error_Message {
 class MusicMediaManager {
     public playlist_manager: MusicPlaylistManager;
     public buffer_controller: BufferController;
+    public mixer: MediaMixer;
 
     private thumbnail_element: HTMLImageElement | null = null;
 
@@ -76,11 +79,12 @@ class MusicMediaManager {
         return this.loading_tracks.get(this.playlist_manager.next_song_key) === 'loaded';
     }
 
-    constructor(private media: MusicMediaService, private settings: SettingsService, buffer_controller?: BufferController, private notification_service?: NotificationService) {
+    constructor(private media: MusicMediaService, private settings: SettingsService, private player: MusicPlayerService, buffer_controller?: BufferController, private notification_service?: NotificationService) {
         // Use the provided BufferController or create a new one
         // This allows the service to share a single BufferController instance
         this.buffer_controller = buffer_controller || new BufferController(this.settings, this);
         this.playlist_manager = new MusicPlaylistManager(this.media, this);
+        this.mixer = new MediaMixer(this.media);
 
         // this.buffer_controller.events.addEventListener('has_audio', () => {
         //     if(this.want_to_play && !this.buffer_controller.is_playing) {
@@ -192,14 +196,6 @@ class MusicMediaManager {
         });
     }
 
-    // public skip_to_next(event: Skip_Event = Skip_Event.DEFAULT): void {
-    //     this.playlist_manager?.next(event);
-    // }
-
-    // public skip_to_previous(event: Skip_Event = Skip_Event.DEFAULT): void {
-    //     this.playlist_manager?.previous(event);
-    // }
-
     public seek_to(time: number): void {
         this.buffer_controller.current_time = time;
         this.update_media_session_position();
@@ -252,11 +248,6 @@ class MusicMediaManager {
     }
 
     public is_song_key_equal_to_current(song_key: string): boolean {
-        // const current_song = this.playlist_manager.current_song;
-        // if (!current_song) return false;
-
-        // const current_song_key = this.media.song_key(current_song.id);
-        // return current_song_key === song_key;
         return this.currently_loading_song_key === song_key;
     }
 
@@ -547,7 +538,18 @@ class MusicMediaManager {
 
         // preload next song
         const following_song_key = this.playlist_manager.next_song_key;
+        const following_song_identifier = this.media.parse_song_key(following_song_key);
         this.load_track(following_song_key, false);
+
+        if(!load_into_source) return; // no need to setup mixer if not loading into source
+
+        if(song_key === following_song_key) return; // no need to mix same song // temp for now
+        console.log('Setting up mixer for', song_key, 'and', following_song_key);
+        this.mixer.set_song_ids(
+            song_identifier.video_id,
+            following_song_identifier.video_id
+        );
+        this.mixer.mix_and_load_into_player(this.player);
     }
 
     public async load_track_and_play(data: Song_Identifier | Song_Data | string): Promise<void> {

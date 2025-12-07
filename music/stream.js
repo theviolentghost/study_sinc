@@ -1,100 +1,267 @@
 import express from 'express';
 import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
-import fs from 'fs-extra';
+import file_system from 'fs-extra';
 import path from 'path';
+import https from 'https';
+import http from 'http';
+import crypto from 'crypto';
 
-import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+// import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+// import { get_mix_information }
+
+// cmd + shift + p => fold level
 
 const __dirname = path.resolve();
 
+// Helper function to call Python DJ service
+async function call_dj_api(endpoint, data) {
+    return new Promise((resolve, reject) => {
+        const DJ_SERVICE_HOST = process.env.DJ_SERVICE_HOST || 'localhost';
+        const DJ_SERVICE_PORT = process.env.DJ_SERVICE_PORT || 54321;
+        
+        const postData = JSON.stringify(data);
+        
+        const options = {
+            hostname: DJ_SERVICE_HOST,
+            port: DJ_SERVICE_PORT,
+            path: endpoint,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData)
+            },
+            timeout: 120000 // 120 second timeout for mix creation
+        };
+        
+        // Use HTTP for local service
+        const req = http.request(options, (res) => {
+            let responseData = '';
+            
+            res.on('data', (chunk) => {
+                responseData += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        const parsedData = JSON.parse(responseData);
+                        resolve(parsedData);
+                    } else {
+                        reject(new Error(`DJ service returned status ${res.statusCode}: ${responseData}`));
+                    }
+                } catch (error) {
+                    reject(new Error(`Failed to parse DJ service response: ${error.message}`));
+                }
+            });
+        });
+        
+        req.on('error', (error) => {
+            reject(new Error(`DJ service connection error: ${error.message}`));
+        });
+        
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('DJ service request timeout'));
+        });
+        
+        req.write(postData);
+        req.end();
+    });
+}
+
 class Adaptive_Stream {
     static profiles = {
-        'desperate': { 
-            bitrate: '16k',
-            sample_rate: 22050,
-            channels: 1,
-            audio_profile: 'aac_he',
-            bandwidth: 16 * 1024,
-            codec: 'mp4a.40.2',
-            hls_time: '1.0', // Short segments for fast startup
-            hls_preset: 'ultrafast',
+        'opus': {
+            'ultra-low': {
+                bitrate: '24k',
+                sample_rate: 48000,
+                channels: 1,
+                bandwidth: 24 * 1024,
+                codec: 'libopus', // FFmpeg codec name
+                hls_codec: 'opus', // HLS CODECS attribute
+                audio_profile: 'audio', // Opus application mode
+                compression_level: 10,
+                frame_duration: 60, // ms
+                vbr: 'on',
+                hls_time: '1.0',
+                hls_preset: 'ultrafast',
+            },
+            'low': {
+                bitrate: '48k',
+                sample_rate: 48000,
+                channels: 1,
+                bandwidth: 48 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 40,
+                vbr: 'on',
+                hls_time: '2.0',
+                hls_preset: 'ultrafast',
+            },
+            'medium': {
+                bitrate: '96k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 96 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'on',
+                hls_time: '4.0',
+                hls_preset: 'fast',
+            },
+            'high': {
+                bitrate: '128k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 128 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'on',
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
+            'ultra-high': {
+                bitrate: '192k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 192 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'constrained',
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
         },
-        'ultra-low': { 
-            bitrate: '32k',
-            sample_rate: 22050,
-            channels: 1,
-            audio_profile: 'aac_he',
-            bandwidth: 32 * 1024,
-            codec: 'mp4a.40.2',
-            hls_time: '1.0', // Short segments for fast startup
-            hls_preset: 'ultrafast',
+        'aac': {
+            'ultra-low': {
+                bitrate: '32k',
+                sample_rate: 22050,
+                channels: 1,
+                bandwidth: 32 * 1024,
+                codec: 'aac', // FFmpeg codec name
+                hls_codec: 'mp4a.40.29', // HLS CODECS attribute - HE-AAC v2
+                audio_profile: 'aac_he_v2',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '1.0',
+                hls_preset: 'ultrafast',
+            },
+            'low': {
+                bitrate: '64k',
+                sample_rate: 44100,
+                channels: 1,
+                bandwidth: 64 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.5', // HLS CODECS attribute - HE-AAC
+                audio_profile: 'aac_he',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '4.0',
+                hls_preset: 'ultrafast',
+            },
+            'medium': {
+                bitrate: '128k',
+                sample_rate: 44100,
+                channels: 2,
+                bandwidth: 128 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.2', // HLS CODECS attribute - AAC-LC
+                audio_profile: 'aac_low',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'fast',
+            },
+            'high': {
+                bitrate: '192k',
+                sample_rate: 44100,
+                channels: 2,
+                bandwidth: 192 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.2',
+                audio_profile: 'aac_low',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
+            'ultra-high': {
+                bitrate: '256k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 256 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.2',
+                audio_profile: 'aac_low',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
         },
-        'low': { 
-            bitrate: '64k',
-            sample_rate: 44100, 
-            channels: 1, 
-            audio_profile: 'aac_he',
-            bandwidth: 64 * 1024 ,
-            codec: 'mp4a.40.2',
-            hls_time: '1.0', // Short segments for fast startup
-            hls_preset: 'ultrafast',
-        },
-        'medium': { 
-            bitrate: '128k',
-            sample_rate: 44100,
-            channels: 2,
-            audio_profile: 'aac_low',
-            bandwidth: 128 * 1024,
-            codec: 'mp4a.40.2',
-            hls_time: '2.0',
-            hls_preset: 'fast',
-        },
-        'high': { 
-            bitrate: '192k',
-            sample_rate: 44100,
-            channels: 2,
-            audio_profile: 'aac_low',
-            bandwidth: 192 * 1024,
-            codec: 'mp4a.40.2',
-            hls_time: '4.0',
-            hls_preset: 'medium',
-        },
-        'ultra-high': { 
-            bitrate: '256k',
-            sample_rate: 44100,
-            channels: 2,
-            audio_profile: 'aac_low',
-            bandwidth: 256 * 1024,
-            codec: 'mp4a.40.2',
-            hls_time: '4.0',
-            hls_preset: 'medium',
-        }
     };
-    static profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
-    get_requested_profiles(target_profile = 'ultra-high') {
-        const target_index = Adaptive_Stream.profile_progression.indexOf(target_profile);
-        if (target_index === -1) return [];
 
-        // Get all profiles from ultra-low to the target profile
-        return Adaptive_Stream.profile_progression.slice(0, target_index + 1);
+    codecs = [/*'opus'*/'aac']; // Supported codecs
+    profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
+    hls_root = path.join(__dirname, 'storage', 'musik', 'hls'); 
+    hls_raw_audio_directory = path.join(this.hls_root, 'raw');
+    hls_mix_audio_directory = path.join(this.hls_root, 'mixes');
+    hls_session_directory = path.join(this.hls_root, 'sessions'); // where temporary session data is stored
+
+    hls_raw_audio_max_uphold_time = 7 * 24 * 60 * 60 * 1000; // 7 days
+    hls_raw_audio_cleanup_interval = 60 * 60 * 1000; // 60 minutes
+
+    ready = false;
+    audio_data = new Map(); // Map of video_id to audio details
+    session_data = new Map(); // Map of session_id to session state
+
+    async initialize() {
+        console.log('Initializing Adaptive_Stream...');
+        try {
+            await this.ensure_directories([
+                this.hls_root,
+                this.hls_raw_audio_directory,
+                this.hls_mix_audio_directory,
+            ]);
+            // await Promise.all([
+            //     // this.remove_audio_files('*'),
+            // ]);
+            
+            // Wrap cleanup interval in error handler
+            setInterval(() => {
+                this.cleanup().catch(error => {
+                    console.error('Error during scheduled cleanup:', error);
+                });
+            }, this.hls_raw_audio_cleanup_interval);
+
+            this.ready = true;
+            console.log('Adaptive_Stream initialized successfully');
+        } catch (error) {
+            console.error('Error during initialization:', error);
+            this.ready = false;
+            // throw error;
+        }
     }
-    static hls_root = path.join(__dirname, 'storage', 'musik', 'hls');
-    static stream_buffer_size = '16K'; // Buffer size for streaming
-
-    static hls_playlist_max_timeout = 30000; // Max wait time for playlist in ms
-    static hls_playlist_refresh_interval = 100; // Interval to check for playlist in ms
-    static hls_playlist_segment_wait_timeout = 30000; // Max wait time for first segment in ms
-    static hls_playlist_segment_interval = 50; // Interval to check for first segment in ms
-
-    static hls_playlist_max_uphold_time = 24 * 60 * 60 * 1000; // 24 hours (can be kept alive to last longer)
-    static hls_playlist_cleanup_interval = 15 * 60 * 1000; // 15 min
-
-    static hls_playlist_generation_timeout = 60000; // 60 seconds to handle YouTube rate limiting
 
     setup_endpoints(app) {
-        // Configure static middleware with proper MIME types for HLS
-        app.use('/hls', express.static(Adaptive_Stream.hls_root, {
+        app.use('/hls', express.static(this.hls_root, {
             setHeaders: (res, path) => {
                 if (path.endsWith('.m3u8')) {
                     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
@@ -110,791 +277,690 @@ class Adaptive_Stream {
             }
         }));
 
-        // Standard adaptive quality stream
         app.get('/stream', async (req, res) => {
-            const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'ultra-high';
+            try {
+                let video_ids = req.query.video_ids;
+                
+                // Parse video_ids if it's a JSON string
+                if (typeof video_ids === 'string') {
+                    try {
+                        video_ids = JSON.parse(video_ids);
+                    } catch (e) {
+                        // If it's not JSON, wrap it in an array
+                        video_ids = [video_ids];
+                    }
+                }
+                
+                // Ensure it's an array
+                if (!Array.isArray(video_ids) || video_ids.length === 0) {
+                    return res.status(400).json({ error: 'Invalid video_ids parameter', success: false });
+                }
 
-            if (!video_id) {
-                return res.status(400).json({ 
-                    error: 'Missing video_id parameter', 
+                const session_response = await this.stream(video_ids);
+                
+                return res.status(200).json({ ...session_response, success: true });
+            } catch(error) {
+                console.error('Error during session request:', error.message);
+                
+                // Determine appropriate status code based on error type
+                let status_code = 500;
+                let error_type = 'internal_error';
+                
+                if (error.message.includes('not found') || 
+                    error.message.includes('unavailable') ||
+                    error.message.includes('does not exist')) {
+                    status_code = 404;
+                    error_type = 'video_not_found';
+                } else if (error.message.includes('forbidden') || 
+                           error.message.includes('403') ||
+                           error.message.includes('not accessible')) {
+                    status_code = 403;
+                    error_type = 'access_forbidden';
+                } else if (error.message.includes('timeout') || 
+                           error.message.includes('Timeout')) {
+                    status_code = 504;
+                    error_type = 'timeout';
+                }
+                
+                return res.status(status_code).json({ 
+                    error: error.message || 'Internal server error',
+                    error_type,
                     success: false 
                 });
             }
+        });
 
+        // DJ Mix endpoint - creates a seamless stitched HLS mix between two songs
+        // Returns a SINGLE HLS stream that Safari/iOS can play without issues
+        app.get('/dj/mix', async (req, res) => {
             try {
-                // console.log('stream:', video_id);
-                const response = await this.stream(video_id, target_quality);
-                res.json(response);
-            } catch (error) {
-                console.log(`Streaming error for ${video_id}:`, error.message);
+                const { current_song_id, next_song_id, quality = 'high', mix_style = 'balanced' } = req.query;
                 
-                // Return appropriate error based on the type
-                if (error.message.includes('Video not available') || 
-                    error.message.includes('Video not found') ||
-                    error.message.includes('unavailable') ||
-                    error.message.includes('does not exist') ||
-                    error.message.includes('not found') ||
-                    error.message.includes('members-only') ||
-                    error.message.includes('age-restricted') ||
-                    error.message.includes('region-blocked') ||
-                    error.message.includes('copyright') ||
-                    error.message.includes('removed') ||
-                    error.message.includes('deleted')) {
-                    res.status(404).json({ 
-                        error: 'Video not found or unavailable', 
-                        message: 'The requested song/video could not be found or is not accessible.',
-                        video_id: video_id,
-                        success: false 
-                    });
-                } else if (error.message.includes('Timeout')) {
-                    res.status(408).json({ 
-                        error: 'Stream timeout', 
-                        message: 'The stream took too long to initialize. Please try again.',
-                        success: false 
-                    });
-                } else {
-                    res.status(500).json({ 
-                        error: 'Error generating stream', 
-                        message: 'An internal error occurred while processing your request.',
+                if (!this.is_valid_video_id(current_song_id) || !this.is_valid_video_id(next_song_id)) {
+                    return res.status(400).json({ 
+                        error: 'Invalid video IDs', 
                         success: false 
                     });
                 }
-            }
-        });
-
-        app.get('/stream/preload', async (req, res) => {
-            const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'ultra-high';
-
-            if (!video_id) {
-                return res.status(400).json({ 
-                    error: 'Missing video_id parameter', 
-                    success: false 
+                
+                console.log(`DJ Mix request: ${current_song_id} -> ${next_song_id} (quality: ${quality}, style: ${mix_style})`);
+                
+                // Ensure both songs are available in HLS (wait for completion)
+                await Promise.all([
+                    this.create_hls_stream(current_song_id, this.codecs, this.profile_progression),
+                    this.create_hls_stream(next_song_id, this.codecs, this.profile_progression)
+                ]);
+                
+                // Wait for both streams to be complete (needed for stitching)
+                await Promise.all([
+                    this.wait_for_stream_complete(current_song_id, 60000),
+                    this.wait_for_stream_complete(next_song_id, 60000)
+                ]);
+                
+                // Call Python DJ service to get mix data with crossfade WAV
+                const mix_result = await call_dj_api('/get_stitched_mix', {
+                    song_id_1: current_song_id,
+                    song_id_2: next_song_id,
+                    mix_style: mix_style
                 });
-            }
-
-            try {
-                // console.log(`Preloading stream for video ID: ${video_id} with target quality: ${target_quality}`);
-                const response = await this.preload(video_id, target_quality);
-                res.json(response);
-            } catch (error) {
-                console.error(`Preload error for ${video_id}:`, error.message);
                 
-                // Return appropriate error based on the type
-                if (error.message.includes('Video not available') || 
-                    error.message.includes('Video not found') ||
-                    error.message.includes('unavailable') ||
-                    error.message.includes('does not exist') ||
-                    error.message.includes('not found') ||
-                    error.message.includes('members-only') ||
-                    error.message.includes('age-restricted') ||
-                    error.message.includes('region-blocked') ||
-                    error.message.includes('copyright') ||
-                    error.message.includes('removed') ||
-                    error.message.includes('deleted')) {
-                    res.status(404).json({ 
-                        error: 'Video not found or unavailable', 
-                        message: 'The requested song/video could not be found or is not accessible.',
-                        video_id: video_id,
-                        success: false 
-                    });
-                } else if (error.message.includes('Timeout')) {
-                    res.status(408).json({ 
-                        error: 'Preload timeout', 
-                        message: 'The preload took too long to initialize. Please try again.',
-                        success: false 
-                    });
-                } else {
-                    res.status(500).json({ 
-                        error: 'Error generating preload stream', 
-                        message: 'An internal error occurred while processing your request.',
-                        success: false 
-                    });
-                }
-            }
-        });
-
-        app.post('/stream/embedding_generated', async (req, res) => {
-            // sent from python server, telling us the embedding has been generated
-            const song_id = req.body.song_id;
-            if (!song_id) {
-                return res.status(400).json({
-                    error: 'Missing song_id parameter',
-                    success: false
-                });
-            }
-            const session = this.active_processes.get(song_id);
-            if (session) {
-                session.queued_for_embedding_generation = false;
-                console.log(`Embedding generation completed for song ID ${song_id}, session updated.`);
-                return res.json({ success: true, message: 'Session updated' });
-            } else {
-                return res.status(404).json({ error: 'Session not found', success: false });
-            }
-        });
-
-        app.get('/stream/keepalive', async (req, res) => {
-            const video_id = req.query.video_id;
-            const target_quality = req.query.quality || 'ultra-high';
-            // to implement
-        });
-
-        app.get('/music/duration', async (req, res) => {
-            const video_id = req.query.video_id;
-            if (!video_id) {
-                return res.status(400).json({ 
-                    error: 'Missing video_id parameter', 
-                    success: false 
-                });
-            }
-            
-            const video_url = `https://www.youtube.com/watch?v=${video_id}`;
-            try {
-                const duration_str = await this.get_duration(video_url);
-                const duration_ms = this.parse_duration(duration_str);
-                res.json({ 
-                    duration: duration_ms,
-                    video_id: video_id,
-                    success: true 
-                });
-            } catch (error) {
-                console.error(`Duration error for ${video_id}:`, error.message);
+                console.log(`DJ Mix data received: ${mix_result.mix_id} (cached: ${mix_result.cached})`);
                 
-                // Return appropriate error based on the type
-                if (error.message.includes('Video not available') || 
-                    error.message.includes('Video not found') ||
-                    error.message.includes('unavailable') ||
-                    error.message.includes('does not exist') ||
-                    error.message.includes('not found') ||
-                    error.message.includes('members-only') ||
-                    error.message.includes('age-restricted') ||
-                    error.message.includes('region-blocked') ||
-                    error.message.includes('copyright') ||
-                    error.message.includes('removed') ||
-                    error.message.includes('deleted')) {
-                    res.status(404).json({ 
-                        error: 'Video not found or unavailable', 
-                        message: 'The requested song/video could not be found or is not accessible.',
-                        video_id: video_id,
-                        success: false 
-                    });
-                } else if (error.message.includes('Timeout')) {
-                    res.status(408).json({ 
-                        error: 'Duration timeout', 
-                        message: 'The duration lookup took too long. Please try again.',
-                        success: false 
-                    });
-                } else {
-                    res.status(500).json({ 
-                        error: 'Error getting duration', 
-                        message: 'An internal error occurred while getting video duration.',
-                        success: false 
-                    });
-                }
-            }
-        });
+                // If already cached with HLS, return immediately
+                // if (mix_result.cached) {
+                //     return res.status(200).json({
+                //         success: true,
+                //         mix_id: mix_result.mix_id,
+                //         playlist_url: mix_result.playlist_url,
+                //         mix_info: mix_result.mix_info,
+                //         cached: true
+                //     });
+                // }
 
-        // Get session status (useful for checking upgrade progress)
-        // app.get('/session/:session_id/status', (req, res) => {
-        //     const session_id = req.params.session_id;
-        //     const session = this.active_processes.get(session_id);
-            
-        //     if (!session) {
-        //         return res.status(404).json({ error: 'Session not found' });
-        //     }
+                // Stitch the mix data into final HLS stream
+                const stitch_result = await this.stitch_mix_data_to_raw_audio(mix_result.mix_info);
 
-        //     res.json({
-        //         session_id: session_id,
-        //         phase: session.phase || 'active',
-        //         target_quality: session.target_quality,
-        //         playlist_url: session.playlist_url || `/hls/${session_id}/instant.m3u8`,
-        //         duration: session.duration || null,
-        //         upgrade_available: session.phase === 'upgraded'
-        //     });
-        // });
-
-        app.delete('/session/:session_id', async (req, res) => {
-            const session_id = req.params.session_id;
-            try {
-                await this.clean(session_id);
-                res.json({ success: true, message: 'Session cleaned up' });
-            } catch (error) {
-                res.status(500).json({ error: 'Cleanup failed: ' + error.message });
-            }
-        });
-    }
-    constructor() {
-        this.active_processes = new Map();
-
-        this.hls_directory_cleanup();
-        setInterval(() => this.hls_directory_cleanup(), Adaptive_Stream.hls_playlist_cleanup_interval); 
-    }
-
-    does_session_already_exist(session_id, target_quality) {
-        const session = this.active_processes.get(session_id);
-        if (!session) return false;
-
-        // Check if the session has the requested quality
-        const requested_profiles = this.get_requested_profiles(target_quality);
-        return requested_profiles.some(profile => 
-            session.qualities.includes(profile) && 
-            fs.existsSync(path.join(session.session_directory, `${Adaptive_Stream.profiles[profile].bitrate}.m3u8`))
-        );
-    }
-
-    async ensure_directory_with_retry(session_directory, max_retries = 5, delay_ms = 100) {
-        for (let attempt = 1; attempt <= max_retries; attempt++) {
-            try {
-                // Attempt to create the directory
-                fs.ensureDirSync(session_directory);
-                
-                // Verify the directory was created
-                if (fs.existsSync(session_directory) && fs.statSync(session_directory).isDirectory()) {
-                    console.log(`Session directory created successfully: ${session_directory}`);
-                    return; // Success, exit the function
-                } else {
-                    throw new Error(`Directory creation succeeded but verification failed`);
-                }
-            } catch (error) {
-                console.warn(`Attempt ${attempt}/${maxRetries} failed to create session directory ${session_directory}: ${error.message}`);
-                
-                if (attempt === max_retries) {
-                    // All retries exhausted, throw the final error
-                    throw new Error(`Failed to create session directory after ${max_retries} attempts: ${session_directory}. Last error: ${error.message}`);
-                }
-                
-                // Wait before retrying
-                await new Promise(resolve => setTimeout(resolve, delay_ms));
-            }
-        }
-    }
-
-    async request_embedding(song_id) {
-        await request_embedding(song_id);
-        const is_in_queue = await is_song_in_process_queue(song_id);
-        console.log(`Song ID ${song_id} in processing queue: ${is_in_queue}`);
-
-        return is_in_queue;
-    }
-
-    async stream(video_id, target_quality = 'ultra-high', fast_startup = true) {
-        // console.time('dir check');
-        console.log(`Starting stream for video ${video_id} with quality ${target_quality}`);
-
-        const session_id = video_id;
-        const url = `https://www.youtube.com/watch?v=${video_id}`;
-        const session_directory = path.join(Adaptive_Stream.hls_root, session_id);
-        let requested_profiles = this.get_requested_profiles(target_quality);
-
-        // console.log(`Starting stream for video ID: ${video_id} with target quality: ${target_quality}`);
-
-        // Check if session already exists
-        // if so return existing session info if it contains the requested quality
-        if( this.does_session_already_exist(session_id, target_quality) ) {
-            const session = this.active_processes.get(session_id);
-            if (!session) throw new Error(`Session ${session_id} not found`);
-            session.start_time = Date.now(); 
-            return {
-                success: true,
-                playlist_url: `/hls/${session_id}/master.m3u8`,
-                session_id: session_id,
-                qualities: this.get_requested_profiles(target_quality),
-                startup_mode: fast_startup ? 'instant' : 'delayed',
-                origin: 'existing'
-            };
-        }
-
-        // if session with required quality does not exist
-        // check to see if a session with the same ID exists
-        // if so, add the desired quality to the existing session
-        if( this.active_processes.has(session_id) ) {
-            const existing_session = this.active_processes.get(session_id);
-            const missing_profiles = requested_profiles.filter(profile => !existing_session.qualities.includes(profile));
-            if (missing_profiles.length === 0) {
-                // make sure existing session has the minimum quality, if not wait.
-                try {
-                    await Promise.race([
-                        Promise.all([
-                            this.wait_for_playlist(path.join(session_directory, `${Adaptive_Stream.profiles[Adaptive_Stream.profile_progression[0]].bitrate}.m3u8`)),
-                            this.wait_for_first_segment(session_directory, Adaptive_Stream.profiles[Adaptive_Stream.profile_progression[0]].bitrate),
-                        ]),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for low quality stream')), Adaptive_Stream.hls_playlist_generation_timeout))
-                    ]);
-                } catch (error) {
-                    console.error('Failed to wait for low quality stream:', error);
-                    throw new Error('Failed to initialize low quality stream: ' + error.message);
-                }
-
-
-                return {
+                return res.status(200).json({
                     success: true,
-                    playlist_url: `/hls/${session_id}/master.m3u8`,
-                    session_id: session_id,
-                    qualities: this.get_requested_profiles(target_quality),
-                    startup_mode: fast_startup ? 'instant' : 'delayed',
-                    origin: 'existing#missing'
-                }
+                    mix_id: stitch_result.mix_id,
+                    playlist_url: stitch_result.playlist_url,
+                    mix_info: stitch_result.mix_data,
+                    cached: false
+                });
+
+            } catch(error) {
+                console.error('Error during DJ mix request:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error', 
+                    success: false 
+                });
             }
-
-            existing_session.expire = Date.now() + Adaptive_Stream.hls_playlist_max_uphold_time;
-            existing_session.qualities.push(...missing_profiles); 
-            requested_profiles = existing_session.qualities; // Update requested profiles to only include missing ones
-        }
-        // Ensure directory exists synchronously for immediate use
-        else if(!this.ensure_directory_with_retry(session_directory)) throw new Error(`Failed to create session directory: ${session_directory}`);
-
-        // new stream
-        this.request_embedding(video_id);
-        let queued_for_embedding_generation = true; // usume true for now,
-
-        // console.log('yt-dlp')
-        // console.log('yt-dlp process started');
-
-        // Create and start FFmpeg immediately after getting stream source
-        let yt_dlp_process = null;
-        let ffmpeg_process;
-        let input_source = null;
-        let using_direct_url = false;
-
-        try {
-            // First, try to get the direct stream URL
+        });
+        
+        // DJ Analysis endpoint - analyze a single song
+        app.post('/dj/analyze', async (req, res) => {
             try {
-                console.log(`Attempting to get direct stream URL for ${video_id}...`);
-                // fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Attempting direct URL for ${video_id}\n`);
-                // throw Error('skip url')
-                const stream_url = await this.get_stream_url(url);
-                input_source = stream_url;
-                using_direct_url = true;
-                console.log(`Got direct stream URL for ${video_id}`);
-                fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Got direct URL for ${video_id}\n`);
-            } catch (direct_url_error) {
-                console.log(`Direct stream URL failed for ${video_id}, falling back to yt-dlp process: ${direct_url_error.message}`);
-                // fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Direct URL failed for ${video_id}: ${direct_url_error.message}\n`);
+                const { song_id, quality = 'high' } = req.body;
                 
-                // If getting direct URL fails, fall back to yt-dlp process
-                yt_dlp_process = await this.create_yt_dlp_process(url);
-                input_source = yt_dlp_process;
-                using_direct_url = false;
-            }
-
-            // Create master playlist in parallel if we haven't done it yet
-            await this.create_master_playlist(session_directory, target_quality);
-
-            ffmpeg_process = await this.create_hls_stream(
-                input_source, 
-                session_directory, 
-                target_quality,
-                fast_startup,
-                requested_profiles,
-            );
-
-            // Wrap FFmpeg run in a Promise for better error handling
-            await new Promise((resolve, reject) => {
-                let ffmpeg_started = false;
+                if (!this.is_valid_video_id(song_id)) {
+                    return res.status(400).json({ error: 'Invalid video ID', success: false });
+                }
                 
-                ffmpeg_process.on('start', (commandLine) => {
-                    ffmpeg_started = true;
-                    // console.log(`FFmpeg started for ${video_id} using ${using_direct_url ? 'direct URL' : 'yt-dlp process'}`);
-                    resolve(); // Resolve when FFmpeg starts, not when it ends
+                // Ensure song is available in HLS
+                await this.create_hls_stream(song_id, this.codecs, this.profile_progression);
+                
+                // Call Python DJ service
+                const analysis_result = await call_dj_api('/analyze', { song_id, quality });
+                
+                return res.status(200).json(analysis_result);
+                
+            } catch(error) {
+                console.error('Error during DJ analysis request:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error',
+                    success: false 
                 });
-
-                ffmpeg_process.on('error', (err) => {
-                    console.error('FFmpeg process error:', err.message);
-                    if (!ffmpeg_started) {
-                        reject(new Error(`FFmpeg failed to start: ${err.message}`));
-                    }
-                });
-
-                // ffmpeg_process.on('end', () => {
-                //     console.log('FFmpeg process ended normally');
-                // });
-
-                // Start the FFmpeg process
-                ffmpeg_process.run();
-                
-                // Fallback timeout in case 'start' event doesn't fire
-                setTimeout(() => {
-                    if (!ffmpeg_started) {
-                        reject(new Error('FFmpeg process failed to start within timeout'));
-                    }
-                }, 8000);
-            });
-        } catch (error) {
-            console.error(`Failed to create HLS stream for ${video_id}:`, error.message);
-            console.error(`Error details:`, error);
-            fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Failed to create HLS stream for ${video_id}: ${error.message}\n`);
-            
-            // If we used direct URL and it failed, try falling back to yt-dlp process
-            if (using_direct_url && !yt_dlp_process) {
-                console.log(`Direct URL method failed for ${video_id}, attempting fallback to yt-dlp process...`);
-                try {
-                    // Clean up the failed FFmpeg process first
-                    if (ffmpeg_process) {
-                        try {
-                            ffmpeg_process.kill('SIGTERM');
-                        } catch (e) {
-                            console.error('Error killing failed ffmpeg process:', e.message);
-                        }
-                    }
-                    
-                    // Try with yt-dlp process
-                    yt_dlp_process = await this.create_yt_dlp_process(url);
-                    input_source = yt_dlp_process;
-                    using_direct_url = false;
-                    
-                    ffmpeg_process = await this.create_hls_stream(
-                        input_source, 
-                        session_directory, 
-                        target_quality,
-                        fast_startup,
-                        requested_profiles,
-                    );
-
-                    // Start FFmpeg with yt-dlp process
-                    await new Promise((resolve, reject) => {
-                        let ffmpeg_started = false;
-                        
-                        ffmpeg_process.on('start', (commandLine) => {
-                            ffmpeg_started = true;
-                            console.log(`FFmpeg started for ${video_id} using fallback yt-dlp process`);
-                            resolve();
-                        });
-
-                        ffmpeg_process.on('error', (err) => {
-                            console.error('FFmpeg process error (fallback):', err.message);
-                            if (!ffmpeg_started) {
-                                reject(new Error(`FFmpeg failed to start (fallback): ${err.message}`));
-                            }
-                        });
-
-                        ffmpeg_process.run();
-                        
-                        setTimeout(() => {
-                            if (!ffmpeg_started) {
-                                reject(new Error('FFmpeg process failed to start within timeout (fallback)'));
-                            }
-                        }, 5000);
-                    });
-                } catch (fallback_error) {
-                    console.error(`Fallback also failed for ${video_id}:`, fallback_error.message);
-                    
-                    // Clean up fallback attempt
-                    if (yt_dlp_process && !yt_dlp_process.killed) {
-                        try {
-                            yt_dlp_process.kill('SIGTERM');
-                        } catch (e) {
-                            console.error('Error killing fallback yt-dlp process:', e.message);
-                        }
-                    }
-                    if (ffmpeg_process) {
-                        try {
-                            ffmpeg_process.kill('SIGTERM');
-                        } catch (e) {
-                            console.error('Error killing fallback ffmpeg process:', e.message);
-                        }
-                    }
-                    
-                    // Clean up directory and throw original error
-                    try {
-                        if (fs.existsSync(session_directory)) {
-                            fs.removeSync(session_directory);
-                        }
-                    } catch (e) {
-                        console.error('Error cleaning up session directory:', e.message);
-                    }
-                    
-                    if (this.active_processes.has(session_id)) {
-                        this.active_processes.delete(session_id);
-                    }
-                    
-                    throw error; // Throw the original error, not the fallback error
-                }
-            } else {
-                // Original cleanup logic for non-fallback cases
-                if (yt_dlp_process && !yt_dlp_process.killed) {
-                    try {
-                        yt_dlp_process.kill('SIGTERM');
-                    } catch (e) {
-                        console.error('Error killing yt-dlp process:', e.message);
-                    }
-                }
-                if (ffmpeg_process) {
-                    try {
-                        ffmpeg_process.kill('SIGTERM');
-                    } catch (e) {
-                        console.error('Error killing ffmpeg process:', e.message);
-                    }
-                }
-                
-                // Clean up directory
-                try {
-                    if (fs.existsSync(session_directory)) {
-                        fs.removeSync(session_directory);
-                    }
-                } catch (e) {
-                    console.error('Error cleaning up session directory:', e.message);
-                }
-                
-                // Remove from active processes if it was added
-                if (this.active_processes.has(session_id)) {
-                    this.active_processes.delete(session_id);
-                }
-                
-                // Re-throw with more specific error message
-                if (error.message.includes('Video not found or unavailable')) {
-                    throw new Error(`Video not available: ${video_id}. The requested song/video could not be found or is not accessible.`);
-                } else {
-                    throw new Error(`Failed to initialize stream for ${video_id}: ${error.message}`);
-                }
             }
-        }
-        // console.log('FFmpeg process started');
-
-        // Store session info immediately for cleanup
-        this.active_processes.set(session_id, {
-            ffmpeg: ffmpeg_process,
-            yt_dlp: yt_dlp_process,
-            url: url,
-            session_id: session_id,
-            session_directory: session_directory,
-            qualities: this.get_requested_profiles(target_quality),
-            target_quality: target_quality,
-            expire: Date.now() + Adaptive_Stream.hls_playlist_max_uphold_time,
-            queued_for_embedding_generation: queued_for_embedding_generation ?? false, // prevent auto deletion while embedding is being generated/requested
-            stream_method: using_direct_url ? 'direct_url' : 'yt_dlp_process'
         });
 
-        // console.log('session:', this.active_processes.get(session_id));
+        // Download endpoint - streams all HLS segments as a single concatenated response
+        // This allows the frontend to receive all .ts segments in order
+        app.get('/download/hls/bundle', async (req, res) => {
+            try {
+                const { video_id, quality = 'high' } = req.query;
+                
+                if (!this.is_valid_video_id(video_id)) {
+                    return res.status(400).json({ error: 'Invalid video ID', success: false });
+                }
+                
+                console.log(`Download HLS bundle request: ${video_id} (quality: ${quality})`);
+                
+                // Create HLS stream (will skip if already exists)
+                await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                
+                // Wait for stream to be fully ready
+                await this.wait_for_stream_complete(video_id, 60000);
+                
+                // Mark as permanent
+                // await this.mark_as_permanent(video_id);
+                
+                // Stream the bundle as JSON with base64 encoded segments
+                const bundle = await this.get_hls_bundle_with_data(video_id, quality);
+                
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+                
+                return res.status(200).json({
+                    success: true,
+                    video_id,
+                    ...bundle
+                });
+                
+            } catch(error) {
+                console.error('Error during HLS bundle download:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error',
+                    success: false 
+                });
+            }
+        });
 
-        // Wait for both the playlist and first segment to be ready
+        app.get('/session/new', async (req, res) => {
+            try {
+                const video_ids = req.query.video_ids;
+                if (!Array.isArray(video_ids) || video_ids.length === 0) {
+                    return res.status(400).json({ error: 'Invalid video IDs', success: false });
+                }
+
+                const session_data = await this.create_session(video_ids);
+                return res.status(200).json({ success: true, session_data, playlist_url: session_data.playlist_url });
+            } catch (error) {
+                console.error('Error creating new session:', error.message);
+                return res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
+        app.get('/session/:session_id/audio/:codec/:profile/playlist.m3u8', async (req, res) => {
+            console.log('Session playlist request:', req.params);
+            const { session_id, codec, profile, tracks } = req.params;
+
+            const playlist_file = await this.generate_session_playlist(session_id, codec, profile, tracks);
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            return res.status(200).send(playlist_file);
+        });
+    }
+
+    is_valid_video_id(video_id) {
+        if(!video_id) return false;
+        if(typeof video_id !== 'string') return false;
+        const trimmed_video_id = video_id.trim();
+        if(trimmed_video_id === '' || trimmed_video_id === 'undefined' || trimmed_video_id === 'null') return false;
+        if(trimmed_video_id.length !== 11) return false; // YouTube video IDs are 11 characters long
+        return true;
+    }
+
+    async ensure_directories(directories = []) {
+        if(directories.length === 0) return;
         try {
-            await Promise.race([
-                Promise.all([
-                    this.wait_for_playlist(path.join(session_directory, `${Adaptive_Stream.profiles[Adaptive_Stream.profile_progression[0]].bitrate}.m3u8`)),
-                    this.wait_for_first_segment(session_directory, Adaptive_Stream.profiles[Adaptive_Stream.profile_progression[0]].bitrate),
-                ]),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for low quality stream')), Adaptive_Stream.hls_playlist_generation_timeout))
-            ]);
+            await Promise.all(directories.map(directory => {
+                return file_system.promises.mkdir(directory, { recursive: true });
+            }));
         } catch (error) {
-            console.error('Failed to wait for low quality stream:', error);
-            fs.appendFileSync('/tmp/stream-debug.log', `${new Date().toISOString()} - Failed to wait for low quality stream for ${video_id}: ${error.message}\n`);
-            throw new Error('Failed to initialize low quality stream: ' + error.message);
+            throw error;
+        }
+    }
+
+    async stream(video_ids = []) {
+        // video_ids is an array of video_id strings to already include in the session
+        // used for prioritized users for better visual 'speed' / better spin up
+        if (!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if(!Array.isArray(video_ids) || video_ids.length === 0) throw new Error('Invalid video_ids parameter.');
+
+        try {
+            // max 10 concurrent streams for now
+            Promise.all(video_ids.slice(0, 10).map(async (video_id) => {
+                try {
+                    await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                    if(video_id !== video_ids[0]) {
+                        // confirm stream creation for non-priority videos
+                        await this.confirm_stream_creation(video_id, 25000);
+                    }
+                } catch (error) {
+                    console.error(`Failed to create stream for ${video_id}:`, error.message);
+                    // Don't throw, just log - allow other streams to continue
+                }
+            })).catch((error) => {
+                console.error('Error in stream creation promises:', error);
+            });
+
+            // console.log(path.join(this.hls_raw_audio_directory, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`))
+            await this.confirm_stream_creation(video_ids[0], 25000);
+
+            const session_data = {
+                video_ids: video_ids,
+                playlist_url: `/hls/raw/${video_ids[0]}/audio/master.m3u8`,
+            };
+
+            return session_data;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async confirm_stream_creation(video_id, timeout = 25000, root = this.hls_raw_audio_directory) {
+        try {
+            await this.wait_for_first_readable_master_playlist(path.join(root, video_id, 'audio', this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), timeout);
+            console.log(`Stream creation confirmed: ${video_id}`);
+        } catch (error) {
+            throw new Error(`Stream creation confirmation failed for video ID ${video_id}: ${error.message}`);
+        }
+    }
+
+    create_master_playlist(available_codecs = this.codecs, available_profiles = this.profile_progression) {
+        const lines = ['#EXTM3U', '#EXT-X-VERSION:7'];
+
+        for (const codec of available_codecs) {
+            for (const profile of available_profiles) {
+                const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+                if (!profile_info) continue;
+                
+                lines.push(
+                    `#EXT-X-STREAM-INF:BANDWIDTH=${profile_info.bandwidth},CODECS="${profile_info.hls_codec}"`,
+                    `${codec}/${profile}/${profile_info.bitrate}.m3u8`
+                );
+            }
         }
 
-        // console.log(`Stream for video ID ${video_id} started successfully with target quality: ${target_quality}`);
-        // console.log(path.join(session_directory, `${Adaptive_Stream.profiles[Adaptive_Stream.profile_progression[0]].bitrate}.m3u8`), 'exists')
+        return lines.join('\n');
+    }
 
+    async write_master_playlist(session_directory, master_playlist) {
+        const master_playlist_path = path.join(session_directory, 'master.m3u8');
+        return file_system.promises.writeFile(master_playlist_path, master_playlist);
+    }
+
+    async create_properties_json(video_id, options = { permanent: false }, json_dump_data) {
+        const properties_path = path.join(this.hls_raw_audio_directory, video_id, 'properties.json');
+        await this.ensure_directories([path.dirname(properties_path)]);
+
+        const properties = {
+            video_id,
+            ...options,
+            duration: json_dump_data?.duration || 0,
+            abr: json_dump_data?.abr || 0,
+            tbr: json_dump_data?.tbr || 0,
+            vbr: json_dump_data?.vbr || 0,
+            asr: json_dump_data?.asr || 0,
+            heatmap: json_dump_data?.heatmap || null,
+        };
+
+        return file_system.promises.writeFile(properties_path, JSON.stringify(properties, null, 2));
+    }
+
+    async create_lyrics_vtt(video_id, video_json) {
+        const lyrics_path = path.join(this.hls_raw_audio_directory, video_id, 'lyrics.vtt');
+        await this.ensure_directories([path.dirname(lyrics_path)]);
+        const vtt_data = await this.extract_vtt_subtitles(video_json);
+        await file_system.promises.writeFile(lyrics_path, vtt_data);
+    }
+
+    fetch_data(url) {
+        return new Promise((resolve, reject) => {
+            https.get(url, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    try {
+                        resolve(data);
+                    } catch (err) {
+                        reject(new Error(`Failed to parse data from ${url}: ${err.message}`));
+                    }
+                });
+            }).on('error', (err) => {
+                reject(new Error(`HTTP request failed for ${url}: ${err.message}`));
+            });
+        });
+    }
+
+    async read_properties_json(video_id) {
+        const properties_path = path.join(this.hls_raw_audio_directory, video_id, 'properties.json');
+        try {
+            const data = await file_system.promises.readFile(properties_path, 'utf-8');
+            return JSON.parse(data);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async mark_as_permanent(video_id) {
+        const properties_path = path.join(this.hls_raw_audio_directory, video_id, 'properties.json');
+        try {
+            let properties = {};
+            try {
+                properties = await this.read_properties_json(video_id);
+            } catch (e) {
+                // File doesn't exist yet, create new
+            }
+            properties.permanent = true;
+            properties.downloaded_at = Date.now();
+            await file_system.promises.writeFile(properties_path, JSON.stringify(properties, null, 2));
+        } catch (error) {
+            console.error(`Error marking ${video_id} as permanent:`, error);
+            throw error;
+        }
+    }
+
+    async wait_for_stream_complete(video_id, timeout = 60000, root = this.hls_raw_audio_directory) {
+        const start_time = Date.now();
+        const codec = this.codecs[0];
+        
+        // Map quality names to profile names
+        const profile = this.profile_progression[this.profile_progression.length - 1]; // Use highest quality
+        const playlist_path = path.join(
+            root,
+            video_id,
+            'audio',
+            codec,
+            profile, 
+            `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`
+        );
+
+        return new Promise((resolve, reject) => {
+            const check = async () => {
+                if (Date.now() - start_time > timeout) {
+                    return reject(new Error(`Timeout waiting for stream completion: ${video_id}`));
+                }
+
+                try {
+                    const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+                    
+                    // Check if playlist has #EXT-X-ENDLIST (stream complete)
+                    if (playlist_content.includes('#EXT-X-ENDLIST')) {
+                        return resolve(true);
+                    }
+                    
+                    // Not complete yet, check again
+                    setTimeout(check, 500);
+                } catch (error) {
+                    // File doesn't exist yet, try again
+                    setTimeout(check, 500);
+                }
+            };
+            check();
+        });
+    }
+
+    async get_hls_bundle(video_id, quality = 'high') {
+        const codec = this.codecs[0];
+        const profile = quality;
+
+        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+        
+        // Read the playlist
+        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+        
+        // Parse segment filenames from playlist
+        const segment_files = playlist_content
+            .split('\n')
+            .filter(line => line.endsWith('.ts'))
+            .map(line => line.trim());
+        
         return {
-            success: true,
-            playlist_url: `/hls/${session_id}/master.m3u8`,
-            session_id: session_id,
-            qualities: this.get_requested_profiles(target_quality),
-            startup_mode: fast_startup ? 'instant' : 'delayed',
-            origin: 'new'
+            master_playlist_url: `/hls/raw/${video_id}/audio/master.m3u8`,
+            quality_playlist_url: `/hls/raw/${video_id}/audio/${codec}/${profile}/${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`,
+            segment_urls: segment_files.map(seg => `/hls/raw/${video_id}/audio/${codec}/${profile}/${seg}`),
+            codec,
+            profile,
+            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
+            segment_count: segment_files.length
         };
     }
 
-    async preload(video_id, target_quality = 'ultra-high') {
-        return this.stream(video_id, target_quality, false); // Start streaming without fast startup
+    async get_hls_bundle_with_data(video_id, quality = 'high') {
+        const codec = this.codecs[0];
+        const profile = quality;
+
+        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+        
+        // Read the playlist
+        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+        
+        // Also read master playlist
+        const master_playlist_path = path.join(this.hls_raw_audio_directory, video_id, 'audio', 'master.m3u8');
+        const master_playlist_content = await file_system.promises.readFile(master_playlist_path, 'utf-8');
+        
+        // Parse segment filenames from playlist
+        const segment_files = playlist_content
+            .split('\n')
+            .filter(line => line.endsWith('.ts'))
+            .map(line => line.trim());
+        
+        // Read all segments and encode as base64
+        const segments = await Promise.all(
+            segment_files.map(async (filename) => {
+                const segment_path = path.join(audio_dir, filename);
+                const data = await file_system.promises.readFile(segment_path);
+                return {
+                    filename,
+                    data: data.toString('base64'),
+                    size: data.length
+                };
+            })
+        );
+        
+        // Calculate total size
+        const total_size = segments.reduce((sum, seg) => sum + seg.size, 0);
+        
+        return {
+            master_playlist: master_playlist_content,
+            quality_playlist: playlist_content,
+            segments,
+            codec,
+            profile,
+            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
+            segment_count: segments.length,
+            total_size,
+            // Include relative paths for reconstructing URLs
+            base_path: `/hls/raw/${video_id}/audio/${codec}/${profile}/`
+        };
     }
 
-    parse_duration(duration_str) {
-        // Parse duration string in format "HH:MM:SS" or "MM:SS"
-        if (!duration_str || duration_str.trim() === '' || duration_str === '00:00') {
-            throw new Error('No valid duration available');
+    async does_video_id_audio_exist(video_id) {
+        // check sessions first then files (as a fail safe)
+        if (this.audio_data.has(video_id)) {
+            // reset last accessed
+            this.audio_data.get(video_id).last_accessed = Date.now();
+            return true;
         }
-        
-        const parts = duration_str.split(':').map(Number);
-        if (parts.length === 3) {
-            return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000; // HH:MM:SS
-        } else if (parts.length === 2) {
-            return (parts[0] * 60 + parts[1]) * 1000; // MM:SS
-        } else {
-            throw new Error('Invalid duration format');
+
+        const video_audio_path = path.join(this.hls_raw_audio_directory, video_id);
+        const exists = file_system.existsSync(video_audio_path);
+        if(exists) {
+            // // check if session has audio data (.ts files for all qualities), if not delete
+            // const audio_quality_dirs = this.profile_progression.map(profile => ({
+            //     profile,
+            //     dir: path.join(video_audio_path, profile)
+            // }));
+            // const has_audio_data = audio_quality_dirs.some(item => file_system.existsSync(item.dir));
+            // // check if they have any .ts files and their .m3u8 playlists
+            // const has_playlist = audio_quality_dirs.some(item => {
+            //     const m3u8_path = path.join(item.dir, `${Adaptive_Stream.profiles[this.codecs[0]][item.profile].bitrate}.m3u8`);
+            //     console.log('m3u8_path check:', m3u8_path);
+            //     return file_system.existsSync(m3u8_path);
+            // });
+
+            // console.log('Audio playlist existence check:', has_playlist);
+
+            // if (!has_playlist) {
+            //     console.warn(`No audio data found for video ID: ${video_id}. Deleting audio files.`);
+            //     // file_system.promises.rm(video_audio_path, { recursive: true, force: true });
+            //     await this.delete_raw_audio(video_id);
+            //     return false;
+            // } else {
+                console.warn(`Audio files exist for video ID: ${video_id} but no active session found. Recreating session data.`);
+                this.audio_data.set(video_id, {
+                    process: null,
+                    created_at: Date.now(),
+                    last_accessed: Date.now(),
+                });
+            // }
         }
+
+        console.log(`Audio files existence check for video ID ${video_id}: ${exists}`);
+
+        return exists;
     }
 
-    async create_master_playlist(session_directory, target_quality) {
-        const profiles = this.get_requested_profiles(target_quality);
-        if (profiles.length === 0) {
-            throw new Error('No valid profiles found for target quality: ' + target_quality);
-        }
+    async create_hls_stream(video_id, available_codecs = this.codecs, available_profiles = this.profile_progression) {
+        if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if(!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
+        if((await this.does_video_id_audio_exist(video_id))) return null;
 
-        const master_lines = ['#EXTM3U', '#EXT-X-VERSION:3'];
-        for (const profile of profiles) {
-            const profile_data = Adaptive_Stream.profiles[profile];
-            if (!profile_data) {
-                console.warn(`Profile ${profile} not found, skipping`);
-                continue;
-            }
-            master_lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${profile_data.bandwidth},CODECS="${profile_data.codec}"`);
-            master_lines.push(`${profile_data.bitrate}.m3u8`);
-        }
+        console.log(`Spinning up HLS stream: ${video_id}`);
 
-        const master_path = path.join(session_directory, 'master.m3u8');
-        fs.writeFileSync(master_path, master_lines.join('\n'));
-
-        return master_path;
-    }
-
-    async create_hls_stream(input_source, session_directory, target_quality = 'ultra-high', fast_startup = false, requested_profiles) {
-        const profiles = requested_profiles || this.get_requested_profiles(target_quality);
-        if (profiles.length === 0) {
-            throw new Error('No valid profiles found for target quality: ' + target_quality);
-        }
-        
-        // Handle different input types: yt-dlp process stdout or direct stream URL
-        let ffmpeg_process;
-        if (typeof input_source === 'string') {
-            // input_source is a stream URL
-            ffmpeg_process = ffmpeg(input_source);
-        } else {
-            // input_source is a yt-dlp process with stdout
-            ffmpeg_process = ffmpeg(input_source.stdout);
-        }
-        
-        // Add error handling for FFmpeg process
-        ffmpeg_process.on('error', (err) => {
-            console.error('FFmpeg error:', err.message);
-            // Don't throw here, let the calling code handle it
+        // optimistic
+        this.audio_data.set(video_id, {
+            process: null,
+            created_at: Date.now(),
+            last_accessed: Date.now(),
         });
 
-        ffmpeg_process.on('stderr', (stderrLine) => {
-            // Log FFmpeg stderr for debugging, but don't treat as fatal error
-            if (stderrLine.includes('Error') || stderrLine.includes('error')) {
-                console.error('FFmpeg stderr:', stderrLine);
-            }
-        });
+        let audio_process = null;
+        let ffmpeg_process = null;
 
-        if (profiles.length > 1) {
-            // split audio into multiple quality streams
-            const split_outputs = profiles.map((profile) => `[${Adaptive_Stream.profiles[profile].bitrate}]`).join('');
-            ffmpeg_process.complexFilter([
-                `[0:a]asplit=${profiles.length}${split_outputs}`
-            ]);
-        }
-
-        for(const profile of profiles) {
-            const profile_data = Adaptive_Stream.profiles[profile];
-            if (!profile_data) {
-                console.warn(`Profile ${profile} not found, skipping`);
-                continue;
-            }
-
-            ffmpeg_process
-                .output(path.join(session_directory, `${profile_data.bitrate}.m3u8`))
-                .audioCodec('aac')
-                .audioBitrate(profile_data.bitrate)
-                .audioChannels(profile_data.channels)
-                .audioFrequency(profile_data.sample_rate)
-                .format('hls')
-                .outputOptions([
-                     '-map', profiles.length > 1 ? `[${profile_data.bitrate}]` : '0:a',
-                    '-hls_time', profile_data.hls_time || '2.0',
-                    '-hls_list_size', '0',
-                    // '-hls_segment_type', 'mpegts',
-                    // '-start_number', '0',
-                    // '-avoid_negative_ts', 'make_zero',
-                    // '-fflags', '+genpts',
-                    '-map_metadata', '-1',
-                    '-preset', this.get_ffmpeg_preset(fast_startup, profile),
-                    '-tune', this.get_ffmpeg_tune(fast_startup, profile),
-                    // '-hls_flags', 'delete_segments',
-                    '-hls_segment_filename', path.join(session_directory, `${profile_data.bitrate}_%d.ts`)
-                ]);
-        }
-            
-        return ffmpeg_process;
-    }
-
-    get_ffmpeg_preset(fast_startup, profile = 'ultra-low') {
-        if(fast_startup) return 'ultrafast';
-        return Adaptive_Stream.profiles[profile].hls_preset || 'fast';
-    }
-
-    get_ffmpeg_tune(fast_startup, profile = 'ultra-low') {
-        if(fast_startup) return 'zerolatency';
-        return 'fastdecode'; // Default for other profiles
-    }
-
-    async get_stream_url(url) {
-        return new Promise((resolve, reject) => {
-            // Validate URL first
-            if (!url || typeof url !== 'string') {
-                reject(new Error('Invalid URL provided to get stream URL'));
-                return;
-            }
-
-            const timeout = setTimeout(() => {
-                if (!yt_dlp.killed) {
-                    yt_dlp.kill('SIGTERM');
+        try {
+            const create_audio_metadata = async () => {
+                try {
+                    const json_dump_data = await this.get_json_dump(video_id);
+                    await this.create_properties_json(video_id, { permanent: false }, json_dump_data);
+                    // this.create_lyrics_vtt(video_id, json_dump_data);
+                    // replace with custom json data format 
+                } catch (error) {
+                    console.warn(`Failed to create metadata for ${video_id}:`, error.message);
+                    // Non-fatal error - continue without metadata
                 }
-                reject(new Error('Timeout waiting for stream URL'));
-            }, 15000); // 15 second timeout
+            }
+            create_audio_metadata(); 
 
-            const yt_dlp = spawn('yt-dlp', [
-                '-f', 'bestaudio[ext=m4a]/bestaudio/best',
-                '--get-url',
-                // '--no-playlist',
-                '--quiet',
-                // '--socket-timeout', '10',
-                // '--retries', '1',
-                url
+            // ensure the session directory folders and raw audio directory folders
+            await this.ensure_directories([
+                ...available_codecs.flatMap(codec => {
+                    return available_profiles.map(profile => {
+                        return path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+                    });
+                })
             ]);
+            const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
+            await this.write_master_playlist(path.join(this.hls_raw_audio_directory, video_id, 'audio'), master_playlist);
             
-            let stream_url = '';
-            let stderr_output = '';
+            // const audio_process = await this.get_video_audio_url(video_id);
+            // console.log(`Obtained audio stream for video ID ${video_id} - url: ${audio_process}`);
+            audio_process = await this.create_yt_dlp_process(video_id); // use inital video to create the HLS stream
+            ffmpeg_process = await this.create_ffmpeg_process(audio_process, path.join(this.hls_raw_audio_directory, video_id, 'audio'), video_id, available_codecs, available_profiles);
 
-            yt_dlp.stdout.on('data', (data) => {
-                stream_url += data.toString();
+            // Wait for first segment
+            const first_profile = available_profiles[0]; // 'ultra-low'
+            await this.wait_for_first_readable_segment(video_id, available_codecs[0], first_profile, 15000);
+
+            // success
+            this.audio_data.set(video_id, {
+                process: ffmpeg_process,
+                created_at: Date.now(),
+                last_accessed: Date.now(),
             });
 
-            yt_dlp.stderr.on('data', (data) => {
-                stderr_output += data.toString();
-            });
-
-            yt_dlp.on('error', (err) => {
-                clearTimeout(timeout);
-                reject(new Error(`Failed to start yt-dlp for stream URL: ${err.message}`));
-            });
+            return ffmpeg_process;
+        } catch (error) {
+            // cleanup on failure
+            console.error(`Error creating HLS stream for video ID ${video_id}:`, error.message);
             
-            yt_dlp.on('close', (code) => {
-                clearTimeout(timeout);
-                if (code === 0) {
-                    const trimmed_url = stream_url.trim();
-                    if (trimmed_url) {
-                        resolve(trimmed_url);
-                    } else {
-                        reject(new Error('No stream URL returned from yt-dlp'));
-                    }
-                } else {
-                    const error_msg = stderr_output || `Process exited with code ${code}`;
-                    console.error(`yt-dlp get-url failed for URL ${url}:`, error_msg);
-                    
-                    // Check for specific error types
-                    if (stderr_output.includes('Video unavailable') || 
-                        stderr_output.includes('Private video') ||
-                        stderr_output.includes('This video is not available') ||
-                        stderr_output.includes('does not exist') ||
-                        stderr_output.includes('not found') ||
-                        code === 1) {
-                        reject(new Error(`Video not found or unavailable: ${url}`));
-                    } else {
-                        reject(new Error(`Failed to get stream URL: ${error_msg}`));
-                    }
+            // Kill any running processes
+            try {
+                if (audio_process && audio_process.kill) {
+                    audio_process.kill('SIGTERM');
                 }
+            } catch (killError) {
+                console.warn(`Failed to kill yt-dlp process for ${video_id}:`, killError.message);
+            }
+            
+            try {
+                if (ffmpeg_process && ffmpeg_process.kill) {
+                    ffmpeg_process.kill('SIGTERM');
+                }
+            } catch (killError) {
+                console.warn(`Failed to kill ffmpeg process for ${video_id}:`, killError.message);
+            }
+            
+            // Cleanup audio data
+            this.audio_data.delete(video_id);
+            
+            // Delete files (non-blocking)
+            this.delete_raw_audio(video_id).catch(deleteError => {
+                console.warn(`Failed to cleanup audio files for ${video_id}: ${deleteError.message}`);
             });
-        });
+            
+            throw error;
+        }
     }
 
-    async create_yt_dlp_process(url) {
+    async create_hls_mix_stream(mix_id, audio_url, available_codecs = this.codecs, available_profiles = this.profile_progression) {
+        if (!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if (!mix_id || typeof mix_id !== 'string' || mix_id.trim() === '') throw new Error('Invalid mix_id parameter.');
+
+        console.log(`Spinning up HLS mix stream: ${mix_id}`);
+
+        // optimistic
+        this.audio_data.set(mix_id, {
+            process: null,
+            created_at: Date.now(),
+            last_accessed: Date.now(),
+        });
+
+        let ffmpeg_process = null;
+
+        try {
+            // ensure the session directory folders and raw audio directory folders
+            await this.ensure_directories([
+                ...available_codecs.flatMap(codec => {
+                    return available_profiles.map(profile => {
+                        return path.join(this.hls_mix_audio_directory, mix_id, 'audio', codec, profile);
+                    });
+                })
+            ]);
+            const master_playlist = this.create_master_playlist(available_codecs, available_profiles);
+            await this.write_master_playlist(path.join(this.hls_mix_audio_directory, mix_id, 'audio'), master_playlist);
+
+            ffmpeg_process = await this.create_ffmpeg_process(audio_url, path.join(this.hls_mix_audio_directory, mix_id, 'audio'), mix_id, available_codecs, available_profiles);
+
+            // Wait for first segment
+            const first_profile = available_profiles[0]; // 'ultra-low'
+            await this.wait_for_first_readable_segment(mix_id, available_codecs[0], first_profile, 15000, this.hls_mix_audio_directory);
+
+            // success
+            this.audio_data.set(mix_id, {
+                process: ffmpeg_process,
+                created_at: Date.now(),
+                last_accessed: Date.now(),
+            });
+
+            return ffmpeg_process;
+        } catch (error) {
+            console.error(`Error creating HLS mix stream for mix ID ${mix_id}:`, error.message);
+        }
+    }
+
+    async create_yt_dlp_process(video_id) {
+        if (!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if (!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
+
+
+        const url = this.get_video_url(video_id);
+
         return new Promise((resolve, reject) => {
-            // Validate URL first
-            if (!url || typeof url !== 'string') {
-                reject(new Error('Invalid URL provided to yt-dlp'));
-                return;
-            }
 
             // Add timeout for yt-dlp process startup
             const startup_timeout = setTimeout(() => {
@@ -905,7 +971,7 @@ class Adaptive_Stream {
                     resolved = true;
                     reject(new Error('Timeout waiting for yt-dlp process to start'));
                 }
-            }, 60000); // 60 second timeout for rate limiting
+            }, 15000); // 15 second timeout for rate limiting
 
             const process = spawn('yt-dlp', [
                 '-f', 'bestaudio[ext=m4a]/bestaudio/best',
@@ -914,15 +980,14 @@ class Adaptive_Stream {
                 // '--buffer-size', Adaptive_Stream.stream_buffer_size,
                 // '--no-part',
                 // '--socket-timeout', '10',
-                // '--fragment-retries', '3',
-                // '--retries', '2',
+                '--fragment-retries', '3',
+                '--retries', '2',
                 '-o', '-',
                 url
             ]);
             
             let resolved = false;
             let stderr_output = '';
-            let has_stdout_data = false;
             
             // Handle process errors
             process.on('error', (err) => {
@@ -976,9 +1041,6 @@ class Adaptive_Stream {
             
             // Handle stdout errors
             if (process.stdout) {
-                process.stdout.on('data', (data) => {
-                    has_stdout_data = true;
-                });
 
                 process.stdout.on('error', (err) => {
                     if (!resolved) {
@@ -1062,223 +1124,783 @@ class Adaptive_Stream {
                 if (!resolved && !process.killed) {
                     resolved = true;
                     clearTimeout(startup_timeout);
-                    resolve(process);
+                    resolve(process.stdout);
                 }
-            }, 500); // Reduced initial timeout, let the process start normally
+            }, 500); // let the process start normally
         });
     }
 
-    wait_for_playlist(playlist_path) {
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Timeout waiting for playlist')), Adaptive_Stream.hls_playlist_max_timeout);
-            
-            const check = () => {
-                if (fs.existsSync(playlist_path)) {
-                    try {
-                        const content = fs.readFileSync(playlist_path, 'utf8');
-                        // Check if playlist has actual content and at least one segment reference
-                        if (content.includes('#EXTM3U') && content.includes('.ts')) {
-                            clearTimeout(timeout);
-                            resolve();
-                            return;
-                        }
-                    } catch (e) {
-                        // File exists but not readable/complete yet
-                    }
-                }
-                setTimeout(check, Adaptive_Stream.hls_playlist_refresh_interval);
-            };
-            check();
-        });
-    };
+    get_video_url(video_id) {
+        if (!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
 
+        const url = `https://www.youtube.com/watch?v=${video_id}`;
+        return url;
+    }
 
-        // Wait for at least the first segment to be created
-    wait_for_first_segment(session_directory, quality = 'low') {
+    async get_video_audio_url(video_id) {
+        if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if (!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
+        
+        const url = this.get_video_url(video_id);
+
         return new Promise((resolve, reject) => {
-            console.log(`Waiting for first segment: ${quality}_0.ts in directory ${session_directory}`);
-            const timeout = setTimeout(() => {
-                const segment_path = path.join(session_directory, `${quality}_0.ts`);
-                console.log(`Timeout waiting for first segment. Expected file: ${segment_path}`);
-                console.log(`Directory exists: ${fs.existsSync(session_directory)}`);
-                if (fs.existsSync(session_directory)) {
-                    console.log(`Directory contents:`, fs.readdirSync(session_directory).slice(0, 10));
-                }
-                reject(new Error('Timeout waiting for first segment'));
-            }, Adaptive_Stream.hls_playlist_segment_wait_timeout);
-            
-            const check = () => {
-                const segment_path = path.join(session_directory, `${quality}_0.ts`);
-                if (fs.existsSync(segment_path)) {
-                    console.log(`First segment found: ${segment_path}`);
-                    clearTimeout(timeout);
-                    resolve();
+            const process = spawn('yt-dlp', [
+                '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+                '--no-playlist',
+                '--no-warnings',
+                '--get-url',
+                url
+            ]);
+
+            let stdout_data = '';
+
+            process.stdout.on('data', (data) => {
+                stdout_data += data.toString();
+            });
+
+            process.on('close', (code) => {
+                if (code === 0) {
+                    const audio_url = stdout_data.trim();
+                    resolve(audio_url);
                 } else {
-                    setTimeout(check, Adaptive_Stream.hls_playlist_segment_interval);
+                    reject(new Error(`yt-dlp failed to get audio URL: ${stderr_data.trim()}`));
                 }
-            };
-            check();
+            });
+
+            process.on('error', (err) => {
+                reject(new Error(`yt-dlp process error: ${err.message}`));
+            });
         });
     }
 
-    // async seek(session_id, time) {
-    //     // to implement
-    //     const session = this.active_processes.get(session_id);
-    //     if (!session) {
-    //         throw new Error('Session not found');
-    //     }
+    async create_ffmpeg_process(input_source, output_directory, video_id, available_codecs = this.codecs, available_profiles = this.profile_progression) {
+        if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if(!input_source) throw new Error('No input source provided for FFmpeg process.');
+        if(!output_directory) throw new Error('No output directory provided for FFmpeg process.');
 
-    //     this.clean(session_id); // Clean up the session before seeking
+        const total_profiles = available_codecs.length * available_profiles.length;
+        if(total_profiles === 0) throw new Error('No available codecs or profiles specified for FFmpeg process.');
 
-    //     this.stream(session.url, time, session.quality);
-    //     return {
-    //         success: true,
-    //         playlist_url: `/hls/${session_id}/stream.m3u8`,
-    //         session_id: session_id
-    //     };
-    // }
+        const ffmpeg_process = ffmpeg(input_source);
 
-    health() {
-        const sessions = fs.readdirSync(Adaptive_Stream.hls_root).filter(dir => 
-            fs.statSync(path.join(Adaptive_Stream.hls_root, dir)).isDirectory()
-        );
+        if( total_profiles > 1 ) {
+            const split_outputs = available_codecs.map(codec => {
+                return available_profiles.map(profile => {
+                    const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+                    if(!profile_info) return null;
+
+                    return `[${codec}_${profile}]`;
+                }).filter(profile => profile !== null).join('');
+            }).join('');
+
+            ffmpeg_process.complexFilter([
+                `[0:a]asplit=${total_profiles}${split_outputs}`
+            ]);
+        }
+
+        for(const codec of available_codecs) {
+            for(const profile of available_profiles) {
+                const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+                if(!profile_info) continue;
+
+                // Calculate relative path from session playlist to raw audio segments
+                // const playlist_dir = path.join(output_directory, codec, profile);
+                // const segment_dir = path.join(this.hls_raw_audio_directory, video_id, codec, profile);
+                // const relative_segment_path = path.relative(playlist_dir, segment_dir);
+
+                ffmpeg_process
+                    .output(path.join(output_directory, codec, profile, `${profile_info.bitrate}.m3u8`))
+                    .audioCodec(profile_info.codec)
+                    .audioBitrate(profile_info.bitrate)
+                    .audioChannels(profile_info.channels)
+                    .audioFrequency(profile_info.sample_rate)
+                    .format('hls')
+                    .outputOptions([
+                        '-map', total_profiles > 1 ? `[${codec}_${profile}]` : '0:a',
+                        '-hls_time', profile_info.hls_time || '2.0',
+                        '-hls_list_size', '0',
+                        // '-hls_segment_type', 'mpegts',
+                        // '-start_number', '0',
+                        // '-avoid_negative_ts', 'make_zero',
+                        // '-fflags', '+genpts',
+                        '-map_metadata', '-1',
+                        // '-preset', this.get_ffmpeg_preset(fast_startup, profile),
+                        // '-tune', this.get_ffmpeg_tune(fast_startup, profile),
+                        '-hls_flags', 'append_list',
+                        // '-hls_base_url', `${relative_segment_path}/`,
+                        '-hls_segment_filename', path.join(output_directory, codec, profile, `${profile_info.bitrate}_%d.ts`)
+                    ]);
+            }
+        }
+
+        return new Promise((resolve, reject) => {
+            let resolved = false;
+            
+            // Add timeout for FFmpeg startup
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    try {
+                        ffmpeg_process.kill('SIGTERM');
+                    } catch (e) {
+                        // Ignore kill errors
+                    }
+                    reject(new Error(`FFmpeg timeout for video ${video_id}`));
+                }
+            }, 30000); // 30 second timeout
+            
+            ffmpeg_process
+                .on('end', () => {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        resolve({
+                            process: ffmpeg_process,
+                            duration: null, // to do: calculate duration
+                        });
+                    }
+                })
+                .on('error', (err, stdout, stderr) => {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timeout);
+                        
+                        const error_message = err.message || '';
+                        const stderr_message = stderr || '';
+                        
+                        // Check for specific error types
+                        if (error_message.includes('SIGTERM') || error_message.includes('SIGKILL')) {
+                            reject(new Error(`FFmpeg was terminated for video ${video_id}`));
+                        } else if (stderr_message.includes('Invalid data found') || 
+                                   stderr_message.includes('moov atom not found') ||
+                                   error_message.includes('I/O error')) {
+                            reject(new Error(`Video ${video_id} has invalid or inaccessible audio data`));
+                        } else if (stderr_message.includes('403') || 
+                                   stderr_message.includes('Forbidden')) {
+                            reject(new Error(`Access forbidden for video ${video_id}`));
+                        } else {
+                            reject(new Error(`FFmpeg failed for video ${video_id}: ${error_message}`));
+                        }
+                    }
+                })
+                .run();
+        });
+    }
+
+    async wait_for_first_readable_segment(video_id, codec = 'aac', profile = this.profile_progression[0], timeout = 15000, root = this.hls_raw_audio_directory) {
+        return new Promise((resolve, reject) => {
+            const segment_path = path.join(root, video_id, 'audio', codec, profile);
+            const start_time = Date.now();
+
+            const check_segment = () => {
+                file_system.promises.readdir(segment_path)
+                    .then(files => {
+                        const ts_files = files.filter(file => file.endsWith('.ts'));
+                        if (ts_files.length > 0) {
+                            resolve();
+                        } else if (Date.now() - start_time >= timeout) {
+                            reject(new Error('Timeout waiting for first readable segment'));
+                        } else {
+                            setTimeout(check_segment, 500); // Check again after 500ms
+                        }
+                    })
+                    .catch(err => {
+                        reject(new Error(`Error checking segment directory: ${err.message}`));
+                    });
+            };
+
+            check_segment();
+        });
+    }
+
+    async wait_for_first_readable_master_playlist(master_playlist_path, timeout = 10000) {
+        return new Promise((resolve, reject) => {
+            const start_time = Date.now();
+
+            const check_playlist = () => {
+                file_system.promises.access(master_playlist_path, file_system.constants.R_OK)
+                    .then(() => {
+                        resolve();
+                    })
+                    .catch(() => {
+                        if (Date.now() - start_time >= timeout) {
+                            reject(new Error('Timeout waiting for first readable master playlist'));
+                        } else {
+                            setTimeout(check_playlist, 500); // Check again after 500ms
+                        }
+                    });
+            };
+
+            check_playlist();
+        });
+    }
+
+    async delete_raw_audio(video_id) {
+
+        return new Promise((resolve, reject) => {
+            // check properties.json to see if permanent
+            this.read_properties_json(video_id)
+                .then((properties) => {
+                    if(properties?.permanent) {
+                        // skip deletion
+                        console.log(`Skipping deletion of permanent raw audio: ${video_id}`);
+                        return resolve();
+                    } else {
+                        // proceed with deletion
+                        return;
+                    }
+                })
+                .catch((err) => {
+                    // if error reading properties, assume not permanent and proceed
+                    return;
+                });
+            
+            // Delete the raw audio directory
+            file_system.promises.rm(path.join(this.hls_raw_audio_directory, video_id), { recursive: true, force: true })
+                .then(() => {
+                    resolve();
+                })
+                .catch((err) => {
+                    reject(err);
+                });
+            
+            // also check ffmpeg process and kill if exists
+            const session_info = this.audio_data.get(video_id);
+            if(session_info && session_info.process) {
+                try {
+                    session_info.process.kill('SIGTERM');
+                } catch (error) {
+                    console.error(`Error killing FFmpeg process for video ID ${video_id}:`, error.message);
+                }
+                this.audio_data.delete(video_id);
+            }
+        });
+    }
+
+    async remove_audio_files(video_ids = '*') {
+        // video_ids should be array of ids to remove, or '*' for all
+        return new Promise(async (resolve, reject) => {
+            // Cleanup logic for all raw audio files
+            try {
+                // Remove all raw audio directories
+                if(video_ids === '*') var children = await file_system.promises.readdir(this.hls_raw_audio_directory);
+                else {
+                    if(!Array.isArray(video_ids)) throw new Error('Invalid video_ids parameter for remove_audio_files');
+                    var children = video_ids;
+                }
+
+                let successful = 0;
+                let failed = 0;
+
+                await Promise.all(children.map(async (child) => {
+                    try {
+                        await this.delete_raw_audio(child);
+                        successful++;
+                    } catch (error) {
+                        console.error(`Failed to delete audio for ${child}:`, error.message);
+                        failed++;
+                    }
+                }));
+
+                console.log(`Audio cleanup: ${successful} successful, ${failed} prevented (total: ${children.length})`);
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    async get_json_dump(video_id) {
+        if(!this.ready) throw new Error('Adaptive_Stream not initialized properly.');
+        if(!this.is_valid_video_id(video_id)) throw new Error('Invalid video_id parameter.');
+
+        try {
+            // use yt-dlp json dump
+            return new Promise((resolve, reject) => {
+                const url = this.get_video_url(video_id);
+                const process = spawn('yt-dlp', [
+                    '--no-playlist',
+                    '--no-warnings',
+                    '--skip-download',
+                    '--dump-json',
+                    url
+                ]);
+
+                let stdout_data = '';
+                let stderr_data = '';
+
+                const timeout = setTimeout(() => {
+                    if (process && !process.killed) {
+                        process.kill('SIGTERM');
+                    }
+                    reject(new Error(`Timeout getting JSON dump for ${video_id}`));
+                }, 15000); // 15 second timeout
+
+                process.stdout.on('data', (data) => {
+                    stdout_data += data.toString();
+                });
+
+                process.stderr.on('data', (data) => {
+                    stderr_data += data.toString();
+                });
+
+                process.on('close', (code) => {
+                    clearTimeout(timeout);
+                    if (code === 0) {
+                        try {
+                            const json_data = JSON.parse(stdout_data);
+                            resolve(json_data);
+                        } catch (err) {
+                            reject(new Error(`Failed to parse yt-dlp JSON output: ${err.message}`));
+                        }
+                    } else {
+                        const error_message = stderr_data.trim() || 'Unknown error';
+                        
+                        // Check for specific error types
+                        if (error_message.includes('HTTP Error 403') || 
+                            error_message.includes('Forbidden') ||
+                            error_message.includes('fragment') ||
+                            error_message.includes('not available')) {
+                            reject(new Error(`Video ${video_id} is not accessible or not available`));
+                        } else if (error_message.includes('Video unavailable') || 
+                                   error_message.includes('Private video') ||
+                                   error_message.includes('does not exist')) {
+                            reject(new Error(`Video ${video_id} not found or unavailable`));
+                        } else {
+                            reject(new Error(`Failed to get JSON dump for ${video_id}: ${error_message}`));
+                        }
+                    }
+                });
+
+                process.on('error', (err) => {
+                    clearTimeout(timeout);
+                    reject(new Error(`yt-dlp process error: ${err.message}`));
+                });
+            });
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async extract_vtt_subtitles(video_json) {
+        if(!video_json) throw new Error('No video_json provided for subtitle extraction.');
+
+        try {
+            // use video_json.subtitles in future
+            const subtitles = video_json.automatic_captions;
+            if(!subtitles) return null;
+
+            const vtt_subtitle_info = subtitles['en'] || subtitles['en-US'] || subtitles['en-GB'];
+            if(!vtt_subtitle_info || vtt_subtitle_info.length === 0) return null;
+
+            // find element with .ext === 'vtt'
+            const vtt_info = vtt_subtitle_info.find(sub => sub.ext === 'vtt');
+            if(!vtt_info) return null;
+
+            const vtt_url = vtt_info.url;
+            if(!vtt_url) return null;
+
+            const vtt_subtitle_data = await this.fetch_data(vtt_url);
+            return vtt_subtitle_data;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    force_clean_index = 0;
+    force_clean_index_count = Math.ceil((2 * 24 * 60 * 60 * 1000) / (this.hls_raw_audio_cleanup_interval)); // once every 48 hours
+    async cleanup() {
+        // Cleanup logic for all raw audio files and processes
+        try {
+            // grab all video ids from hls/raw
+            this.force_clean_index = (this.force_clean_index + 1) % this.force_clean_index_count;
+            const use_force_clean = (this.force_clean_index === this.force_clean_index_count - 1);
+            if(use_force_clean) {
+                console.log('Performing forced audio cleanup of all raw audio files.');
+            }
+            const all_video_ids = await file_system.promises.readdir(this.hls_raw_audio_directory);
+            const video_ids_to_delete = all_video_ids.filter((video_id) => {
+                const audio_data = this.audio_data.has(video_id);
+                if(!audio_data) return true; // no active session, delete
+                const session_info = this.audio_data.get(video_id);
+                const now = Date.now();
+                const last_accessed = session_info.last_accessed || session_info.created_at || (use_force_clean ? 0 : Date.now()); // if Date.now() reached protect it from being removed unless forced
+
+                return (now - last_accessed) > this.hls_raw_audio_max_uphold_time;
+            });
+
+            let successful = 0;
+            let failed = 0;
+
+            await Promise.all(video_ids_to_delete.map(async (child) => {
+                try {
+                    await this.delete_raw_audio(child);
+                    successful++;
+                } catch (error) {
+                    console.error(`Failed to delete audio for ${child}:`, error.message);
+                    failed++;
+                }
+            }));
+
+            console.log(`Audio cleanup: ${successful} successful, ${failed} prevented (total: ${video_ids_to_delete.length})`);
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    async stitch_mix_data_to_raw_audio(mix_data) {
+        if(!mix_data) throw new Error('No mix_data provided for stitching.');
+
+        const {
+            mix_id,
+            song_id_1,
+            song_id_2,
+            mix_out_time,
+            mix_in_time,
+            overlap_duration,
+            last_song1_segment,
+            crossfade_wav_path,
+            first_song2_segment,
+            segment_duration
+        } = mix_data;
+
+        // Validate required fields
+        if(!song_id_1 || !song_id_2) throw new Error('Invalid song IDs in mix_data.');
+        if(!crossfade_wav_path) throw new Error('No crossfade WAV path provided.');
+
+        const codec = this.codecs[0]; // 'aac'
+        const profile = 'ultra-high'; // Use highest quality for mixing
+
+        // Get segment paths for both songs
+        const song1_segment_dir = path.join(this.hls_raw_audio_directory, song_id_1, 'audio', codec, profile);
+        const song2_segment_dir = path.join(this.hls_raw_audio_directory, song_id_2, 'audio', codec, profile);
+
+        // Get list of segment files for song 1 (up to last_song1_segment)
+        const song1_files = await file_system.promises.readdir(song1_segment_dir);
+        const song1_segments = song1_files
+            .filter(f => f.endsWith('.ts'))
+            .sort((a, b) => {
+                const num_a = parseInt(a.match(/\d+/)?.[0] || '0');
+                const num_b = parseInt(b.match(/\d+/)?.[0] || '0');
+                return num_a - num_b;
+            })
+            .slice(0, last_song1_segment)
+            .map(f => path.join(song1_segment_dir, f));
+
+        // Get list of segment files for song 2 (from first_song2_segment onwards)
+        const song2_files = await file_system.promises.readdir(song2_segment_dir);
+        const song2_segments = song2_files
+            .filter(f => f.endsWith('.ts'))
+            .sort((a, b) => {
+                const num_a = parseInt(a.match(/\d+/)?.[0] || '0');
+                const num_b = parseInt(b.match(/\d+/)?.[0] || '0');
+                return num_a - num_b;
+            })
+            .slice(first_song2_segment)
+            .map(f => path.join(song2_segment_dir, f));
+
+        console.log(`Stitching mix ${mix_id}:`);
+        console.log(`  Song 1 segments: ${song1_segments.length} (0 to ${last_song1_segment - 1})`);
+        console.log(`  Crossfade WAV: ${crossfade_wav_path}`);
+        console.log(`  Song 2 segments: ${song2_segments.length} (from ${first_song2_segment})`);
+
+        // Create output directory for the mix
+        const mix_output_dir = path.join(this.hls_root, 'mixes', mix_id);
+        await this.ensure_directories([mix_output_dir]);
+
+        // Stitch to single WAV, then convert to HLS
+        // const stitched_wav_path = await this.stitch_audio_to_single_wav(
+        //     song1_segments,
+        //     song2_segments,
+        //     crossfade_wav_path,
+        //     mix_output_dir
+        // );
+
+        // Convert stitched WAV to HLS
+        await this.create_hls_mix_stream(mix_id, crossfade_wav_path);
+
+        // Cleanup temp WAV files
+        // await this.unlink_file(stitched_wav_path).catch(e => console.warn('Failed to delete stitched WAV:', e.message));
         
-        const activeProcessCount = this.active_processes.size;
-        
+        // Release the crossfade temp file (call Python to clean it up, or just delete it)
+        await this.unlink_file(crossfade_wav_path).catch(e => console.warn('Failed to delete crossfade WAV:', e.message));
+
         return {
-            status: 'healthy',
-            activeSessions: sessions.length,
-            activeProcesses: activeProcessCount,
-            sessions: sessions
+            mix_id,
+            playlist_url: `/hls/mixes/${mix_id}/audio/master.m3u8`,
+            mix_data
         };
     }
 
-    async clean(session_id) {
-        const session = this.active_processes.get(session_id);
-        if (session) {
-            const { ffmpeg, yt_dlp, session_directory } = session;
+    // combine all audio into single wav file for processing into one final audio file for HLS streaming
+    // release temp files after processing
+    async stitch_audio_to_single_wav(song1_segments, song2_segments, crossfade_wav_path, output_dir) {
+        if(!song1_segments || !song2_segments) throw new Error('Invalid segments provided for stitching.');
 
-            //cleanup processes
-            try {
-                ffmpeg.kill('SIGTERM');
-                yt_dlp.kill('SIGTERM');
-            } catch (e) {
-                console.error('Error terminating processes:', e);
-            }
+        const output_wav_path = path.join(output_dir, 'stitched_mix.wav');
 
-            //cleanup files
-            try {
-                if (fs.existsSync(session_directory)) {
-                    fs.removeSync(session_directory);
-                }
-            } catch (e) {
-                console.error('Error removing session directory:', e);
-            }
+        // Create a concat file for FFmpeg
+        const concat_file_path = path.join(output_dir, 'concat_list.txt');
+        
+        // Build the concat list
+        // Format: file 'path/to/file'
+        const concat_lines = [];
 
-            // Remove from active processes
-            this.active_processes.delete(session_id);
+        // Add song 1 segments
+        for (const segment of song1_segments) {
+            concat_lines.push(`file '${segment}'`);
         }
-    }
 
-    async hls_directory_cleanup() {
-        // cleanup old sessions
-        const sessions = fs.readdirSync(Adaptive_Stream.hls_root).filter(dir => 
-            fs.statSync(path.join(Adaptive_Stream.hls_root, dir)).isDirectory()
-        );
+        // Add crossfade WAV
+        concat_lines.push(`file '${crossfade_wav_path}'`);
 
-        const now = Date.now();
-        for (const session_id of sessions) {
-            const session = this.active_processes.get(session_id);
-            if (session) {
-                const age = now - session.expire;
-                if (age > 0 && session.queued_for_embedding_generation === false) {
-                    // Session expired, clean it up
-                    await this.clean(session_id);
-                    this.active_processes.delete(session_id);
-                    console.log(`Cleaned up old session: ${session_id}`);
-                }
-            } else {
-                // If no active process, remove the directory
-                const session_directory = path.join(Adaptive_Stream.hls_root, session_id);
-                try {
-                    if (fs.existsSync(session_directory)) {
-                        fs.removeSync(session_directory);
-                        console.log(`Removed stale session directory: ${session_id}`);
-                    }
-                } catch (e) {
-                    console.error('Error removing stale session directory:', e);
-                }
-            }
+        // Add song 2 segments
+        for (const segment of song2_segments) {
+            concat_lines.push(`file '${segment}'`);
         }
-    }
 
-    get_duration(url) {
-        // Get the duration of the video using yt-dlp
-        if (!url) return Promise.reject(new Error('URL is required to get duration'));
+        await file_system.promises.writeFile(concat_file_path, concat_lines.join('\n'));
 
+        console.log(`  Created concat list with ${concat_lines.length} files`);
+
+        // Use FFmpeg to concatenate and convert to WAV
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                if (!yt_dlp.killed) {
-                    yt_dlp.kill('SIGTERM');
-                }
-                reject(new Error('Timeout waiting for video duration'));
-            }, 15000); // 15 second timeout
-
-            const yt_dlp = spawn('yt-dlp', [
-                '--get-duration',
-                '--no-playlist',
-                '--quiet',
-                '--socket-timeout', '10',
-                '--retries', '1',
-                url
+            const ffmpeg_process = spawn('ffmpeg', [
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_file_path,
+                '-c:a', 'pcm_s16le',  // Convert to PCM WAV
+                '-ar', '44100',        // 44.1kHz sample rate
+                '-ac', '2',            // Stereo
+                '-y',                  // Overwrite output
+                output_wav_path
             ]);
-            
-            let duration = '';
+
             let stderr_output = '';
 
-            yt_dlp.stdout.on('data', (data) => {
-                duration += data.toString();
-            });
-
-            yt_dlp.stderr.on('data', (data) => {
+            ffmpeg_process.stderr.on('data', (data) => {
                 stderr_output += data.toString();
             });
 
-            yt_dlp.on('error', (err) => {
-                clearTimeout(timeout);
-                reject(new Error(`Failed to start yt-dlp for duration: ${err.message}`));
-            });
-            
-            yt_dlp.on('close', (code) => {
-                clearTimeout(timeout);
+            ffmpeg_process.on('close', async (code) => {
+                // Cleanup concat file
+                await this.unlink_file(concat_file_path).catch(() => {});
+
                 if (code === 0) {
-                    const trimmed_duration = duration.trim();
-                    if (trimmed_duration) {
-                        resolve(trimmed_duration);
-                    } else {
-                        reject(new Error('No duration returned from yt-dlp'));
-                    }
+                    console.log(`  ✅ Stitched WAV created: ${output_wav_path}`);
+                    resolve(output_wav_path);
                 } else {
-                    const error_msg = stderr_output || `Process exited with code ${code}`;
-                    console.error(`yt-dlp duration failed for URL ${url}:`, error_msg);
-                    
-                    // Check for specific error types
-                    if (stderr_output.includes('Video unavailable') || 
-                        stderr_output.includes('Private video') ||
-                        stderr_output.includes('This video is not available') ||
-                        stderr_output.includes('does not exist') ||
-                        stderr_output.includes('not found') ||
-                        code === 1) {
-                        reject(new Error(`Video not found or unavailable: ${url}`));
-                    } else {
-                        reject(new Error(`Failed to get duration: ${error_msg}`));
-                    }
+                    console.error(`  ❌ FFmpeg concat failed:`, stderr_output);
+                    reject(new Error(`FFmpeg concat failed with code ${code}`));
                 }
+            });
+
+            ffmpeg_process.on('error', (err) => {
+                reject(new Error(`FFmpeg spawn error: ${err.message}`));
             });
         });
     }
+
+    async unlink_file(file_path) {
+        return new Promise((resolve, reject) => {
+            file_system.promises.unlink(file_path)
+                .then(() => {
+                    resolve();
+                })
+                .catch((err) => {
+                    reject(err);
+                });
+        });
+    }
+
+    async create_session(video_ids) {
+        const session_id = crypto.randomBytes(16).toString('hex');
+
+        await this.stream(video_ids);
+
+        const session_directory = path.join(this.hls_session_directory, session_id);
+        const session_audio_directory = path.join(session_directory, 'audio');
+
+        await this.ensure_directories([session_directory, session_audio_directory]);
+
+        const master_playlist = this.create_session_master_playlist(session_id);
+        await this.write_master_playlist(session_audio_directory, master_playlist);
+
+        // Store session state - tracks are { video_id, type: 'raw' } or { mix_id, type: 'mix' }
+        const session_state = {
+            session_id,
+            tracks: video_ids.map(video_id => ({ video_id, type: 'raw' })),
+            created_at: Date.now(),
+            updated_at: Date.now(),
+            playlist_url: `/hls/sessions/${session_id}/audio/master.m3u8`,
+        };
+        
+        this.session_data.set(session_id, session_state);
+
+        return session_state;
+    }
+
+    create_session_master_playlist(session_id) {
+        const lines = ['#EXTM3U', '#EXT-X-VERSION:7'];
+
+        for (const codec of this.codecs) {
+            for (const profile of this.profile_progression) {
+                const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+                if (!profile_info) continue;
+                
+                lines.push(
+                    `#EXT-X-STREAM-INF:BANDWIDTH=${profile_info.bandwidth},CODECS="${profile_info.hls_codec}"`,
+                    `/session/${session_id}/audio/${codec}/${profile}/playlist.m3u8`
+                );
+            }
+        }
+
+        return lines.join('\n');
+    }
+
+    async parse_playlist_segments(playlist_path) {
+        try {
+            const content = await file_system.promises.readFile(playlist_path, 'utf-8');
+            const lines = content.split('\n');
+            const segments = [];
+            
+            let current_duration = 0;
+            
+            for (const line of lines) {
+                if (line.startsWith('#EXTINF:')) {
+                    // Parse duration: #EXTINF:1.021678,
+                    const duration_match = line.match(/#EXTINF:([\d.]+)/);
+                    if (duration_match) {
+                        current_duration = parseFloat(duration_match[1]);
+                    }
+                } else if (line.endsWith('.ts') && !line.startsWith('#')) {
+                    // This is a segment filename
+                    segments.push({
+                        duration: current_duration,
+                        filename: line.trim()
+                    });
+                    current_duration = 0;
+                }
+            }
+            
+            return segments;
+        } catch (error) {
+            console.error(`Error parsing playlist ${playlist_path}:`, error.message);
+            return [];
+        }
+    }
+
+    async generate_session_playlist(session_id, codec, profile, tracks = session.tracks) {
+        const session = this.session_data.get(session_id);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+        if (!profile_info) {
+            throw new Error('Invalid codec/profile combination');
+        }
+
+        const bitrate = profile_info.bitrate;
+        const lines = ['#EXTM3U', '#EXT-X-VERSION:7'];
+        
+        // Calculate target duration (max segment duration across all tracks)
+        let max_duration = 0;
+        let is_first_source = true;
+        let total_duration = 0;
+        const all_track_segments = [];
+
+        for (const track of tracks) {
+            let playlist_path;
+            let base_path; // Absolute URL path to segments
+            
+            if (track.type === 'raw') {
+                playlist_path = path.join(this.hls_raw_audio_directory, track.video_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+                base_path = `/hls/raw/${track.video_id}/audio/${codec}/${profile}`;
+            } else if (track.type === 'mix') {
+                playlist_path = path.join(this.hls_mix_audio_directory, track.mix_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+                base_path = `/hls/mixes/${track.mix_id}/audio/${codec}/${profile}`;
+            } else {
+                continue;
+            }
+
+            const segments = await this.parse_playlist_segments(playlist_path);
+            
+            for (const seg of segments) {
+                if (seg.duration > max_duration) {
+                    max_duration = seg.duration;
+                }
+            }
+            
+            all_track_segments.push({ track, segments, base_path });
+        }
+
+        lines.push(`#EXT-X-TARGETDURATION:${Math.ceil(max_duration)}`);
+        lines.push('#EXT-X-MEDIA-SEQUENCE:0');
+
+        // Second pass: build the playlist with discontinuity tags
+        for (let i = 0; i < all_track_segments.length; i++) {
+            const { track, segments, base_path } = all_track_segments[i];
+            
+            // Add discontinuity tag before each new source (except the first)
+            if (!is_first_source) {
+                lines.push('#EXT-X-DISCONTINUITY');
+            }
+            is_first_source = false;
+            
+            // Add all segments from this source
+            for (const segment of segments) {
+                lines.push(`#EXTINF:${segment.duration.toFixed(6)},`);
+                lines.push(`${base_path}/${segment.filename}`);
+                total_duration += segment.duration;
+            }
+        }
+
+        // Mark as VOD playlist (complete)
+        lines.push('#EXT-X-ENDLIST');
+
+        return lines.join('\n');
+    }
+
+    async delete_session(session_id) {
+        const session = this.session_data.get(session_id);
+        if (!session) {
+            return false;
+        }
+
+        // Remove session directory (only contains master.m3u8)
+        const session_directory = path.join(this.hls_session_directory, session_id);
+        try {
+            await file_system.promises.rm(session_directory, { recursive: true, force: true });
+        } catch (error) {
+            console.error(`Error deleting session directory ${session_id}:`, error.message);
+        }
+
+        this.session_data.delete(session_id);
+        return true;
+    }
 }
 
+// testing
+// (async () => {
+//     const adaptive_stream = new Adaptive_Stream();
+//     await adaptive_stream.initialize();
+
+//     try {
+//         await adaptive_stream.stream(['9iHM6X6uUH8', '-mMmOKHzuWc']);
+
+//         // console.log('getting dump');
+//         // let result = await adaptive_stream.get_json_dump('-mMmOKHzuWc');
+//         // console.log(result);
+//         // let vtt_data = await adaptive_stream.extract_vtt_subtitles(result);
+//         // console.log('Extracted VTT data:', vtt_data);
+//         // console.log('success');
+//     } catch (error) {
+//         console.error('Error during testing:', error);
+//     }
+// })();
+
 export default {
-    Stream: Adaptive_Stream
-};
+    Stream: Adaptive_Stream,
+    is_valid_video_id: Adaptive_Stream.is_valid_video_id
+}

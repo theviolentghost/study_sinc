@@ -367,6 +367,70 @@ def calculate_mix():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/get_stitched_mix', methods=['POST'])
+@handle_errors
+def get_stitched_mix():
+    """
+    Create a stitched HLS stream that seamlessly mixes two songs.
+    Returns a single HLS playlist URL that can be played directly on Safari/iOS.
+    
+    Request JSON:
+    {
+        "song_id_1": "video_id_1",
+        "song_id_2": "video_id_2",
+        "quality": "high",  // optional: 'low', 'medium', 'high', 'ultra-high'
+        "mix_style": "balanced"  // optional: 'quick', 'balanced', 'extended', 'long'
+    }
+    
+    Response JSON:
+    {
+        "success": true,
+        "mix_id": "abc123...",
+        "playlist_url": "/hls/mixes/abc123.../audio/master.m3u8",
+        "mix_info": { ... },
+        "cached": false
+    }
+    """
+    try:
+        data = request.get_json()
+        song_id_1 = data.get('song_id_1')
+        song_id_2 = data.get('song_id_2')
+        quality = data.get('quality', 'high')
+        mix_style = data.get('mix_style', 'balanced')
+        
+        if not song_id_1 or not song_id_2:
+            return jsonify({'success': False, 'error': 'Both song_id_1 and song_id_2 are required'}), 400
+        
+        print(f"Creating stitched mix: {song_id_1} -> {song_id_2} (quality: {quality}, style: {mix_style})")
+        
+        # First, calculate the optimal mix instruction
+        audio_1, sr_1 = decoder.decode_chunks_to_numpy(song_id_1, quality)
+        features_1 = analyzer.extract_dj_features(audio_1, sr_1)
+        
+        audio_2, sr_2 = decoder.decode_chunks_to_numpy(song_id_2, quality)
+        features_2 = analyzer.extract_dj_features(audio_2, sr_2)
+        
+        mix_instruction = mix_calculator.calculate_optimal_mix(features_1, features_2)
+        
+        # Create the stitched HLS stream
+        mix_result = mixer.create_mixed_audio_wav(
+            song_id_1,
+            song_id_2,
+            mix_instruction,
+            mix_style=mix_style
+        )
+        
+        return jsonify({
+            'success': True,
+            **mix_result
+        })
+        
+    except Exception as e:
+        print(f"Error creating stitched mix: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # Application entry point with proper error handling
 if __name__ == '__main__':
     try:

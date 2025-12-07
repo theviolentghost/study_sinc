@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Injector } from '@angular/core';
 import { Output, EventEmitter } from '@angular/core';
 
 import BufferController from './media.player/buffer.controller';
@@ -7,6 +7,7 @@ import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Play
 import { Skip_Event, Skip_Result } from './media.player/playlist.manager';
 import { SettingsService } from './settings.service';
 import { NotificationService } from './src/app/services/notification.service';
+// import { DJMixingService, MixStyle } from './dj.mixing.service';
 
 @Injectable({
   providedIn: 'root'
@@ -17,10 +18,17 @@ export class MusicPlayerService {
     @Output() song_changed: EventEmitter<void> = new EventEmitter();
     @Output() playlist_changed: EventEmitter<void> = new EventEmitter();
     @Output() clear_playlist_color: EventEmitter<void> = new EventEmitter();
+    @Output() dj_mix_started: EventEmitter<void> = new EventEmitter();
+    @Output() dj_crossfade_started: EventEmitter<void> = new EventEmitter();
 
 
     public buffer_controller: BufferController;
     public media_controller: MusicMediaManager;
+    
+    // DJ Mode integration
+    // private dj_service: DJMixingService | null = null;
+    private dj_prefetch_timeout: ReturnType<typeof setTimeout> | null = null;
+    private dj_progress_check_interval: ReturnType<typeof setInterval> | null = null;
 
     // Track state for visibility change handling
     private was_playing_before_hide: boolean = false;
@@ -125,13 +133,28 @@ export class MusicPlayerService {
     get is_playing(): boolean {
         return this.media_controller.buffer_controller.is_playing;
     }
+    
+    // DJ Mode getters
+    get is_dj_mode_enabled(): boolean {
+        return this.settings.dj_mode_enabled;
+    }
+    
+    // get dj_mix_style(): MixStyle {
+    //     return this.settings.dj_mix_style as MixStyle;
+    // }
 
-    constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService) {
+    constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService, private injector: Injector) {
         this.buffer_controller = new BufferController(this.settings, null);
         // Pass the buffer_controller to media_controller so they share the same instance
-        this.media_controller = new MusicMediaManager(this.media, this.settings, this.buffer_controller, this.notification_service);
+        this.media_controller = new MusicMediaManager(this.media, this.settings, this, this.buffer_controller, this.notification_service);
         // Now set the controller reference in buffer_controller
         this.buffer_controller.set_controller(this.media_controller);
+        
+        // Lazy load DJ service to avoid circular dependency
+        // setTimeout(() => {
+        //     this.dj_service = this.injector.get(DJMixingService);
+        //     this.setup_dj_event_handlers();
+        // }, 0);
 
         // Handle visibility change
         // this.visibility_change_handler = () => {
@@ -345,5 +368,166 @@ export class MusicPlayerService {
 
     public remove_song_from_playlist_queue(song_key: string): void {
         this.media_controller.playlist_manager.remove_track_from_queue(song_key);
-    }   
+    }
+    
+    // ==================== DJ Mode Methods ====================
+    
+    /**
+     * Set up event handlers for DJ service
+     */
+    private setup_dj_event_handlers(): void {
+        // if (!this.dj_service) return;
+        
+        // this.dj_service.mix_started.subscribe(() => {
+        //     console.log('🎧 DJ mix started');
+        //     this.dj_mix_started.emit();
+        // });
+        
+        // this.dj_service.crossfade_started.subscribe(() => {
+        //     console.log('🎧 DJ crossfade started');
+        //     this.dj_crossfade_started.emit();
+        // });
+        
+        // this.dj_service.mix_completed.subscribe(() => {
+        //     console.log('🎧 DJ mix completed');
+        //     // Update current song to the next song after mix completes
+        //     const next_song = this.dj_service?.state.next_song;
+        //     if (next_song) {
+        //         this.set_current_song(next_song);
+        //         this.song_changed.emit();
+                
+        //         // Start prefetching the next mix if auto-transition is enabled
+        //         if (this.settings.dj_auto_transition) {
+        //             this.schedule_dj_prefetch();
+        //         }
+        //     }
+        // });
+    }
+    
+    /**
+     * Start DJ progress monitoring to trigger prefetch at the right time
+     */
+    public start_dj_progress_monitoring(): void {
+        if (!this.settings.dj_mode_enabled || !this.settings.dj_auto_transition) return;
+        
+        this.stop_dj_progress_monitoring();
+        
+        // Check every 5 seconds
+        this.dj_progress_check_interval = setInterval(() => {
+            this.check_and_prefetch_dj_mix();
+        }, 5000);
+    }
+    
+    /**
+     * Stop DJ progress monitoring
+     */
+    public stop_dj_progress_monitoring(): void {
+        if (this.dj_progress_check_interval) {
+            clearInterval(this.dj_progress_check_interval);
+            this.dj_progress_check_interval = null;
+        }
+        if (this.dj_prefetch_timeout) {
+            clearTimeout(this.dj_prefetch_timeout);
+            this.dj_prefetch_timeout = null;
+        }
+    }
+    
+    /**
+     * Check if we should prefetch the next DJ mix
+     */
+    private check_and_prefetch_dj_mix(): void {
+        // if (!this.dj_service || !this.settings.dj_mode_enabled) return;
+        // if (this.dj_service.is_dj_mode_active) return; // Already in a mix
+        
+        // const duration = this.song_duration;
+        // const elapsed = this.song_time_elapsed;
+        // const remaining = duration - elapsed;
+        
+        // // Prefetch when 60 seconds remaining (or 30% remaining for short songs)
+        // const prefetch_threshold = Math.max(60, duration * 0.3);
+        
+        // if (remaining <= prefetch_threshold && remaining > 10) {
+        //     this.schedule_dj_prefetch();
+        // }
+    }
+    
+    /**
+     * Schedule a DJ mix prefetch
+     */
+    private schedule_dj_prefetch(): void {
+        // if (this.dj_prefetch_timeout) return; // Already scheduled
+        
+        // const next_song_key = this.media_controller.playlist_manager.next_song_key;
+        // if (!next_song_key) return;
+        
+        // const current_song = this.current;
+        // if (!current_song) return;
+        
+        // console.log('🎧 Scheduling DJ mix prefetch...');
+        
+        // this.dj_prefetch_timeout = setTimeout(async () => {
+        //     try {
+        //         await this.dj_service?.prefetch_mix(
+        //             current_song,
+        //             next_song_key,
+        //             'high',
+        //             // this.dj_mix_style
+        //         );
+        //         console.log('🎧 DJ mix prefetched successfully');
+        //     } catch (error) {
+        //         console.error('Error prefetching DJ mix:', error);
+        //     }
+        //     this.dj_prefetch_timeout = null;
+        // }, 1000);
+    }
+    
+    /**
+     * Trigger a DJ transition to the next song
+     * This replaces the normal skip behavior when DJ mode is enabled
+     */
+    // public async dj_transition_to_next(): Promise<boolean> {
+        // if (!this.dj_service || !this.settings.dj_mode_enabled) {
+        //     return false;
+        // }
+        
+        // const current_song = this.current;
+        // const next_song_key = this.media_controller.playlist_manager.next_song_key;
+        
+        // if (!current_song || !next_song_key) {
+        //     console.log('🎧 Cannot DJ transition: missing current or next song');
+        //     return false;
+        // }
+        
+        // try {
+        //     console.log('🎧 Starting DJ transition...');
+        //     await this.dj_service.create_and_play_mix(
+        //         current_song,
+        //         next_song_key,
+        //         'high',
+        //         // this.dj_mix_style
+        //     );
+            
+        //     // Remove the next song from the queue since it's now part of the mix
+        //     this.remove_song_from_playlist_queue(next_song_key);
+            
+        //     return true;
+        // } catch (error) {
+        //     console.error('DJ transition failed:', error);
+        //     return false;
+        // }
+    // }
+    
+    /**
+     * Stop the current DJ mix and return to normal playback
+     */
+    // public stop_dj_mix(): void {
+    //     this.dj_service?.stop_mix();
+    // }
+    
+    /**
+     * Get the DJ service for direct access
+     */
+    // public get dj(): DJMixingService | null {
+    //     return this.dj_service;
+    // }
 }

@@ -9,7 +9,7 @@ import SpotifyToYoutube from 'spotify-to-youtube';
 import progress_emitter from '../progress.emitter.js';
 import { spawn, exec } from 'child_process';
 import axios from 'axios';
-import stream_module from './stream_v2.js';
+import stream_module from './stream.js';
 const stream = new stream_module.Stream();
 stream.initialize();
 

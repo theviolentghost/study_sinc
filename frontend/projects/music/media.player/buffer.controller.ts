@@ -153,16 +153,6 @@ class BufferController {
         });
 
         this.configure_hls_events(hls);
-        
-        // Set to highest quality level after manifest is parsed
-        hls.once(Events.MANIFEST_PARSED, () => {
-            if (hls.levels.length > 0) {
-                const highestLevel = hls.levels.length - 1;
-                console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
-                hls.currentLevel = highestLevel;
-            }
-        });
-        
         return hls;
     }
 
@@ -175,11 +165,22 @@ class BufferController {
 
         hls.on(Events.MANIFEST_LOADED, (e, data) => {
             console.log('✅ Manifest loaded');
-            hls?.startLoad();
+            hls?.startLoad(0); // Always start loading from position 0
         });
 
         hls.on(Events.MANIFEST_PARSED, (e, data) => {
             console.log('✅ Manifest parsed:', data.levels?.length, 'levels');
+            // Ensure we start at 0 after manifest is parsed
+            if (this.audio_element && this.audio_element.currentTime !== 0) {
+                console.log('⏮️ Resetting position to 0 after manifest parsed');
+                this.audio_element.currentTime = 0;
+            }
+
+            if (hls.levels.length > 0) {
+                const highestLevel = hls.levels.length - 1;
+                console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
+                hls.currentLevel = highestLevel;
+            }
         });
 
         hls.on(Events.MEDIA_DETACHING, () => {
@@ -196,7 +197,11 @@ class BufferController {
             if(!this.has_audio) {
                 this.has_audio = data.type === 'audio';
                 this.controller?.on_has_audio();
-                this.current_time = 0; // Reset to start, because hls may have accounted for initial silence
+                // Force position to 0 on first audio data
+                if (this.audio_element && this.audio_element.currentTime > 0.5) {
+                    console.log('⏮️ Resetting position to 0 on first audio (was:', this.audio_element.currentTime, ')');
+                    this.audio_element.currentTime = 0;
+                }
             }
             if(!this.using_silent_source) {
                 this.has_audio = data.type === 'audio' || this.has_audio;
@@ -273,11 +278,11 @@ class BufferController {
     }
 
     private current_url: string = '';
-    public async load_and_play(url: string) {
+    public async load_and_play(url: string, clear_buffer: boolean = true, force_start_time: boolean = true): Promise<void> {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
         if(!this.using_silent_source) {
-            this.has_audio = false;
+            if(clear_buffer) this.has_audio = false;
             this.fully_buffered = false;
         }
 
@@ -305,25 +310,15 @@ class BufferController {
                 this.hls.stopLoad();
                 
                 // Clear the buffer more gently for Safari
-                await this.safari_clear_buffer();
+                if(clear_buffer) await this.safari_clear_buffer();
                 
                 // Don't create new HLS instance - reuse existing
                 // Safari prefers keeping the same instance
                 
             } else {
                 // CHROME/OTHER: Use transfer approach
-                
-                // this.hls.detachMedia();
-                // this.hls.destroy();
 
-                // this.hls = this.create_hls_instance();
-                // this.hls.attachMedia({
-                //     media: this.audio_element,
-                //     // mediaSource: this.media_source,
-                //     overrides: { endOfStream: false }
-                // });
-
-                await this.clear_buffer();
+                if(clear_buffer) await this.clear_buffer();
 
                 this.transfer_data = this.hls.transferMedia();
                 
@@ -353,28 +348,10 @@ class BufferController {
         this.hls.loadSource(url);
         this.current_url = url;
         
-        // Play
-        // try {
-        //     await this.audio_element.play();
-        //     console.log('✅ Playback started successfully');
-        // } catch (error) {
-        //     console.error('❌ Playback failed:', error);
-            
-        //     // Safari sometimes needs a delay
-        //     if (this.is_safari) {
-        //         console.log('🍎 Safari: Retrying play after delay...');
-        //         await new Promise(resolve => setTimeout(resolve, 500));
-        //         try {
-        //             await this.audio_element.play();
-        //             console.log('✅ Playback started on retry');
-        //         } catch (retryError) {
-        //             console.error('❌ Retry also failed:', retryError);
-        //             throw retryError;
-        //         }
-        //     } else {
-        //         throw error;
-        //     }
-        // }
+        // Force start at position 0 for cold starts
+        if (this.audio_element && force_start_time) {
+            this.audio_element.currentTime = 0;
+        }
     }
 
     public async set_audio_source_to_silent(): Promise<void> {
@@ -529,9 +506,101 @@ class BufferController {
         console.log('✅ Buffer cleared');
     }
 
-    public play(): void {
+    public async slice_buffer(start: number, end: number): Promise<void> {
+        if (!this.media_source) {
+            return;
+        }
+        console.log(`✂️ Slicing buffer: keeping ${start.toFixed(2)}s to ${end === Infinity ? 'end' : end.toFixed(2) + 's'}`);
+        const sourceBuffers = this.media_source.sourceBuffers;
+        
+        for (let i = 0; i < sourceBuffers.length; i++) {
+            const sb = sourceBuffers[i];
+            const buffered = sb.buffered;
+            
+            for (let j = 0; j < buffered.length; j++) {
+                const range_start = buffered.start(j);
+                const range_end = buffered.end(j);
+                
+                try {
+                    // Wait if buffer is updating
+                    if (sb.updating) {
+                        await new Promise<void>((resolve) => {
+                            const onUpdateEnd = () => {
+                                sb.removeEventListener('updateend', onUpdateEnd);
+                                resolve();
+                            };
+                            sb.addEventListener('updateend', onUpdateEnd);
+                        });
+                    }
+                    
+                    // Remove data BEFORE the start point
+                    if (range_start < start && range_end > range_start) {
+                        const remove_end = Math.min(range_end, start);
+                        console.log(`   Removing before: ${range_start.toFixed(2)}s - ${remove_end.toFixed(2)}s`);
+                        sb.remove(range_start, remove_end);
+                        
+                        await new Promise<void>((resolve) => {
+                            const onUpdateEnd = () => {
+                                sb.removeEventListener('updateend', onUpdateEnd);
+                                resolve();
+                            };
+                            sb.addEventListener('updateend', onUpdateEnd);
+                        });
+                    }
+                    
+                    // Remove data AFTER the end point
+                    if (end !== Infinity && range_end > end && range_start < range_end) {
+                        const remove_start = Math.max(range_start, end);
+                        console.log(`   Removing after: ${remove_start.toFixed(2)}s - ${range_end.toFixed(2)}s`);
+                        sb.remove(remove_start, range_end);
+                        
+                        await new Promise<void>((resolve) => {
+                            const onUpdateEnd = () => {
+                                sb.removeEventListener('updateend', onUpdateEnd);
+                                resolve();
+                            };
+                            sb.addEventListener('updateend', onUpdateEnd);
+                        });
+                    }
+                } catch (error) {
+                    console.error(`❌ Error slicing buffer:`, error);
+                }
+            }
+        }
+        console.log('✅ Buffer slice complete');
+    }
+
+    public async play(): Promise<void> {
         if (!this.audio_element) throw new Error('Audio element not set.');
-        this.audio_element.play();
+        try {
+            await this.audio_element.play();
+            console.log('✅ Playback started successfully');
+        } catch (error) {
+            console.error('Playback failed:', error);
+            
+            // Safari sometimes needs a delay
+            if (this.is_safari) {
+                this.safari_play();
+            } else {
+                console.error('Playback failed:', error);
+            }
+        }
+    }
+
+    public async safari_play(timeout: number = 5000, delay: number = 500): Promise<void> {
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < timeout) {
+            try {
+                await this.audio_element.play();
+                return;
+            } catch (error) {
+                console.error('Playback failed:', error);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+
+        throw new Error('Playback failed after timeout');
     }
 
     public pause(): void {

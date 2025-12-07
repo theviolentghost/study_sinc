@@ -5,6 +5,7 @@ import { HttpClient, HttpContext, HttpContextToken } from '@angular/common/http'
 import { AuthService } from '../../src/app/auth.service';
 import { MusicPlayerService } from './music.player.service';
 import { PlaylistsService } from './playlists.service';
+import { Mix_Data, Mix_Data_Parameters } from './media.player/media.mixer';
 
 export enum DownloadQuality {
     "Q0" = '0', // high
@@ -1905,4 +1906,17 @@ export class MusicMediaService {
             this.http.get(`/music/artists/new_releases`, { params: { artist_ids } })
         ) as Promise<any>;
     }
+
+    public async request_mix(video_1_id: string, video_2_id: string, parameters: Mix_Data_Parameters): Promise<Mix_Data | null> {
+        try {
+            const response = await lastValueFrom(
+                this.http.get(`/dj/mix`, { params: { current_song_id: video_1_id, next_song_id: video_2_id, ...parameters } })
+            );
+            return (response as Mix_Data) || null;
+        } catch (error) {
+            console.error('Error requesting mix:', error);
+            return null;
+        }
+    }
+
 }

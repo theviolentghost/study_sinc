@@ -49,13 +49,59 @@ class DJ_Audio_Mixer:
         """Generate unique ID for this mix based on songs and mix parameters."""
         mix_data = f"{song_id_1}:{song_id_2}:{mix_instruction.mix_out_point.time_seconds}:{mix_instruction.mix_in_point.time_seconds}"
         return hashlib.md5(mix_data.encode()).hexdigest()[:16]
-    
+
+    def create_mixed_audio_wav(
+        self,
+        song_id_1: str,
+        song_id_2: str,
+        mix_instruction: MixInstruction,
+        mix_style: str = 'balanced'  # 'quick', 'balanced', 'extended', 'long'
+    ):
+        # Adjust mix duration based on style first
+        adjusted_instruction = self._adjust_mix_duration(mix_instruction, mix_style)
+        
+        crossfade_wav_path = self._generate_wav_file(song_id_1, song_id_2, mix_instruction, mix_style)
+        mix_id = self.generate_mix_id(song_id_1, song_id_2, adjusted_instruction)
+        
+        # Calculate segment numbers for stitching
+        # Standard HLS segment duration is 8 seconds
+        segment_duration = 8.0
+        
+        # mix_out_time: when song 1 starts the crossfade
+        mix_out_time = adjusted_instruction.mix_out_point.time_seconds
+        # mix_in_time: where song 2's crossfade starts
+        mix_in_time = adjusted_instruction.mix_in_point.time_seconds
+        
+        # Calculate segment indices
+        last_song1_segment = int(mix_out_time / segment_duration)
+        first_song2_segment = int((mix_in_time + adjusted_instruction.overlap_duration) / segment_duration) + 1
+        
+        mix_info = {
+            'mix_id': mix_id,
+            'song_id_1': song_id_1,
+            'song_id_2': song_id_2,
+            'mix_style': mix_style,
+            'mix_out_time': mix_out_time,
+            'mix_in_time': mix_in_time,
+            'overlap_duration': adjusted_instruction.overlap_duration,
+            'last_song1_segment': last_song1_segment,
+            'crossfade_wav_path': crossfade_wav_path,
+            'first_song2_segment': first_song2_segment,
+            'segment_duration': segment_duration,
+            'created_at': __import__('time').time()
+        }
+        
+        return {
+            'mix_id': mix_id,
+            'mix_info': mix_info,
+            'cached': False
+        }
+
     def create_mixed_audio_pipe(
         self,
         song_id_1: str,
         song_id_2: str,
         mix_instruction: MixInstruction,
-        quality: str = 'high',
         mix_style: str = 'balanced'  # 'quick', 'balanced', 'extended', 'long'
     ):
         """
@@ -81,54 +127,15 @@ class DJ_Audio_Mixer:
         """
         
         # Override overlap duration based on mix style
-        mix_instruction = self._adjust_mix_duration(mix_instruction, mix_style)
-        print(f"🎛️  Creating DJ mix pipe: {song_id_1} → {song_id_2}")
-        
-        # Decode both songs
-        print(f"Decoding song 1: {song_id_1}")
-        audio_1, sr_1 = self.decoder.decode_chunks_to_numpy(song_id_1, quality)
-        
-        print(f"Decoding song 2: {song_id_2}")
-        audio_2, sr_2 = self.decoder.decode_chunks_to_numpy(song_id_2, quality)
-        
-        # Convert to mono if needed
-        if len(audio_1.shape) == 2:
-            audio_1 = np.mean(audio_1, axis=1)
-        if len(audio_2.shape) == 2:
-            audio_2 = np.mean(audio_2, axis=1)
-        
-        # Resample if needed
-        if sr_1 != self.sample_rate:
-            audio_1 = self._resample(audio_1, sr_1, self.sample_rate)
-        if sr_2 != self.sample_rate:
-            audio_2 = self._resample(audio_2, sr_2, self.sample_rate)
-        
-        # Create the mix (BPM sync/pitch shifting will be applied only where needed inside)
-        print(f"Creating crossfade mix...")
-        mixed_audio = self._create_crossfade_mix(
-            audio_1,
-            audio_2,
-            mix_instruction
-        )
-        
-        # Convert to stereo (duplicate mono to both channels)
-        if len(mixed_audio.shape) == 1:
-            mixed_audio = np.stack([mixed_audio, mixed_audio], axis=1)
-        
-        # Write mixed audio to temporary WAV file
-        print(f"Writing mixed audio to temp file...")
-        tmp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        sf.write(tmp_wav.name, mixed_audio, self.sample_rate, subtype='PCM_16')
-        tmp_wav_path = tmp_wav.name
-        tmp_wav.close()
-        
+        temp_wav_file = self._generate_wav_file(song_id_1, song_id_2, mix_instruction, mix_style)
+
         # Create FFmpeg process to encode and stream to stdout
         # Output as M4A (AAC in MP4 container) - same as yt-dlp's bestaudio[ext=m4a]
         print(f"Starting FFmpeg pipe to stdout (M4A format)...")
         
         cmd = [
             'ffmpeg',
-            '-i', tmp_wav_path,
+            '-i', temp_wav_file,
             '-c:a', 'aac',           # AAC codec
             '-b:a', '192k',          # High quality bitrate
             '-ar', '44100',          # Sample rate
@@ -151,17 +158,159 @@ class DJ_Audio_Mixer:
         # Attach cleanup callback to process
         def cleanup_temp_file():
             try:
-                os.unlink(tmp_wav_path)
-                print(f"Cleaned up temp file: {tmp_wav_path}")
+                os.unlink(temp_wav_file)
+                print(f"Cleaned up temp file: {temp_wav_file}")
             except:
                 pass
         
         # Attach cleanup method to process
         process._cleanup_temp_file = cleanup_temp_file
-        process._temp_wav_path = tmp_wav_path
-        
+        process._temp_wav_path = temp_wav_file
+
+        print(f"🎛️  Created temp WAV file: {temp_wav_file}")
+
         print(f"✅ Mix pipe ready - returning subprocess")
         return process
+
+    def _generate_wav_file(self, song_id_1: str, song_id_2: str, mix_instruction: MixInstruction, mix_style: str) -> str:
+        quality = 'ultra-high'
+        mix_instruction = self._adjust_mix_duration(mix_instruction, mix_style)
+        print(f"🎛️  Creating DJ mix pipe: {song_id_1} → {song_id_2}")
+        
+        # Decode both songs
+        print(f"Decoding song 1: {song_id_1}")
+        audio_1, sr_1 = self.decoder.decode_chunks_to_numpy(song_id_1, quality)
+        
+        print(f"Decoding song 2: {song_id_2}")
+        audio_2, sr_2 = self.decoder.decode_chunks_to_numpy(song_id_2, quality)
+        
+        # Ensure stereo format (preserve original channels)
+        if len(audio_1.shape) == 1:
+            audio_1 = np.stack([audio_1, audio_1], axis=1)
+        if len(audio_2.shape) == 1:
+            audio_2 = np.stack([audio_2, audio_2], axis=1)
+        
+        # Resample if needed
+        if sr_1 != self.sample_rate:
+            audio_1 = self._resample_stereo(audio_1, sr_1, self.sample_rate)
+        if sr_2 != self.sample_rate:
+            audio_2 = self._resample_stereo(audio_2, sr_2, self.sample_rate)
+        
+        # Create the mix (Spotify-style simple crossfade)
+        print(f"Creating Spotify-style crossfade mix...")
+        mixed_audio = self._create_spotify_crossfade(
+            audio_1,
+            audio_2,
+            mix_instruction
+        )
+        
+        # Write mixed audio to temporary WAV file
+        print(f"Writing mixed audio to temp file...")
+        tmp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        sf.write(tmp_wav.name, mixed_audio, self.sample_rate, subtype='PCM_16')
+        tmp_wav_path = tmp_wav.name
+        tmp_wav.close()
+    
+        return tmp_wav_path
+    
+    def _resample_stereo(self, audio: np.ndarray, original_rate: int, target_rate: int) -> np.ndarray:
+        """Resample stereo audio."""
+        if original_rate == target_rate:
+            return audio
+        
+        try:
+            from scipy import signal
+            num_samples = int(len(audio) * target_rate / original_rate)
+            # Resample each channel separately
+            left = signal.resample(audio[:, 0], num_samples)
+            right = signal.resample(audio[:, 1], num_samples)
+            return np.stack([left, right], axis=1)
+        except ImportError:
+            print(f"Resampling {original_rate}Hz → {target_rate}Hz using FFmpeg")
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_in:
+                sf.write(tmp_in.name, audio, original_rate)
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_out:
+                    cmd = ['ffmpeg', '-i', tmp_in.name, '-ar', str(target_rate), '-y', tmp_out.name]
+                    subprocess.run(cmd, capture_output=True, check=True)
+                    resampled, _ = sf.read(tmp_out.name)
+                os.unlink(tmp_in.name)
+                os.unlink(tmp_out.name)
+            return resampled
+    
+    def _create_spotify_crossfade(
+        self,
+        audio_1: np.ndarray,
+        audio_2: np.ndarray,
+        mix_instruction: MixInstruction
+    ) -> np.ndarray:
+        """
+        Create a Spotify-style crossfade between two tracks.
+        Simple equal-power crossfade - no complex frequency manipulation.
+        
+        Args:
+            audio_1: First audio track (stereo)
+            audio_2: Second audio track (stereo)
+            mix_instruction: Mix instruction with timing and parameters
+        """
+        # Get mix points in samples
+        mix_out_sample = int(mix_instruction.mix_out_point.time_seconds * self.sample_rate)
+        mix_in_sample = int(mix_instruction.mix_in_point.time_seconds * self.sample_rate)
+        overlap_samples = int(mix_instruction.overlap_duration * self.sample_rate)
+        
+        print(f"  Mix out at: {mix_instruction.mix_out_point.time_seconds:.2f}s")
+        print(f"  Mix in at: {mix_instruction.mix_in_point.time_seconds:.2f}s")
+        print(f"  Crossfade duration: {mix_instruction.overlap_duration:.2f}s")
+        
+        # Part 1: Song 1 before crossfade starts
+        part1 = audio_1[:mix_out_sample]
+        print(f"  Part 1 (Song 1): {len(part1) / self.sample_rate:.2f}s")
+        
+        # Part 2: Crossfade section
+        song1_fade = audio_1[mix_out_sample:mix_out_sample + overlap_samples]
+        song2_fade = audio_2[mix_in_sample:mix_in_sample + overlap_samples]
+        
+        # Match lengths
+        fade_length = min(len(song1_fade), len(song2_fade), overlap_samples)
+        song1_fade = song1_fade[:fade_length]
+        song2_fade = song2_fade[:fade_length]
+        
+        # Create equal-power crossfade curves (Spotify-style)
+        # This keeps perceived loudness constant during the transition
+        t = np.linspace(0, 1, fade_length)
+        
+        # Equal-power: use sqrt curves (cos/sin^2 or sqrt of linear)
+        fade_out = np.sqrt(1 - t)  # 1 → 0 (equal power)
+        fade_in = np.sqrt(t)       # 0 → 1 (equal power)
+        
+        # Apply to stereo (broadcast to both channels)
+        fade_out_stereo = fade_out[:, np.newaxis]
+        fade_in_stereo = fade_in[:, np.newaxis]
+        
+        crossfade = (song1_fade * fade_out_stereo) + (song2_fade * fade_in_stereo)
+        print(f"  Part 2 (Crossfade): {len(crossfade) / self.sample_rate:.2f}s")
+        
+        # Part 3: Song 2 after crossfade
+        part3 = audio_2[mix_in_sample + overlap_samples:]
+        print(f"  Part 3 (Song 2): {len(part3) / self.sample_rate:.2f}s")
+        
+        # Concatenate
+        mixed_audio = np.concatenate([part1, crossfade, part3])
+        
+        total_duration = len(mixed_audio) / self.sample_rate
+        song1_duration = len(audio_1) / self.sample_rate
+        song2_duration = len(audio_2) / self.sample_rate
+        time_saved = (song1_duration + song2_duration) - total_duration
+        
+        print(f"  ✅ Total mix duration: {total_duration:.2f}s")
+        print(f"  ✅ Time saved: {time_saved:.2f}s")
+        
+        # Normalize to prevent clipping
+        max_val = np.max(np.abs(mixed_audio))
+        if max_val > 0.95:
+            mixed_audio = mixed_audio * (0.95 / max_val)
+            print(f"  Normalized audio (peak was {max_val:.3f})")
+        
+        return mixed_audio
     
     def _adjust_mix_duration(self, mix_instruction: MixInstruction, mix_style: str) -> MixInstruction:
         """
@@ -871,7 +1020,7 @@ if __name__ == "__main__":
         
         # Note: In production, stream_v2.js will handle the process
         # For testing, you could pipe to a file:
-        # output_path = f"/tmp/test_mix_{songs[0]}_{songs[1]}.m4a"
+        # output_path = f"/tmp/test_mix_{songs[0]}_{songs[1]}.wav"
         # with open(output_path, 'wb') as f:
         #     f.write(process.stdout.read())
         # process.wait()

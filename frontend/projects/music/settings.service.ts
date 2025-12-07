@@ -43,6 +43,11 @@ export class SettingsService {
     public is_safari: boolean = this._is_safari; // togglable, used for safari workaround
     public shuffle_playback: boolean = false; 
     public repeat_playback: boolean = false;
+    
+    // DJ Mode settings
+    public dj_mode_enabled: boolean = false;
+    public dj_mix_style: 'quick' | 'balanced' | 'extended' | 'long' = 'balanced';
+    public dj_auto_transition: boolean = true; // Auto-trigger DJ transition when approaching end of song
 
     public genre_settings: Record<string, Setting[]> = {};
 
@@ -96,6 +101,53 @@ export class SettingsService {
                     ],
                     on_change: (value: boolean) => {
                         this.repeat_playback = value;
+                        this.save_settings_to_local_storage();
+                    }
+                },
+                {
+                    id: 'dj_mode_enabled',
+                    label: 'Enable DJ Mode',
+                    type: 'toggle',
+                    value: false,
+                    notes: [
+                        { text: 'When enabled, songs will blend seamlessly into each other using AI-powered DJ mixing.', severity: 'info' }
+                    ],
+                    on_change: (value: boolean) => {
+                        this.dj_mode_enabled = value;
+                        this.save_settings_to_local_storage();
+                    }
+                },
+                {
+                    id: 'dj_mix_style',
+                    label: 'DJ Mix Style',
+                    type: 'dropdown',
+                    value: 'balanced',
+                    options: [
+                        { label: 'Quick (3-5s)', value: 'quick' },
+                        { label: 'Balanced (6-10s)', value: 'balanced' },
+                        { label: 'Extended (10-16s)', value: 'extended' },
+                        { label: 'Long (16-24s)', value: 'long' }
+                    ],
+                    depends_on: { id: 'dj_mode_enabled', value: true },
+                    notes: [
+                        { text: 'Controls how long the crossfade between songs lasts.', severity: 'info' }
+                    ],
+                    on_change: (index: number, value: any) => {
+                        this.dj_mix_style = value;
+                        this.save_settings_to_local_storage();
+                    }
+                },
+                {
+                    id: 'dj_auto_transition',
+                    label: 'Auto DJ Transitions',
+                    type: 'toggle',
+                    value: true,
+                    depends_on: { id: 'dj_mode_enabled', value: true },
+                    notes: [
+                        { text: 'Automatically prepare and play DJ mixes when approaching end of current song.', severity: 'info' }
+                    ],
+                    on_change: (value: boolean) => {
+                        this.dj_auto_transition = value;
                         this.save_settings_to_local_storage();
                     }
                 },
