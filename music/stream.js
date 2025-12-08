@@ -480,12 +480,89 @@ class Adaptive_Stream {
             }
         });
 
+        app.post('/session/:session_id/request/:video_id', async (req, res) => {
+            try {
+                const { session_id, video_id } = req.params;
+                const options = req.body;
+
+                const result = await this.add_song_to_session(session_id, video_id, options);
+                if (!result) {
+                    return res.status(500).json({ error: 'Failed to request song to streaming playlist', success: false });
+                }
+
+                return res.status(200).json({ success: true, data: result });
+            } catch (error) {
+                console.error('Error handling song request:', error.message);
+                return res.status(500).json({ error: error.message || 'Internal server error', success: false });
+            }
+        });
+
+        app.get('/session/:session_id/dj/mix', async (req, res) => {
+            const { session_id } = req.params;
+            const { current_song_id, next_song_id, quality = 'high', mix_style = 'balanced' } = req.query;
+                
+            if (!this.is_valid_video_id(current_song_id) || !this.is_valid_video_id(next_song_id)) {
+                return res.status(400).json({ 
+                    error: 'Invalid video IDs', 
+                    success: false 
+                });
+            }
+
+            try {
+                // const mix_data = await this.create_dj_mix(session_id, video_ids);
+                console.log(`DJ Mix request: ${current_song_id} -> ${next_song_id} (quality: ${quality}, style: ${mix_style})`);
+                
+                // Ensure both songs are available in HLS (wait for completion)
+                await Promise.all([
+                    this.create_hls_stream(current_song_id, this.codecs, this.profile_progression),
+                    this.create_hls_stream(next_song_id, this.codecs, this.profile_progression)
+                ]);
+                
+                // Wait for both streams to be complete (needed for stitching)
+                await Promise.all([
+                    this.wait_for_stream_complete(current_song_id, 60000),
+                    this.wait_for_stream_complete(next_song_id, 60000)
+                ]);
+                
+                // Call Python DJ service to get mix data with crossfade WAV
+                const mix_result = await call_dj_api('/get_stitched_mix', {
+                    song_id_1: current_song_id,
+                    song_id_2: next_song_id,
+                    mix_style: mix_style
+                });
+                console.log(`DJ Mix info received:`, mix_result.mix_info);
+                const mix_data = mix_result.mix_info;
+
+                this.add_mix_to_session(session_id, mix_data);
+                return res.status(200).json({ success: true, mix_data });
+            } catch (error) {
+                console.error('Error creating DJ mix:', error.message);
+                return res.status(500).json({ success: false, error: error.message });
+            }
+        });
+
         app.get('/session/:session_id/audio/:codec/:profile/playlist.m3u8', async (req, res) => {
             console.log('Session playlist request:', req.params);
-            const { session_id, codec, profile, tracks } = req.params;
+            const { session_id, codec, profile } = req.params;
+            const { live, ended } = req.query;
 
-            const playlist_file = await this.generate_session_playlist(session_id, codec, profile, tracks);
+            const options = {
+                live: live === 'true' || live === '1',
+                ended: ended === 'true' || ended === '1'
+            };
+
+            const playlist_file = await this.generate_session_playlist(session_id, codec, profile, null, options);
+            
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            
+            // For live playlists, prevent caching so HLS.js refetches
+            if (options.live && !options.ended) {
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                res.setHeader('Pragma', 'no-cache');
+                res.setHeader('Expires', '0');
+            }
+            
             return res.status(200).send(playlist_file);
         });
     }
@@ -1228,7 +1305,7 @@ class Adaptive_Stream {
                         // '-tune', this.get_ffmpeg_tune(fast_startup, profile),
                         '-hls_flags', 'append_list',
                         // '-hls_base_url', `${relative_segment_path}/`,
-                        '-hls_segment_filename', path.join(output_directory, codec, profile, `${profile_info.bitrate}_%d.ts`)
+                        '-hls_segment_filename', path.join(output_directory, codec, profile, `${video_id}_${profile_info.bitrate}_%d.ts`)
                     ]);
             }
         }
@@ -1551,6 +1628,8 @@ class Adaptive_Stream {
     async stitch_mix_data_to_raw_audio(mix_data) {
         if(!mix_data) throw new Error('No mix_data provided for stitching.');
 
+        console.log('Stitching mix data to raw audio:', mix_data);
+
         const {
             mix_id,
             song_id_1,
@@ -1729,7 +1808,14 @@ class Adaptive_Stream {
         // Store session state - tracks are { video_id, type: 'raw' } or { mix_id, type: 'mix' }
         const session_state = {
             session_id,
-            tracks: video_ids.map(video_id => ({ video_id, type: 'raw' })),
+            tracks: video_ids.map(video_id => ({
+                video_id, 
+                type: 'raw',
+                out_mix: null, // pointer to mix if created, to be put after this track
+                in_mix: null,  // pointer to mix if created, to be put before this track
+                start_time: null,
+                end_time: null,
+            })),
             created_at: Date.now(),
             updated_at: Date.now(),
             playlist_url: `/hls/sessions/${session_id}/audio/master.m3u8`,
@@ -1758,7 +1844,7 @@ class Adaptive_Stream {
         return lines.join('\n');
     }
 
-    async parse_playlist_segments(playlist_path) {
+    async parse_playlist_segments(playlist_path, base_path) {
         try {
             const content = await file_system.promises.readFile(playlist_path, 'utf-8');
             const lines = content.split('\n');
@@ -1777,7 +1863,8 @@ class Adaptive_Stream {
                     // This is a segment filename
                     segments.push({
                         duration: current_duration,
-                        filename: line.trim()
+                        filename: line.trim(),
+                        base_path: base_path
                     });
                     current_duration = 0;
                 }
@@ -1790,10 +1877,13 @@ class Adaptive_Stream {
         }
     }
 
-    async generate_session_playlist(session_id, codec, profile, tracks = session.tracks) {
+    async generate_session_playlist(session_id, codec, profile, tracks = null, options = {}) {
         const session = this.session_data.get(session_id);
         if (!session) {
             throw new Error('Session not found');
+        }
+        if(!tracks) {
+            tracks = session.tracks;
         }
 
         const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
@@ -1804,6 +1894,9 @@ class Adaptive_Stream {
         const bitrate = profile_info.bitrate;
         const lines = ['#EXTM3U', '#EXT-X-VERSION:7'];
         
+        // lines.push('#EXT-X-INDEPENDENT-SEGMENTS');
+        lines.push('#EXT-X-PLAYLIST-TYPE:VOD');
+        
         // Calculate target duration (max segment duration across all tracks)
         let max_duration = 0;
         let is_first_source = true;
@@ -1813,53 +1906,132 @@ class Adaptive_Stream {
         for (const track of tracks) {
             let playlist_path;
             let base_path; // Absolute URL path to segments
-            
-            if (track.type === 'raw') {
-                playlist_path = path.join(this.hls_raw_audio_directory, track.video_id, 'audio', codec, profile, `${bitrate}.m3u8`);
-                base_path = `/hls/raw/${track.video_id}/audio/${codec}/${profile}`;
-            } else if (track.type === 'mix') {
-                playlist_path = path.join(this.hls_mix_audio_directory, track.mix_id, 'audio', codec, profile, `${bitrate}.m3u8`);
-                base_path = `/hls/mixes/${track.mix_id}/audio/${codec}/${profile}`;
-            } else {
-                continue;
-            }
+            let total_duration = 0;
 
-            const segments = await this.parse_playlist_segments(playlist_path);
+            playlist_path = path.join(this.hls_raw_audio_directory, track.video_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+            base_path = `/hls/raw/${track.video_id}/audio/${codec}/${profile}`;
+
+            let segments = await this.parse_playlist_segments(playlist_path, base_path);
+
+            if(track.out_mix) {
+                const mix = track.out_mix;
+                const mix_playlist_path = path.join(this.hls_mix_audio_directory, mix.mix_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+                const mix_base_path = `/hls/mixes/${mix.mix_id}/audio/${codec}/${profile}`;
+                const mix_segments = await this.parse_playlist_segments(mix_playlist_path, mix_base_path);
+
+                const concated_segments = this.get_mix_segments_and_track_segments(segments, mix_segments, mix);
+                segments = concated_segments;
+            } else if(track.in_mix) {
+                const mix = track.in_mix;
+                const mix_playlist_path = path.join(this.hls_mix_audio_directory, mix.mix_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+                const mix_base_path = `/hls/mixes/${mix.mix_id}/audio/${codec}/${profile}`;
+                const mix_segments = await this.parse_playlist_segments(mix_playlist_path, mix_base_path);
+                
+                const concated_segments = this.get_mix_segments_and_track_segments(segments, mix_segments, mix, 'in');
+                segments = concated_segments;
+            }
             
+            // if (track.type === 'raw') {
+            // } else if (track.type === 'mix') {
+                // playlist_path = path.join(this.hls_mix_audio_directory, track.mix_id, 'audio', codec, profile, `${bitrate}.m3u8`);
+                // base_path = `/hls/mixes/${track.mix_id}/audio/${codec}/${profile}`;
+
+                // segments = await this.parse_mix_playlist_segments(playlist_path, );
+            // } else {
+                // continue;
+            // }
+
+
+            // const segments = await this.parse_playlist_segments(playlist_path);
+
             for (const seg of segments) {
                 if (seg.duration > max_duration) {
                     max_duration = seg.duration;
                 }
+                // total_duration += seg.duration;
             }
-            
-            all_track_segments.push({ track, segments, base_path });
+
+            all_track_segments.push({ track, segments });
         }
 
-        lines.push(`#EXT-X-TARGETDURATION:${Math.ceil(max_duration)}`);
+        lines.push(`#EXT-X-TARGETDURATION:${Math.ceil(max_duration || 8)}`);
         lines.push('#EXT-X-MEDIA-SEQUENCE:0');
+        // lines.push(`#EXT-X-DISCONTINUITY-SEQUENCE:0`);
 
         // Second pass: build the playlist with discontinuity tags
         for (let i = 0; i < all_track_segments.length; i++) {
-            const { track, segments, base_path } = all_track_segments[i];
+            const { track, segments } = all_track_segments[i];
             
             // Add discontinuity tag before each new source (except the first)
             if (!is_first_source) {
                 lines.push('#EXT-X-DISCONTINUITY');
+                
             }
+            // lines.push(`#EXT-X-DISCONTINUITY-SEQUENCE:${i}`);
+            // lines.push(`#EXT-X-MEDIA-SEQUENCE:${i * 2}`);
+
             is_first_source = false;
             
             // Add all segments from this source
             for (const segment of segments) {
                 lines.push(`#EXTINF:${segment.duration.toFixed(6)},`);
-                lines.push(`${base_path}/${segment.filename}`);
+                lines.push(`${segment.base_path}/${segment.filename}`);
                 total_duration += segment.duration;
             }
         }
 
-        // Mark as VOD playlist (complete)
         lines.push('#EXT-X-ENDLIST');
+        const filtered_lines = this.filter_playlist_m3u8(lines);
 
-        return lines.join('\n');
+        return filtered_lines.join('\n');
+    }
+
+    filter_playlist_m3u8(playlist_lines) {
+        // remove back to back discontinuity tags
+        const filtered_lines = [];
+        let last_line_was_discontinuity = false;
+
+        for (const line of playlist_lines) {
+            if (line === '#EXT-X-DISCONTINUITY') {
+                if (!last_line_was_discontinuity) {
+                    filtered_lines.push(line);
+                    last_line_was_discontinuity = true;
+                } // else skip this line
+            } else {
+                filtered_lines.push(line);
+                last_line_was_discontinuity = false;
+            }
+        }
+
+        return filtered_lines;
+    }
+
+    get_mix_segments_and_track_segments(track_segments, mix_segments, mix_data, track_position = 'out') {
+        const {
+            mix_id,
+            song_id_1,
+            song_id_2,
+            mix_out_time,
+            mix_in_time,
+            overlap_duration,
+            last_song1_segment,
+            crossfade_wav_path,
+            first_song2_segment,
+            segment_duration
+        } = mix_data;
+
+        if(track_position === 'out') {
+            // song => mix
+            const final_mix_segments = mix_segments.slice(last_song1_segment, last_song1_segment + first_song2_segment - 1);
+            let final_track_segments = track_segments.slice(0, last_song1_segment);
+            return final_track_segments.concat(final_mix_segments);
+        } else if(track_position === 'in') {
+            // mix => song
+            let final_track_segments = track_segments.slice(first_song2_segment);
+            return final_track_segments; // mix segments should already be added due to out mix
+        }
+
+        return [];
     }
 
     async delete_session(session_id) {
@@ -1879,6 +2051,54 @@ class Adaptive_Stream {
         this.session_data.delete(session_id);
         return true;
     }
+
+    async add_song_to_session(session_id, video_id, options = {}) {
+        const session = this.session_data.get(session_id);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        await this.stream([video_id], options);
+
+        session.tracks.push({ video_id, type: 'raw', out_mix: null, in_mix: null });
+        session.updated_at = Date.now();
+
+        console.log(`Added song ${video_id} to session ${session_id}`);
+
+        return {
+            session_id,
+            video_id,
+            playlist_url: `/hls/sessions/${session_id}/audio/master.m3u8`,
+        };
+    }   
+
+    async add_mix_to_session(session_id, mix_data) {
+        const session = this.session_data.get(session_id);
+        if (!session) {
+            throw new Error('Session not found');
+        }
+
+        this.stitch_mix_data_to_raw_audio(mix_data);
+
+        // session.tracks.push({ mix_id: mix_data.mix_id, type: 'mix' });
+        const out_mix_track = session.tracks.find(track => track.video_id === mix_data.song_id_1 && track.out_mix === null);
+        const in_mix_track = session.tracks.find(track => track.video_id === mix_data.song_id_2 && track.in_mix === null);
+        if (out_mix_track) {
+            out_mix_track.out_mix = mix_data;
+        }
+        if (in_mix_track) {
+            in_mix_track.in_mix = mix_data;
+        }
+        session.updated_at = Date.now();
+
+        console.log(`Added mix ${mix_data.mix_id} to session ${session_id}`);
+
+        return {
+            session_id,
+            mix_id: mix_data.mix_id,
+            playlist_url: `/hls/sessions/${session_id}/audio/master.m3u8`,
+        };
+    };
 }
 
 // testing

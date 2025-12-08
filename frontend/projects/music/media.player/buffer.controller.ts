@@ -3,6 +3,7 @@ import { Events } from 'hls.js';
 import type { MediaAttachingData } from 'hls.js';
 import { SettingsService } from '../settings.service';
 import MusicMediaManager from './media.manager';
+import { set } from 'idb-keyval';
 
 class BufferController {
     private audio_element: HTMLMediaElement;
@@ -11,7 +12,6 @@ class BufferController {
     private hls: Hls | null = null;
 
     private is_media_source_attached: boolean = false;
-    private is_first_track: boolean = true;
     private transfer_data: any = null;
     private codec = 'audio/mp4; codecs="mp4a.40.2"';
     
@@ -76,7 +76,7 @@ class BufferController {
             this.audio_element.setAttribute('controls', 'true');
         }
 
-        await this.initialize_media_source();
+        // await this.initialize_media_source();
     }
 
     private async initialize_media_source() {
@@ -133,65 +133,62 @@ class BufferController {
         });
     }
 
-    private create_hls_instance(): Hls {
+    private create_hls_instance(capture_events: boolean = false): Hls {
         const hls = new Hls({
             debug: false,
-            enableWorker: true,
-            lowLatencyMode: false,
+            // enableWorker: true,
+            // lowLatencyMode: false,
             autoStartLoad: false,
             
             // Safari-friendly buffer settings
             // maxBufferLength: this.is_safari ? 20 : 30,
             // maxMaxBufferLength: this.is_safari ? 30 : 40,
             // backBufferLength: this.is_safari ? 10 : 20,
-            maxBufferHole: 0.5,
+            // maxBufferHole: 0.5,
             
             // Safari needs more aggressive buffer management
-            nudgeMaxRetry: this.is_safari ? 5 : 3,
-            startPosition: 0,
-            startLevel: -1, // -1 = auto, will be set to highest after manifest loads
+            // nudgeMaxRetry: this.is_safari ? 5 : 3,
+            // startPosition: 0,
+            // startLevel: -1, // -1 = auto, will be set to highest after manifest loads
         });
 
-        this.configure_hls_events(hls);
+        if (capture_events) this.configure_hls_events(hls);
         return hls;
     }
 
     private configure_hls_events(hls: Hls) {
         if (!hls) return;
 
-        hls.on(Events.MANIFEST_LOADING, (e, data) => {
-            console.log('📄 Manifest loading:', data.url);
-        });
+        hls.on(Events.MANIFEST_LOADING, (e, data) => {});
 
         hls.on(Events.MANIFEST_LOADED, (e, data) => {
-            console.log('✅ Manifest loaded');
-            hls?.startLoad(0); // Always start loading from position 0
+            hls?.startLoad(0);
         });
 
-        hls.on(Events.MANIFEST_PARSED, (e, data) => {
-            console.log('✅ Manifest parsed:', data.levels?.length, 'levels');
-            // Ensure we start at 0 after manifest is parsed
-            if (this.audio_element && this.audio_element.currentTime !== 0) {
-                console.log('⏮️ Resetting position to 0 after manifest parsed');
-                this.audio_element.currentTime = 0;
-            }
+        // hls.on(Events.MANIFEST_PARSED, (e, data) => {
+        //     console.log('✅ Manifest parsed:', data.levels?.length, 'levels');
+        //     // Ensure we start at 0 after manifest is parsed
+        //     if (this.audio_element && this.audio_element.currentTime !== 0) {
+        //         console.log('⏮️ Resetting position to 0 after manifest parsed');
+        //         this.audio_element.currentTime = 0;
+        //     }
 
-            if (hls.levels.length > 0) {
-                const highestLevel = hls.levels.length - 1;
-                console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
-                hls.currentLevel = highestLevel;
-            }
-        });
+        //     if (hls.levels.length > 0) {
+        //         const highestLevel = hls.levels.length - 1;
+        //         console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
+        //         hls.currentLevel = highestLevel;
+        //     }
+        // });
 
-        hls.on(Events.MEDIA_DETACHING, () => {
-            console.log('⚠️ Media detaching event fired');
-        });
+        // hls.on(Events.MEDIA_DETACHING, () => {
+        //     console.log('⚠️ Media detaching event fired');
+        // });
 
-        hls.on(Events.MEDIA_ATTACHING, (e, data) => {
-            const currentBlobUrl = this.audio_element?.src;
-            console.log('🔗 Media attaching');
-            console.log('   URLs match:', this.blob_url === currentBlobUrl);
-        });
+        // hls.on(Events.MEDIA_ATTACHING, (e, data) => {
+        //     const currentBlobUrl = this.audio_element?.src;
+        //     console.log('🔗 Media attaching');
+        //     console.log('   URLs match:', this.blob_url === currentBlobUrl);
+        // });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
             if(!this.has_audio) {
@@ -199,7 +196,6 @@ class BufferController {
                 this.controller?.on_has_audio();
                 // Force position to 0 on first audio data
                 if (this.audio_element && this.audio_element.currentTime > 0.5) {
-                    console.log('⏮️ Resetting position to 0 on first audio (was:', this.audio_element.currentTime, ')');
                     this.audio_element.currentTime = 0;
                 }
             }
@@ -225,15 +221,13 @@ class BufferController {
             this.fully_buffered = true;
             // emit event
             // this.events.dispatchEvent(new Event('fully_buffered'));
-            this.controller?.on_fully_buffered();
+            // this.controller?.on_fully_buffered();
         });
 
         hls.on(Events.ERROR, (event, data) => {
-            console.error('❌ HLS Error:', data.details, 'fatal:', data.fatal);
+            console.error('HLS Error:', data.details, 'fatal:', data.fatal);
 
             if (data.details === 'bufferStalledError' && !data.fatal) {
-                console.log('🎵 Song appears to have ended (buffer stalled)');
-                
                 // Check if we're near the end of the track
                 const current_time = this.audio_element?.currentTime || 0;
                 const duration = this.audio_element?.duration || 0;
@@ -255,7 +249,7 @@ class BufferController {
                     //     } 
                     // });
                     // this.events.dispatchEvent(ev);
-                    this.controller?.on_song_ended();
+                    // this.controller?.on_song_ended();
                 }
             }
             
@@ -286,11 +280,41 @@ class BufferController {
             this.fully_buffered = false;
         }
 
+        if(this.controller.use_streaming_playlist) {
+            await this.playlist_load(url);
+        } else {
+            await this.consistent_source_load(url, clear_buffer, force_start_time);
+        }
+
+        this.current_url = url;
+    }
+
+    private async playlist_load(url: string): Promise<void> {
+        if (!this.audio_element) throw new Error('Audio element not set.');
+
+        this.hls = this.create_hls_instance(true);
+        this.hls.attachMedia(this.audio_element);
+        this.hls.loadSource(url);
+        this.hls.startLoad(0);
+
+        // Handle errors and playlist refresh temp
+        this.hls.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS.js error', data);
+        });
+
+        setInterval(() => {
+            console.log('🔄 Refreshing playlist for URL:', this.current_url);
+            this.reload_manifest();
+        }, 10000);
+    }
+
+    private is_first_track: boolean = true;
+    private async consistent_source_load(url: string, clear_buffer: boolean = true, force_start_time: boolean = true): Promise<void> {
         if (this.is_first_track) {
             // ✅ FIRST TRACK
             console.log('🆕 First track - creating new HLS instance');
             
-            this.hls = this.create_hls_instance();
+            this.hls = this.create_hls_instance(true);
             
             this.hls.attachMedia({
                 media: this.audio_element,
@@ -346,8 +370,8 @@ class BufferController {
 
         // Load new source
         this.hls.loadSource(url);
-        this.current_url = url;
-        
+        this.hls.startLoad(0);
+
         // Force start at position 0 for cold starts
         if (this.audio_element && force_start_time) {
             this.audio_element.currentTime = 0;
@@ -723,6 +747,77 @@ class BufferController {
             console.error('Error appending to buffer:', error);
             this.add_to_buffer_queue(data);
         }
+    }
+
+    /**
+     * Manually trigger HLS.js to refetch the playlist/manifest.
+     * Useful when the server has updated the playlist with new segments.
+     * This is a lightweight refresh that doesn't interrupt playback.
+     */
+    public refresh_playlist(): void {
+        if (!this.hls) {
+            console.warn('⚠️ No HLS instance to refresh');
+            return;
+        }
+        
+        console.log('🔄 Manually refreshing playlist...');
+        
+        // For EVENT/LIVE playlists, clear the level details to trigger a refetch
+        // HLS.js will reload the playlist when it needs the next segment
+        const currentLevel = this.hls.currentLevel;
+        if (currentLevel >= 0 && this.hls.levels && this.hls.levels[currentLevel]) {
+            const level = this.hls.levels[currentLevel];
+            const details = level.details;
+            
+            // Only refresh if this is a live/event playlist (no ENDLIST)
+            if (details && details.live) {
+                // Mark the playlist as needing refresh by clearing the advanced flag
+                // This causes HLS.js to refetch sooner
+                (details as any).updated = false;
+                (details as any).advanced = false;
+                console.log('🔄 Marked playlist for refresh');
+            } else {
+                // For VOD playlists, we need to clear details entirely
+                (level as any).details = undefined;
+                console.log('🔄 Cleared playlist details for refetch');
+            }
+        }
+    }
+
+    /**
+     * Force HLS.js to reload the playlist without disrupting playback.
+     * This clears the cached playlist details so HLS.js refetches on next segment request.
+     */
+    public async reload_manifest(): Promise<void> {
+        if (!this.hls) {
+            console.warn('⚠️ No HLS instance to reload');
+            return;
+        }
+        
+        const currentTime = this.audio_element?.currentTime ?? 0;
+        console.log('🔄 Reloading playlist, preserving position:', currentTime);
+        
+        // Clear level details to force a playlist refetch
+        // This is the non-disruptive approach - HLS.js will reload the playlist
+        // on the next segment request without resetting playback state
+        const currentLevel = this.hls.currentLevel;
+        if (currentLevel >= 0 && this.hls.levels && this.hls.levels[currentLevel]) {
+            // Clear the details to force a reload
+            const level = this.hls.levels[currentLevel];
+            (level as any).details = undefined;
+            console.log('🔄 Cleared level details, triggering reload...');
+        }
+        
+        // Stop and restart loading at current position
+        // This triggers playlist reload while maintaining playback position
+        this.hls.stopLoad();
+        
+        // Small delay to ensure clean state
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Restart loading at current position - this will refetch the playlist
+        // The second parameter (true) skips seeking to start position
+        this.hls.startLoad(currentTime, true);
     }
 
     /**

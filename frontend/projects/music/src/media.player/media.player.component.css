@@ -310,7 +310,8 @@
 }
 #audio, audio {
     z-index: 99999999999;
-    display: none; 
+    /* display: none;  */
+    position: absolute;
 }
 .dashboard {
     position: relative;

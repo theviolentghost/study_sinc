@@ -78,6 +78,21 @@ class MusicPlaylistManager {
         } else {
             this.unshuffle();
         }
+
+        const video_ids_queue = this.queue.map((song_key) => {
+            const parsed_identifier = this.media.parse_song_key(song_key);
+            return parsed_identifier ? parsed_identifier.video_id : null;
+        }).filter(video_id => video_id !== null) as string[];
+        if(video_ids_queue.length === 0) {
+            console.warn('No valid video IDs found in playlist for streaming playlist URL generation.');
+            return;
+        }
+
+        if(this.manager.use_streaming_playlist) {
+            this.media.get_new_streaming_playlist_url(video_ids_queue).then(url => {
+                this.manager.set_streaming_playlist(url);
+            });
+        }
     }
 
     public next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {

@@ -1919,4 +1919,35 @@ export class MusicMediaService {
         }
     }
 
+    public async get_new_streaming_playlist_url(video_ids: string[]): Promise<string | null> {
+        try {
+            const response = await lastValueFrom(
+                this.http.get(`/session/new`, { params: { video_ids } })
+            );
+            if (response && (response as any).playlist_url) {
+                return (response as any).playlist_url;
+            }
+            return null;
+        } catch (error) {
+            console.error('Error getting new streaming playlist URL:', error);
+            return null;
+        }
+    }
+
+    public get_streaming_playlist_id_from_url(playlist_url: string): string | null {
+        const match = playlist_url.match(/\/session\/([a-zA-Z0-9_-]+)/);
+        return match ? match[1] : null;
+    }
+
+    public async request_song_to_streaming_playlist(session_id: string, video_id: string, options: any): Promise<any> {
+        try {
+            const response = await lastValueFrom(
+                this.http.post(`/session/${session_id}/request/${video_id}`, options)
+            );
+            return response;
+        } catch (error) {
+            console.error('Error requesting song to streaming playlist:', error);
+            return null;
+        }
+    }
 }

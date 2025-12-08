@@ -236,12 +236,12 @@ export class MusicPlayerService {
         //     }
         // });
 
-        element.addEventListener('ended', () => {
-            // for other browsers that dont need safari workaround
-            if(this.media_controller.buffer_controller.has_audio) {
-                this.skip_to_next(Skip_Event.DEFAULT);
-            }
-        });
+        // element.addEventListener('ended', () => {
+        //     // for other browsers that dont need safari workaround
+        //     if(this.media_controller.buffer_controller.has_audio) {
+        //         this.skip_to_next(Skip_Event.DEFAULT);
+        //     }
+        // });
     }
 
     public set_thumbnail_element(element: HTMLImageElement): void {

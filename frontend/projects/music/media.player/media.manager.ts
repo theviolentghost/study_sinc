@@ -31,6 +31,8 @@ class MusicMediaManager {
 
     public song_cache: Map<string, Song_Data> = new Map<string, Song_Data>();
     private _media_data: Song_Data | null = null;
+    public use_streaming_playlist: boolean = true;
+    public streaming_playlist_url: string | null = null;
 
     get current_song(): any {
         // return this.playlist_manager.current_song;
@@ -300,261 +302,297 @@ class MusicMediaManager {
             return;
         }
 
-        // pause current audio and reset silent audio state
-        if(load_into_source) this.buffer_controller.set_audio_source_to_silent(); // request silent audio to stop current playback, b/c some browsers require user interaction to start audio again
+        if(this.use_streaming_playlist) {
+            // use streaming playlist
+            // when streaming playlist is used, we change current time stamp 
+            // check if we have a streaming playlist url set
+            if(this.streaming_playlist_url) {
+                // if so make request to session id to load it
+                this.media.request_song_to_streaming_playlist(this.streaming_playlist_id, song_key, { mix: true, append: true}).then((playlist_song_data) => {
+                    // handle the appended song data
 
-        // song identifier must be set now
-        // and so should song_data if it was available in the cache
-        if(!song_identifier) {
-            console.error('No valid song identifier provided to load_track');
-            if(load_into_source) this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, false);
-            return;
-        }
-
-        // Check if we're upgrading from preload to current
-        const was_preloaded = this.loading_tracks.get(song_key) === 'loaded' && this.loading_types.get(song_key) === 'preload';
-        
-        // Update the loading type - if upgrading from preload, this is critical
-        this.loading_types.set(song_key, load_into_source ? 'current' : 'preload');
-
-        if(this.loading_types.get(song_key) === 'current') {
-            // if(load_type === 'current') this.update_media_session(song_data);
-            // audio_data_reference.data = song_data;
-            if(!song_data) {
-                (async ()=> {
-                    try {
-                        let fetched_song_data = await this.media.get_song_data(song_key!);
-                        this.song_cache.set(song_key!, fetched_song_data);
-                        this.update_media_session(fetched_song_data);
-                        this.update_media_session_position(0, (fetched_song_data.video_duration / 1000) || 0);
-                    } catch (error) {
-                        console.error('Error fetching song data for', song_key, error);
-                    }
-                })();
-                
+                });
             } else {
-                this.update_media_session(song_data);
-                this.update_media_session_position(0, (song_data.video_duration / 1000) || 0);
-                this.song_cache.set(song_key, song_data);
-            }
-            this.playlist_manager.current_song_key = song_key;
-            this.currently_loading_song_key = song_key;
-        }
-        // if(load_type === 'current') this.song_changed.emit();
-        
-        // Check if track is already being loaded
-        if(this.loading_tracks.has(song_key)) {
-            const current_state = this.loading_tracks.get(song_key);
-            
-            // If it was preloaded and now we want to play it, continue to load it into source
-            if(current_state === 'loaded' && was_preloaded && load_into_source) {
-                console.log('Track was preloaded, now loading into audio source:', song_key);
-                // Reset the state so we can load it properly
-                this.loading_tracks.set(song_key, 'fetching_audio_stream');
-            } else if(current_state !== 'loaded') {
-                // Still loading, wait for it
-                console.log('Track is already being loaded:', song_key);
-                return;
-            } else if(current_state === 'loaded' && !load_into_source) {
-                // Already preloaded, nothing to do
-                console.log('Track is already preloaded:', song_key);
-                return;
-            }
-        } else {
-            this.loading_tracks.set(song_key, null); // default to fetching video id
-        }
-
-        if(this.media.song_key_missing_only_video_id(song_key)) {
-            // valid key, missing only video id which can be fetched, start by fetching it
-            if(this.loading_types.get(song_key) === 'current') this.loading_tracks.set(song_key, 'fetching_video_id');
-            switch(song_identifier.source) {
-                case 'spotify': {
-                    const spotify_id = song_identifier.source_id;
-                    // Fetch the video ID from Spotify
-                    const video_id = await this.media.get_video_id_from_spotify_uri(`spotify:track:${spotify_id}`);
-                    if(video_id && video_id !== '') {
-                        const old_song_key = song_key;
-                        this.loading_tracks.delete(song_key);// remove old key from loading
-                        const original_loading_type = this.loading_types.get(song_key);
-                        this.loading_types.delete(song_key);
-
-                        song_identifier.video_id = video_id;
-                        song_key = this.media.song_key(song_identifier);
-                        this.loading_tracks.set(song_key, 'fetching_video_id');
-                        this.loading_types.set(song_key, original_loading_type);
-                        // check to make sure if we are still loading the same song
-                        if(this.is_song_key_equal_to_current(old_song_key)) this.currently_loading_song_key = song_key;
-                        if(song_data && song_data?.id) song_data.id.video_id = video_id;
-
-                        await this.media.replace_song_key(old_song_key, song_key, song_data);
-                        this.song_cache.delete(old_song_key);
-                        this.song_cache.set(song_key, song_data);
-                    } else {
-                        if(this.loading_types.get(song_key) === 'current') this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key));
-                        return;
-                    }
-                    break;
-                }
-            }
-        }
-
-        if(this.loading_types.get(song_key) === 'preload') {
-            // just request stream creation
-            await this.media.get_audio_stream(song_key).then((audio_source_url) => {
-                if(!audio_source_url || audio_source_url === '') {
-                    // failed to get stream
-                    console.error('Could not fetch audio stream for', song_key);
+                // if not request new media session url from server with song_key video_id as [video_ids]
+                const song_identifier = this.media.parse_song_key(song_key);
+                const video_id = song_identifier.video_id;
+                if(!video_id || video_id === '') {
+                    console.error('No valid video ID found in song identifier for streaming playlist load:', song_identifier);
+                    this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, load_into_source);
                     return;
                 }
-                console.log('Audio stream URL ready for', song_key);
-            }).catch((error) => {
-                console.error('Error fetching audio stream for', song_key, error);
-            }).finally(() => {
-                this.loading_tracks.set(song_key, 'loaded');
-            });
-            // return;
-        }
+                this.media.get_new_streaming_playlist_url([video_id]).then(url => {
+                    this.set_streaming_playlist(url);
+                });
+            }
+        } else {
+            // use normal song by song loading
 
-        if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_stream');
-        if(!song_data) {
-            // load audio with the intent of streaming while fetching data in the background to make sure if it is downloaded: if so we can load it from blob
-            let allow_optomistic_load: boolean = true;
+            // pause current audio and reset silent audio state
+            if(load_into_source) this.buffer_controller.set_audio_source_to_silent(); // request silent audio to stop current playback, b/c some browsers require user interaction to start audio again
 
-            // load audio optimistically
-            // if(this.is_song_key_equal_to_current(song_key)) {
-                this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
-                    // only force skip if the current song is the one being loaded
-                    if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
-                    if(!allow_optomistic_load) return;
-                    if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
-                    if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
+            // song identifier must be set now
+            // and so should song_data if it was available in the cache
+            if(!song_identifier) {
+                console.error('No valid song identifier provided to load_track');
+                if(load_into_source) this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, false);
+                return;
+            }
+
+            // Check if we're upgrading from preload to current
+            const was_preloaded = this.loading_tracks.get(song_key) === 'loaded' && this.loading_types.get(song_key) === 'preload';
+            
+            // Update the loading type - if upgrading from preload, this is critical
+            this.loading_types.set(song_key, load_into_source ? 'current' : 'preload');
+
+            if(this.loading_types.get(song_key) === 'current') {
+                // if(load_type === 'current') this.update_media_session(song_data);
+                // audio_data_reference.data = song_data;
+                if(!song_data) {
+                    (async ()=> {
+                        try {
+                            let fetched_song_data = await this.media.get_song_data(song_key!);
+                            this.song_cache.set(song_key!, fetched_song_data);
+                            this.update_media_session(fetched_song_data);
+                            this.update_media_session_position(0, (fetched_song_data.video_duration / 1000) || 0);
+                        } catch (error) {
+                            console.error('Error fetching song data for', song_key, error);
+                        }
+                    })();
+                    
+                } else {
+                    this.update_media_session(song_data);
+                    this.update_media_session_position(0, (song_data.video_duration / 1000) || 0);
+                    this.song_cache.set(song_key, song_data);
+                }
+                this.playlist_manager.current_song_key = song_key;
+                this.currently_loading_song_key = song_key;
+            }
+            // if(load_type === 'current') this.song_changed.emit();
+            
+            // Check if track is already being loaded
+            if(this.loading_tracks.has(song_key)) {
+                const current_state = this.loading_tracks.get(song_key);
+                
+                // If it was preloaded and now we want to play it, continue to load it into source
+                if(current_state === 'loaded' && was_preloaded && load_into_source) {
+                    console.log('Track was preloaded, now loading into audio source:', song_key);
+                    // Reset the state so we can load it properly
+                    this.loading_tracks.set(song_key, 'fetching_audio_stream');
+                } else if(current_state !== 'loaded') {
+                    // Still loading, wait for it
+                    console.log('Track is already being loaded:', song_key);
+                    return;
+                } else if(current_state === 'loaded' && !load_into_source) {
+                    // Already preloaded, nothing to do
+                    console.log('Track is already preloaded:', song_key);
+                    return;
+                }
+            } else {
+                this.loading_tracks.set(song_key, null); // default to fetching video id
+            }
+
+            if(this.media.song_key_missing_only_video_id(song_key)) {
+                // valid key, missing only video id which can be fetched, start by fetching it
+                if(this.loading_types.get(song_key) === 'current') this.loading_tracks.set(song_key, 'fetching_video_id');
+                switch(song_identifier.source) {
+                    case 'spotify': {
+                        const spotify_id = song_identifier.source_id;
+                        // Fetch the video ID from Spotify
+                        const video_id = await this.media.get_video_id_from_spotify_uri(`spotify:track:${spotify_id}`);
+                        if(video_id && video_id !== '') {
+                            const old_song_key = song_key;
+                            this.loading_tracks.delete(song_key);// remove old key from loading
+                            const original_loading_type = this.loading_types.get(song_key);
+                            this.loading_types.delete(song_key);
+
+                            song_identifier.video_id = video_id;
+                            song_key = this.media.song_key(song_identifier);
+                            this.loading_tracks.set(song_key, 'fetching_video_id');
+                            this.loading_types.set(song_key, original_loading_type);
+                            // check to make sure if we are still loading the same song
+                            if(this.is_song_key_equal_to_current(old_song_key)) this.currently_loading_song_key = song_key;
+                            if(song_data && song_data?.id) song_data.id.video_id = video_id;
+
+                            await this.media.replace_song_key(old_song_key, song_key, song_data);
+                            this.song_cache.delete(old_song_key);
+                            this.song_cache.set(song_key, song_data);
+                        } else {
+                            if(this.loading_types.get(song_key) === 'current') this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key));
+                            return;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if(this.loading_types.get(song_key) === 'preload') {
+                // just request stream creation
+                await this.media.get_audio_stream(song_key).then((audio_source_url) => {
+                    if(!audio_source_url || audio_source_url === '') {
+                        // failed to get stream
+                        console.error('Could not fetch audio stream for', song_key);
+                        return;
+                    }
+                    console.log('Audio stream URL ready for', song_key);
                 }).catch((error) => {
-                    // only force skip if the current song is the one being loaded
-                    this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
                     console.error('Error fetching audio stream for', song_key, error);
                 }).finally(() => {
                     this.loading_tracks.set(song_key, 'loaded');
                 });
-            // }
+                // return;
+            }
 
-            try {
-                song_data = await this.media.get_song_data(song_key);
-                this.song_cache.set(song_key, song_data);
-                if(song_data && this.is_song_key_equal_to_current(song_key)) {
-                    this.update_media_session(song_data);
-                    // add to song cache
+            if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_stream');
+            if(!song_data) {
+                // load audio with the intent of streaming while fetching data in the background to make sure if it is downloaded: if so we can load it from blob
+                let allow_optomistic_load: boolean = true;
+
+                // load audio optimistically
+                // if(this.is_song_key_equal_to_current(song_key)) {
+                    this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
+                        // only force skip if the current song is the one being loaded
+                        if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
+                        if(!allow_optomistic_load) return;
+                        if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
+                        if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
+                    }).catch((error) => {
+                        // only force skip if the current song is the one being loaded
+                        this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
+                        console.error('Error fetching audio stream for', song_key, error);
+                    }).finally(() => {
+                        this.loading_tracks.set(song_key, 'loaded');
+                    });
+                // }
+
+                try {
+                    song_data = await this.media.get_song_data(song_key);
                     this.song_cache.set(song_key, song_data);
-                    if(song_data.downloaded && song_data.download_audio_blob) {
-                        allow_optomistic_load = false; // prevent optimistic load if we have the blob
+                    if(song_data && this.is_song_key_equal_to_current(song_key)) {
+                        this.update_media_session(song_data);
+                        // add to song cache
+                        this.song_cache.set(song_key, song_data);
+                        if(song_data.downloaded && song_data.download_audio_blob) {
+                            allow_optomistic_load = false; // prevent optimistic load if we have the blob
+                            return;
+                        }
+                        // if not downloaded, allow for optimistic load to continue
                         return;
                     }
-                    // if not downloaded, allow for optimistic load to continue
+
+                    this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, this.is_song_key_equal_to_current(song_key));
+                    return console.error('Could not load song data for', song_key);
+                } catch (error) {
+                    console.error('Error fetching song data for', song_key, error);
+                    this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
                     return;
                 }
-
-                this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, this.is_song_key_equal_to_current(song_key));
-                return console.error('Could not load song data for', song_key);
-            } catch (error) {
-                console.error('Error fetching song data for', song_key, error);
-                this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
-                return;
             }
-        }
 
-        // here song_data and song_identifier must be set
-        if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
-            this.update_media_session(song_data);
-            this.update_media_session_position(0, (song_data.video_duration / 1000) || 0);
-            // this.playlist_manager.current_song_key = this.currently_loading_song_key;
-        }
-        // this.song_changed.emit();
-        
-        // load audio source - check for downloaded content first
-        if(song_data.downloaded) {
-            // Check for HLS bundle first (new format - preferred)
-            if(song_data.download_hls_bundle) {
-                console.log('Loading audio from downloaded HLS bundle for', song_key);
-                if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
-                    this.loading_tracks.set(song_key, 'fetching_audio_data');
+            // here song_data and song_identifier must be set
+            if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
+                this.update_media_session(song_data);
+                this.update_media_session_position(0, (song_data.video_duration / 1000) || 0);
+                // this.playlist_manager.current_song_key = this.currently_loading_song_key;
+            }
+            // this.song_changed.emit();
+            
+            // load audio source - check for downloaded content first
+            if(song_data.downloaded) {
+                // Check for HLS bundle first (new format - preferred)
+                if(song_data.download_hls_bundle) {
+                    console.log('Loading audio from downloaded HLS bundle for', song_key);
+                    if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
+                        this.loading_tracks.set(song_key, 'fetching_audio_data');
+                    }
+                    
+                    try {
+                        // Create blob URLs from the stored HLS bundle
+                        const hls_urls = await this.media.create_hls_blob_urls_from_bundle(song_key, song_data.download_hls_bundle);
+                        
+                        if(hls_urls && hls_urls.playlist_url) {
+                            // If this is the current song, load it into the audio source
+                            if(this.is_song_key_equal_to_current(song_key)) {
+                                await this.buffer_controller.load_and_play(hls_urls.playlist_url);
+                            }
+                            this.loading_tracks.set(song_key, 'loaded');
+                            
+                            // Preload next song
+                            const following_song_key = this.playlist_manager.next_song_key;
+                            this.load_track(following_song_key, false);
+                            return;
+                        } else {
+                            console.warn('Failed to create HLS blob URLs, falling back to other methods');
+                        }
+                    } catch (error) {
+                        console.error('Error loading HLS bundle:', error);
+                        // Fall through to try other methods
+                    }
                 }
                 
-                try {
-                    // Create blob URLs from the stored HLS bundle
-                    const hls_urls = await this.media.create_hls_blob_urls_from_bundle(song_key, song_data.download_hls_bundle);
-                    
-                    if(hls_urls && hls_urls.playlist_url) {
-                        // If this is the current song, load it into the audio source
-                        if(this.is_song_key_equal_to_current(song_key)) {
-                            await this.buffer_controller.load_and_play(hls_urls.playlist_url);
-                        }
-                        this.loading_tracks.set(song_key, 'loaded');
-                        
-                        // Preload next song
-                        const following_song_key = this.playlist_manager.next_song_key;
-                        this.load_track(following_song_key, false);
-                        return;
-                    } else {
-                        console.warn('Failed to create HLS blob URLs, falling back to other methods');
+                // Fallback to legacy MP3 blob (old format)
+                if(song_data.download_audio_blob) {
+                    const blob = await this.create_blob_url_from_stale_blob(song_data.download_audio_blob);
+                    console.log('Loading audio from downloaded MP3 blob for', song_key);
+                    if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
+                        this.loading_tracks.set(song_key, 'fetching_audio_data');
                     }
-                } catch (error) {
-                    console.error('Error loading HLS bundle:', error);
-                    // Fall through to try other methods
+                    
+                    // If this is the current song, load it into the audio source
+                    if(this.is_song_key_equal_to_current(song_key)) {
+                        await this.buffer_controller.load_and_play(blob);
+                    }
+                    
+                    this.loading_tracks.set(song_key, 'loaded');
+
+                    // Preload next song
+                    const following_song_key = this.playlist_manager.next_song_key;
+                    this.load_track(following_song_key, false);
+                    return;
                 }
             }
             
-            // Fallback to legacy MP3 blob (old format)
-            if(song_data.download_audio_blob) {
-                const blob = await this.create_blob_url_from_stale_blob(song_data.download_audio_blob);
-                console.log('Loading audio from downloaded MP3 blob for', song_key);
-                if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) {
-                    this.loading_tracks.set(song_key, 'fetching_audio_data');
-                }
-                
-                // If this is the current song, load it into the audio source
-                if(this.is_song_key_equal_to_current(song_key)) {
-                    await this.buffer_controller.load_and_play(blob);
-                }
-                
+            // No downloaded content available, stream from network
+            this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
+                if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
+                if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
+                if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
+            }).catch((error) => {
+                this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
+                console.error('Error fetching audio stream for', song_key, error);
+            }).finally(() => {
                 this.loading_tracks.set(song_key, 'loaded');
+            });
 
-                // Preload next song
-                const following_song_key = this.playlist_manager.next_song_key;
-                this.load_track(following_song_key, false);
-                return;
-            }
+            // preload next song
+            const following_song_key = this.playlist_manager.next_song_key;
+            const following_song_identifier = this.media.parse_song_key(following_song_key);
+            this.load_track(following_song_key, false);
+
+            // if(!load_into_source) return; // no need to setup mixer if not loading into source
+
+            // if(song_key === following_song_key) return; // no need to mix same song // temp for now
+            // console.log('Setting up mixer for', song_key, 'and', following_song_key);
+            // this.mixer.set_song_ids(
+            //     song_identifier.video_id,
+            //     following_song_identifier.video_id
+            // );
+            // this.mixer.mix_and_load_into_player(this.player);
         }
-        
-        // No downloaded content available, stream from network
-        this.media.get_audio_stream(song_key).then(async (audio_source_url) => {
-            if(!audio_source_url || audio_source_url === '') return this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
-            if(this.loading_types.get(song_key) === 'current' && this.is_song_key_equal_to_current(song_key)) this.loading_tracks.set(song_key, 'fetching_audio_data');
-            if(this.is_song_key_equal_to_current(song_key)) await this.buffer_controller.load_and_play(audio_source_url);
-        }).catch((error) => {
-            this.load_error(song_key, Audio_Error.PLAYBACK, this.is_song_key_equal_to_current(song_key));
-            console.error('Error fetching audio stream for', song_key, error);
-        }).finally(() => {
-            this.loading_tracks.set(song_key, 'loaded');
-        });
-
-        // preload next song
-        const following_song_key = this.playlist_manager.next_song_key;
-        const following_song_identifier = this.media.parse_song_key(following_song_key);
-        this.load_track(following_song_key, false);
-
-        if(!load_into_source) return; // no need to setup mixer if not loading into source
-
-        if(song_key === following_song_key) return; // no need to mix same song // temp for now
-        console.log('Setting up mixer for', song_key, 'and', following_song_key);
-        this.mixer.set_song_ids(
-            song_identifier.video_id,
-            following_song_identifier.video_id
-        );
-        this.mixer.mix_and_load_into_player(this.player);
     }
 
     public async load_track_and_play(data: Song_Identifier | Song_Data | string): Promise<void> {
         await this.load_track(data, true);
         this.play();
+    }
+
+    public streaming_playlist_id: string | null = null;
+    public async set_streaming_playlist(playlist_url: string | null): Promise<void> {
+        if(!playlist_url) return;
+        console.log('Setting streaming playlist URL in media:', playlist_url);
+        this.streaming_playlist_url = playlist_url;
+        this.streaming_playlist_id = this.media.get_streaming_playlist_id_from_url(playlist_url);
+        await this.buffer_controller.load_and_play(playlist_url);
     }
 
     public async update_media_session(metadata: Song_Data): Promise<void> {
