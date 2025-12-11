@@ -21,8 +21,8 @@ export class LibraryPageComponent {
   ){}
 
   
-  ngOnInit(){
-    this.sortedHistory = this.watchHistoryService.getAllWatchedVideos();
+  async ngOnInit(){
+    this.sortedHistory = await this.watchHistoryService.getAllWatchedVideos(this.youtubeService.loginSessionId);
 
     this.sortedHistory.sort((a, b) => new Date(b.videoData.watchedAt).getTime() - new Date(a.videoData.watchedAt).getTime());
 

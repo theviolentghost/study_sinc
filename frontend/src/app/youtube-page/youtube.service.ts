@@ -141,12 +141,21 @@ export class YoutubeService {
         return this.http.get<any>(`/is_youtube_account_logged_in/${id}`, { params });
     }
 
+    private mongoUpsertUser(email: string, password: string, sessionId: string): Observable<any> {
+        const body = { email, password, sessionId };
+        return this.http.post<any>('/mongodb/upsert-user', body);
+    }
+
     get isDisplayingVideo(): boolean{
         return this.videoIdSubject.value ? true : false;
     }
 
     get isMinimized(): boolean{
         return this.minimizedSubject.value;
+    }
+
+    get loginSessionId(): string{
+        return this.loginSessionIdSubject.value;
     }
 
     set currentSearchQuery(search: string){
@@ -191,6 +200,12 @@ export class YoutubeService {
                     this.navigateToHome();
                     clearInterval(loginChecker);
                     this.saveAccountId(id);
+
+                    this.mongoUpsertUser('test', 'test', this.loginSessionIdSubject.value)
+                        .pipe(take(1))
+                        .subscribe((data) => {
+                            console.log(data);
+                        });
             });
             this.getLoginFrame(id);
         } , 500);
@@ -348,8 +363,9 @@ export class YoutubeService {
                     this.getFullVideoData(videoIdList[video])
                         .pipe(take(1))
                         .subscribe(data => {
+                            if(!data) return;
                             this.homepageVideosList.push(data.basicVideoData);
-                            if(this.homepageVideosList.length == videoIdList.length)this.homepageVideosSubject.next(this.homepageVideosList);
+                            this.homepageVideosSubject.next(this.homepageVideosList);
                         });
                 }
             });

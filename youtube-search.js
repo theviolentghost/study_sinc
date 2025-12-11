@@ -36,7 +36,7 @@ async function youtubeSearch(query, nextPageToken, accountId) {
     });
     results = searchData?.data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
     if(!results.length) return;
-    newNextPageToken = searchData.data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer?.contents[1]?.continuationItemRenderer.continuationEndpoint.continuationCommand.token || '';
+    newNextPageToken = searchData.data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer?.contents[1]?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token || '';
   }else{
     searchData = await yt.actions.execute('/search', {
       continuation: nextPageToken

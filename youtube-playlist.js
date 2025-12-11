@@ -6,19 +6,32 @@ import youtubeAccount from './youtube-account.js';
 
 async function getVideoData(videoId){
   let yt = youtubeAccount.getAccountInstance('');
-  let data = await yt.getInfo(videoId);
+  let data;
+  try{
+    data = await yt.getInfo(videoId);
+  }catch{
+    console.log('error getting youtubi video data');
+    return null;
+  }
+  //return data;
   
-  let basicVideoData = {
-    id: data.basic_info.id,
-    title: data.basic_info.title,
-    duration: data.basic_info.duration,
-    channelId: data.basic_info.channel_id,
-    channelTitle: data.basic_info.author,
-    viewCount: data.primary_info.view_count.short_view_count.text,
-    channelThumbnailUrl: data.secondary_info.owner.author.thumbnails[0].url,
-    videoThumbnailUrl: data.basic_info.thumbnail[0].url,
-    description: data.secondary_info.description.text,
-    uploadDate: data.primary_info.published.text,
+  let basicVideoData;
+  try{
+    basicVideoData = {
+      id: data.basic_info?.id || '',
+      title: data.basic_info?.title || '',
+      duration: data.basic_info?.duration || '',
+      channelId: data.basic_info?.channel_id || '',
+      channelTitle: data.basic_info?.author || '',
+      viewCount: data.primary_info?.view_count?.short_view_count?.text || '',
+      channelThumbnailUrl: data.secondary_info?.owner?.author?.thumbnails?.[0]?.url || '',
+      videoThumbnailUrl: data.basic_info?.thumbnail?.[0]?.url || '',
+      description: data.secondary_info?.description?.text || '',
+      uploadDate: data.primary_info?.published?.text || '',
+    };
+  }catch(err){
+    //console.log(err);
+    return;
   }
   let channelSubs = data.secondary_info.owner.subscriber_count.text;
 
@@ -31,20 +44,20 @@ async function getVideoData(videoId){
     try{
       let videoObject = {
         id: videoData.content_id,
-        title: videoData.metadata.title.text,
-        duration: videoData.content_image.overlays[0].badges[0].text,
-        channelId: videoData.metadata.image.renderer_context.command_context.on_tap.payload.browseId,
-        channelTitle: videoData.metadata.metadata.metadata_rows[0].metadata_parts[0].text.text,
-        viewCount: videoData.metadata.metadata.metadata_rows[1].metadata_parts[0].text.text,
-        channelThumbnailUrl: videoData.metadata.image.avatar.image[0].url,
-        videoThumbnailUrl: videoData.content_image.image[0].url,
+        title: videoData.metadata?.title?.text || '',
+        duration: videoData.content_image?.overlays?.[0]?.badges?.[0]?.text || '',
+        channelId: videoData.metadata?.image?.renderer_context?.command_context?.on_tap?.payload?.browseId || '',
+        channelTitle: videoData.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text || '',
+        viewCount: videoData.metadata?.metadata?.metadata_rows?.[1]?.metadata_parts?.[0]?.text?.text || '',
+        channelThumbnailUrl: videoData.metadata?.image?.avatar?.image?.[0]?.url || '',
+        videoThumbnailUrl: videoData.content_image?.image?.[0]?.url || '',
         description: '',
-        uploadDate: videoData.metadata.metadata.metadata_rows?.[1].metadata_parts?.[1].text?.text | '',
+        uploadDate: videoData.metadata?.metadata?.metadata_rows?.[1]?.metadata_parts?.[1]?.text?.text || '',
       };
       nextVideos.push(videoObject);
     }catch(err){
-      console.log(err);
-      console.log(data.watch_next_feed[video]);
+      //console.log(err);
+      //console.log(data.watch_next_feed[video]);
     }
   }
 

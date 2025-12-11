@@ -2,6 +2,8 @@ import { Injectable } from '@angular/core';
 import { HistoryVideo, VideoHistory } from './watch-history.model';
 import { PlaylistVideo } from './youtube-playlist-results.model';
 import { openDB } from 'idb';
+import { Observable, BehaviorSubject, take, firstValueFrom } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
 
 @Injectable({
   providedIn: 'root'
@@ -14,19 +16,50 @@ export class WatchHistoryService {
     private allWatchHistory: Map<string, VideoHistory>;
     private currentVideo: PlaylistVideo;
 
-    constructor(){
+    private videoHistoryListSubject = new BehaviorSubject<HistoryVideo[] | null>(null);
+    videoHistoryList$: Observable<HistoryVideo[] | null> = this.videoHistoryListSubject.asObservable();
+
+    constructor(private http: HttpClient
+    ){
         this.allWatchHistory = new Map<string, VideoHistory>;
 
         if(this.watchHistoryDB) return;
         this.initializeWatchHistory();
     }
 
-    getAllWatchedVideos(): HistoryVideo[]{
+    mongoAddHistory(sessionId: string, videoId: string, videoData: VideoHistory): Observable<any> {
+        const body = { sessionId, videoId, videoData };
+        return this.http.post<any>('/mongodb/addhistory', body);
+    }
+
+    mongoGetHistory(sessionId: string, nextPageToken?: string): Observable<any> {
+        const body = { sessionId, nextPageToken };
+        return this.http.post<any>('/mongodb/get-history', body);
+    }
+
+    async getAllWatchedVideos(loginId?: string): Promise<HistoryVideo[]>{
         let videos: HistoryVideo[] = [];
-        this.allWatchHistory.forEach((videoHistory, videoId) => {
-            let video: HistoryVideo = {id: videoId, videoData: videoHistory};
-            videos.push(video);
-        });
+
+        if(loginId){
+            let nextPageToken = '';
+            let data: MongoHistoryResults;
+            data = await firstValueFrom(
+                this.mongoGetHistory(loginId, nextPageToken)
+            );
+            for(let video = 0; video < data.items.length; video++){
+                let videoData: HistoryVideo = { videoData:data.items[video].video_data, id: data.items[video].video_id};
+                videos.push(videoData);
+            }
+
+            this.videoHistoryListSubject.next(videos);
+            nextPageToken = data.nextPageToken;
+            if(nextPageToken) this.getAllWatchedVideos();
+        } else {
+            this.allWatchHistory.forEach((videoHistory, videoId) => {
+                let video: HistoryVideo = {id: videoId, videoData: videoHistory};
+                videos.push(video);
+            });
+        }
         return videos;
     }
 
@@ -54,8 +87,12 @@ export class WatchHistoryService {
         }
     }
 
-    async storeSingleVideo(id: string, data: VideoHistory): Promise<void>{
+    async storeSingleVideo(id: string, data: VideoHistory, loginId?: string): Promise<void>{
         await this.watchHistoryDB.put(this.watchHistoryTableName, data, id);
+
+        if(!loginId) return;
+        console.log("sending");
+        this.mongoAddHistory(loginId, id, data).pipe(take(1)).subscribe(data => {console.log(data)});
     }
 
     saveCurrentVideo(video: PlaylistVideo): void{
@@ -75,11 +112,13 @@ export class WatchHistoryService {
         this.storeSingleVideo(videoId, historyData);
     }
 
-    updateVideoProgress(currentPosition: number): void{
+    updateVideoProgress(currentPosition: number, loginId?: string): void{
+        if(!currentPosition) currentPosition = 0;
         let videoId = this.currentVideo.id;
         let historyData = this.allWatchHistory.get(videoId);
+        console.log(historyData);
         historyData.currentPosition = currentPosition;
-        this.storeSingleVideo(videoId, historyData);
+        this.storeSingleVideo(videoId, historyData, loginId);
     }
 
     wasWatched(videoId: string): boolean{
@@ -107,5 +146,10 @@ export class WatchHistoryService {
 
         return date < oneYearAgo;
     }
+}
+
+interface MongoHistoryResults {
+    items: any;
+    nextPageToken: string;
 }
 

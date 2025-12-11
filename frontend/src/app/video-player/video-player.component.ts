@@ -181,7 +181,7 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
       this.isPaused = true;
       this.showControls();
 
-      if(!this.initilizedVideoHistory) return;
+      if(!this.initilizedVideoHistory && this.player.currentTime < this.TIME_BEFORE_HISTORY_SAVE_SECONDS) return;
       this.watchHistoryService.updateVideoProgress(this.player.currentTime);
     });
 
@@ -195,7 +195,7 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
       
       if(this.isSavingVideoProgress) return;
       this.isSavingVideoProgress = setTimeout(() => {
-        this.watchHistoryService.updateVideoProgress(this.player.currentTime);
+        this.watchHistoryService.updateVideoProgress(this.player.currentTime, this.youtubeService.loginSessionId);
         this.isSavingVideoProgress = false;
       }, this.HISTORY_SAVE_INTERVAL_SECONDS * 1000);
     });

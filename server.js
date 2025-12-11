@@ -684,6 +684,264 @@ app.get('/end_youtube_login_session/:id', async (req, res) => {
     }
 });
 
+
+import { MongoClient } from "mongodb";
+
+let db;
+let client;
+
+async function connectToMongo() {
+    client = new MongoClient("mongodb+srv://adrianzych05_db_user:Z%23aych3482@cluster0.tacdasz.mongodb.net/?appName=Cluster0");
+    await client.connect();
+    db = client.db("youtube");
+    console.log("Connected to Atlas");
+}
+
+connectToMongo();
+
+app.post('/mongodb/addhistory', async (req, res) => {
+  try {  
+    const { sessionId, videoId, videoData } = req.body;
+
+    if (!sessionId || !videoId)
+      return res.status(400).json({ error: "Missing sessionId or videoId" });
+
+    const user = await db.collection("users").findOne({
+      "session_id": sessionId 
+    });
+
+    if (!user)
+      return res.status(401).json({ error: "Invalid session" });
+
+    const result = await db.collection("history-videos").updateOne(
+      {
+        user_id: user._id,
+        video_id: videoId
+      },
+      {
+        $set: {
+          date_time_viewed: new Date(),
+          video_data: videoData
+        }
+      },
+      { upsert: true }
+    );
+
+    res.json({ insertedId: result.insertedId });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to insert history" });
+  }
+});
+
+app.delete("/mongodb/cleanup-history", async (req, res) => {
+  try {
+    const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+
+    const result = await db.collection("history-videos").deleteMany({
+      "date_time_viewed": { $lt: cutoff }
+    });
+
+    res.json({
+      deletedCount: result.deletedCount
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete old history videos" });
+  }
+});
+
+app.post("/mongodb/get-history", async (req, res) => {
+  try {
+    const { sessionId, lastToken } = req.body;
+
+    if (!sessionId)
+      return res.status(400).json({ error: "Missing sessionId" });
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          as: "user"
+        }
+      },
+      { $unwind: "$user" },
+
+      {
+        $match: {
+          "user.session_id": sessionId,
+          ...(lastToken
+            ? { "date_time_viewed": { $lt: new Date(lastToken) } }
+            : {})
+        }
+      },
+      { $sort: { "date_time_viewed": -1 } },
+      { $limit: lastToken ? 11 : 10 },
+      { $project: { user: 0 } }
+    ];
+
+    const results = await db
+      .collection("history-videos")
+      .aggregate(pipeline)
+      .toArray();
+
+    if (!lastToken) {
+      return res.json({
+        items: results,
+        nextPageToken: results.length === 10 
+          ? results[results.length - 1].date_time_viewed 
+          : null
+      });
+    }
+
+    let nextToken = null;
+    if (results.length === 11) {
+      const lastItem = results[10];
+      nextToken = lastItem.date_time_viewed;
+      results.pop();
+    }
+
+    res.json({
+      items: results,
+      nextPageToken: nextToken
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch history" });
+  }
+});
+
+app.post("/mongodb/add-subscription", async (req, res) => {
+  try {
+    const { sessionId, channelId } = req.body;
+    if (!sessionId || !channelId)
+      return res.status(400).json({ error: "Missing sessionId or channelId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    await db.collection("subscriptions").updateOne(
+      { user_id: user._id, channel_id: channelId },
+      { $setOnInsert: { user_id: user._id, channel_id: channelId } },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to add subscription" });
+  }
+});
+
+app.post("/mongodb/remove-subscription", async (req, res) => {
+  try {
+    const { sessionId, channelId } = req.body;
+    if (!sessionId || !channelId) return res.status(400).json({ error: "Missing sessionId or channelId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.json({ deleted: 0 });
+
+    const result = await db.collection("subscriptions").deleteMany({
+      user_id: user._id,
+      channel_id: channelId
+    });
+
+    res.json({ deleted: result.deletedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to remove subscription" });
+  }
+});
+
+
+app.post("/mongodb/get-subscriptions", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.json([]);
+
+    const subscriptions = await db.collection("subscriptions")
+      .find({ user_id: user._id })
+      .project({ _id: 0, channel_id: 1 })
+      .toArray();
+
+    const channelIds = subscriptions.map(s => s.channel_id);
+
+    res.json(channelIds);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch subscriptions" });
+  }
+});
+
+
+app.post("/mongodb/upsert-user", async (req, res) => {
+  try {
+    const { email, password, sessionId } = req.body;
+
+    if (!email || !password || !sessionId) {
+      return res.status(400).json({ error: "Missing email, password, or sessionId" });
+    }
+
+    await db.collection("users").updateOne(
+      { email },
+      { $set: { password, session_id: sessionId } },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to upsert user", error: err });
+  }
+});
+import { ObjectId } from "mongodb";
+
+app.post("/mongodb/delete-user", async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "Missing userId" });
+  }
+
+  const session = client.startSession();
+
+  try {
+    session.startTransaction();
+
+    const usersCollection = db.collection("users");
+    const subsCollection = db.collection("subscriptions");
+    const historyCollection = db.collection("history-videos");
+
+    const uid = new ObjectId(userId);
+
+    await usersCollection.deleteOne({ _id: uid }, { session });
+    await subsCollection.deleteMany({ user_id: uid }, { session });
+    await historyCollection.deleteMany({ user_id: uid }, { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ success: true });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Transaction aborted:", err);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+
+
 // app.post('/newton/chat',
 //     Authentication.newton.validateChatAuthorization,
 //     (req, res) => {
