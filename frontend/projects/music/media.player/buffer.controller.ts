@@ -3,7 +3,7 @@ import { Events } from 'hls.js';
 import type { MediaAttachingData } from 'hls.js';
 import { SettingsService } from '../settings.service';
 import MusicMediaManager from './media.manager';
-import { set } from 'idb-keyval';
+import { Track_Timestamp } from './http.interceptor.service';
 
 class BufferController {
     private audio_element: HTMLMediaElement;
@@ -17,17 +17,18 @@ class BufferController {
     
     private blob_url: string | null = null;
     
-    // Event target for custom events
-    // public events: EventTarget = new EventTarget();
     public has_audio: boolean = false;
     public fully_buffered: boolean = false;
     public using_silent_source: boolean = false;
+    public stalled: boolean = false;
+    private silent_audio_url: string = '/music/audio/silent/audio/master.m3u8';
+    private silent_audio_segment_url: string = '/music/audio/silent/audio/aac/ultra-low/32k_60.ts';
 
     get buffered_percent(): number {
-        if (!this.audio_element || !this.media_source) return 0;
+        if (!this.audio_element) return 0;
         try {
             const buffered = this.audio_element.buffered;
-            const duration = this.audio_element.duration;
+            const duration = (this.current_track_timestamp) ? this.current_track_timestamp.end_timestamp - this.current_track_timestamp.start_timestamp : this.audio_element.duration;
             if (duration === 0) return 0;
 
             let buffered_end = 0;
@@ -37,7 +38,10 @@ class BufferController {
                 }
             }
 
-            return (buffered_end / duration) * 100;
+            // use current_track_timestamp to calculate buffered percent
+            const time_buffered_into_current_track = buffered_end - (this.current_track_timestamp?.start_timestamp || 0);
+
+            return (time_buffered_into_current_track / duration) * 100;
         } catch (error) {
             console.error('Error calculating buffered percent:', error);
             return 0;
@@ -91,8 +95,6 @@ class BufferController {
         this.blob_url = URL.createObjectURL(this.media_source);
         this.audio_element.src = this.blob_url;
 
-        console.log('🎵 Creating MediaSource with blob URL:', this.blob_url);
-
         await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('MediaSource sourceopen timeout after 10s'));
@@ -136,20 +138,11 @@ class BufferController {
     private create_hls_instance(capture_events: boolean = false): Hls {
         const hls = new Hls({
             debug: false,
-            // enableWorker: true,
-            // lowLatencyMode: false,
+            enableWorker: true,
+            lowLatencyMode: false,
             autoStartLoad: false,
-            
-            // Safari-friendly buffer settings
-            // maxBufferLength: this.is_safari ? 20 : 30,
-            // maxMaxBufferLength: this.is_safari ? 30 : 40,
-            // backBufferLength: this.is_safari ? 10 : 20,
-            // maxBufferHole: 0.5,
-            
-            // Safari needs more aggressive buffer management
-            // nudgeMaxRetry: this.is_safari ? 5 : 3,
-            // startPosition: 0,
-            // startLevel: -1, // -1 = auto, will be set to highest after manifest loads
+            liveDurationInfinity: true,
+            liveSyncDuration: Infinity,
         });
 
         if (capture_events) this.configure_hls_events(hls);
@@ -159,25 +152,19 @@ class BufferController {
     private configure_hls_events(hls: Hls) {
         if (!hls) return;
 
-        hls.on(Events.MANIFEST_LOADING, (e, data) => {});
+        // console.log('⚙️ Configuring HLS.js event handlers');
+
+        // hls.on(Events.MANIFEST_LOADING, (e, data) => {});
 
         hls.on(Events.MANIFEST_LOADED, (e, data) => {
-            hls?.startLoad(0);
+            // hls?.startLoad(0);
+            // console.log('✅ Manifest loaded, starting load at position 0');
+            // hls.audioStreamController.flushMainBuffer(0, Infinity);
+            // console.log('Flushed main buffer');
         });
 
         // hls.on(Events.MANIFEST_PARSED, (e, data) => {
         //     console.log('✅ Manifest parsed:', data.levels?.length, 'levels');
-        //     // Ensure we start at 0 after manifest is parsed
-        //     if (this.audio_element && this.audio_element.currentTime !== 0) {
-        //         console.log('⏮️ Resetting position to 0 after manifest parsed');
-        //         this.audio_element.currentTime = 0;
-        //     }
-
-        //     if (hls.levels.length > 0) {
-        //         const highestLevel = hls.levels.length - 1;
-        //         console.log(`🎯 Setting start level to highest: ${highestLevel} (${hls.levels.length} levels available)`);
-        //         hls.currentLevel = highestLevel;
-        //     }
         // });
 
         // hls.on(Events.MEDIA_DETACHING, () => {
@@ -188,6 +175,15 @@ class BufferController {
         //     const currentBlobUrl = this.audio_element?.src;
         //     console.log('🔗 Media attaching');
         //     console.log('   URLs match:', this.blob_url === currentBlobUrl);
+        // });
+
+        // hls.on(Events.FRAG_PARSED, (event, data) => {
+        //     // check if startPTS or endPTS are within current_track_timestamp, if so, update has_audio accordingly
+        //     if (this.current_track_timestamp && data.frag) {
+        //         if (data.frag.startPTS >= this.current_track_timestamp.start_timestamp && data.frag.endPTS <= this.current_track_timestamp.end_timestamp) {
+        //             this.current_track_timestamp.has_audio_segments = true;
+        //         }
+        //     }
         // });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
@@ -202,16 +198,55 @@ class BufferController {
             if(!this.using_silent_source) {
                 this.has_audio = data.type === 'audio' || this.has_audio;
             } else if(this.current_url.indexOf('silent') === -1) {
-                // non-silent source loaded, disable silent mode
-                this.using_silent_source = false;
+                if (!this.controller.use_streaming_playlist) {
+                    // non-silent source loaded, disable silent mode
+                    this.using_silent_source = false;
+                }
+            }
+
+            // console.log('BUFFER_APPEND', 'event', event, 'data', data);
+            // check if startPTS or endPTS are within current_track_timestamp, if so, update has_audio accordingly
+            if (this.current_track_timestamp && data.type === 'audio' && data.frag) {
+                // console.log('Checking fragment PTS against current track timestamp:', data, data.frag, data.frag.startPTS, data.frag.endPTS);
+                // if (data.frag.startPTS >= this.current_track_timestamp.start_timestamp && data.frag.endPTS <= this.current_track_timestamp.end_timestamp) {
+                //     this.current_track_timestamp.has_audio_segments = true;
+                //     console.log('✅ Current track has audio segments');
+                // }
+                // check to see which timestamp this fragment belongs to
+                // first check if current_track_timestamp matches, if greater than seacrh next index, if less than search previous index
+                const fragment_start = data.frag.startPTS;
+                const fragment_end = data.frag.endPTS;
+
+                let relevant_timestamp: Track_Timestamp | null = this.current_track_timestamp;
+                let current_index = this.current_track_index;
+                while (
+                    // check if fragment is outside relevant timestamp
+                    relevant_timestamp &&
+                    (fragment_end < relevant_timestamp.start_timestamp || fragment_start > relevant_timestamp.end_timestamp)
+                ) {
+                    // check if fragment is before or after relevant timestamp
+                    if (fragment_end < relevant_timestamp.start_timestamp) {
+                        // Fragment is before relevant timestamp
+                        current_index--;
+                        relevant_timestamp = this.timestamps_of_tracks_cache[current_index];
+                    } else {
+                        // Fragment is after relevant timestamp
+                        current_index++;
+                        relevant_timestamp = this.timestamps_of_tracks_cache[current_index];
+                    }
+                }
+
+                if (relevant_timestamp) {
+                    relevant_timestamp.has_audio_segments = true;
+                }
             }
 
             // console.log('📦 Buffer append, fragment:', data.frag.sn, 'type:', data.type);
 
-            if (data.data && data.type === 'audio') {
-                const uint_8_data = new Uint8Array(data.data);
-                this.append_to_buffer(uint_8_data);
-            }
+            // if (data.data && data.type === 'audio') {
+            //     const uint_8_data = new Uint8Array(data.data);
+            //     this.append_to_buffer(uint_8_data);
+            // }
         });
 
         hls.on(Events.BUFFERED_TO_END, async () => {
@@ -224,32 +259,68 @@ class BufferController {
             // this.controller?.on_fully_buffered();
         });
 
+        hls.on(Events.STALL_RESOLVED, () => {
+            this.stalled = false;
+        });
+
+        hls.on(Events.BUFFER_APPENDED, () => {
+            // Buffer progressed, clear stall state
+            if (this.stalled) {
+                this.stalled = false;
+            }
+        });
+
         hls.on(Events.ERROR, (event, data) => {
+
             console.error('HLS Error:', data.details, 'fatal:', data.fatal);
 
-            if (data.details === 'bufferStalledError' && !data.fatal) {
-                // Check if we're near the end of the track
-                const current_time = this.audio_element?.currentTime || 0;
-                const duration = this.audio_element?.duration || 0;
-                
-                // 3 second threshold
-                if (duration > 0 && duration - current_time < 3) {
+            if(this.controller.use_streaming_playlist) {
+                // For streaming playlists, mark as stalled on specific errors
+                if(
+                    data.details === 'bufferStalledError' ||
+                    data.details === 'bufferNudgeOnStall' ||
+                    data.details === 'fragLoadError' ||
+                    data.details === 'fragParsingError' ||
+                    data.details === 'manifestLoadError' ||
+                    data.details === 'manifestParsingError'
+                ) {
+                    if(data.details === 'bufferStalledError' && !data.fatal) {
+                        console.log('--- Checking for end of song on bufferStalledError ---');
+                        // end of song check
+                        const current_time = this.controller.current_time;
+                        const duration = this.controller.song_duration;
 
-                    if(this.using_silent_source) {
-                        this.current_time = 0; // Reset to start
+                        console.log('Current time:', current_time, 'Duration:', duration);
+
+                        // 3 second threshold
+                        if (duration > 0 && duration - current_time < 3) {
+                            if(this.using_silent_source) {
+                                this.current_time = 0; // Reset to start
+                            }
+                            console.log('✅ Song finished, emitting end event');
+                            this.controller?.on_song_ended();
+                        }
                     }
-                    console.log('✅ Song finished, emitting end event');
+                    if (!this.stalled) {
+                        this.stalled = true;
+                        console.warn('⚠️ Playback stalled:', data.details);
+                    }
+                }
+            } else {
+                if (data.details === 'bufferStalledError' && !data.fatal) {
+                    // Check if we're near the end of the track
+                    // const current_time = this.audio_element?.currentTime || 0;
+                    // const duration = this.audio_element?.duration || 0;
                     
-                    // Emit song end event so your app can skip to next track
-                    // const ev = new CustomEvent('song_ended', { 
-                    //     detail: { 
-                    //         current_time,
-                    //         duration,
-                    //         url: this.current_url
-                    //     } 
-                    // });
-                    // this.events.dispatchEvent(ev);
-                    // this.controller?.on_song_ended();
+                    // // 3 second threshold
+                    // if (duration > 0 && duration - current_time < 3) {
+
+                    //     if(this.using_silent_source) {
+                    //         this.current_time = 0; // Reset to start
+                    //     }
+                    //     console.log('✅ Song finished, emitting end event');
+                    //     // this.controller?.on_song_ended();
+                    // }
                 }
             }
             
@@ -289,23 +360,115 @@ class BufferController {
         this.current_url = url;
     }
 
+    private last_requested_tracks_cache: Track_Timestamp[] | null = null;
+    // private hls_buffered_tracks: number[] = []; // indices of tracks with buffered audio, if moving around, must 
+    public get timestamps_of_tracks_cache(): Array<Track_Timestamp> {
+        // return this.controller.http_interceptor_service.timestamps_of_tracks;
+        return this.last_requested_tracks_cache || [];
+    }
+
+    public update_tracks_cache(): void {
+        console.log('Updating tracks cache in BufferController');
+        this.last_requested_tracks_cache = this.controller.http_interceptor_service.get_timestamps_of_tracks();
+    }
+
     private async playlist_load(url: string): Promise<void> {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
         this.hls = this.create_hls_instance(true);
-        this.hls.attachMedia(this.audio_element);
-        this.hls.loadSource(url);
-        this.hls.startLoad(0);
-
-        // Handle errors and playlist refresh temp
-        this.hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS.js error', data);
+        this.hls.attachMedia({
+            media: this.audio_element,
+            // mediaSource: this.media_source,
+            // overrides: { endOfStream: false }
         });
+        this.hls.loadSource(url);
+        this.hls.startLoad(60, true); // start loading after silent segment to prioritize real audio
+        this.controller.seek_to(60);
+        this.update_tracks_cache();
 
-        setInterval(() => {
-            console.log('🔄 Refreshing playlist for URL:', this.current_url);
-            this.reload_manifest();
-        }, 10000);
+        this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
+            // console.log('FRAG_CHANGED event:', data);
+            if(this.using_silent_source) {
+                // was using silent source then switched to real source
+                console.log('🔊 Switched from silent source to real audio source');
+                this.using_silent_source = false;
+                return;
+            }
+            if (this.did_song_end()) {
+                console.log('✅ Song finished (detected by FRAG_CHANGED), emitting end event');
+                this.controller?.on_song_ended();
+            }
+
+            // console.log(this.buffered_percent)
+        });
+        this.current_track_index = 0;
+        this.controller.http_interceptor_service.playlist_updated.subscribe((missing_tracks: number[]) => {
+            // console.log('Playlist updated, refreshing tracks cache', missing_tracks);
+            this.update_tracks_cache();
+            // console.log('Updated tracks cache:', this.timestamps_of_tracks_cache);
+            for (let index of missing_tracks) {
+                if(index === this.current_track_index) {
+                    // Current track missing, but now loaded
+                    this.update_current_track_timestamp();
+                    if(!this.current_track_timestamp) {
+                        console.warn('Current track index', this.current_track_index, 'is still missing after playlist update.');
+                        return;
+                    }
+                    // this.reload_manifest();
+                    this.update_playlist(() => {
+                        this.current_time = this.current_track_timestamp.start_timestamp;
+                        console.log('Current track index', this.current_track_index, 'was missing but is now loaded and seeking to', this.current_track_timestamp.start_timestamp);
+                    });
+                }
+            }
+        });
+    }
+
+    public async update_playlist(on_update?: () => void): Promise<void> {
+        this.reload_manifest();
+        this.hls.once(Events.LEVEL_LOADED, () => {
+            console.log('✅ Playlist updated');
+            this.flush_buffer(() => on_update?.());
+        });
+    }
+
+    public current_track_timestamp: Track_Timestamp | null = null;
+    public current_track_index: number = -1;
+    private did_song_end(): boolean {
+        // figure out which timestamp range we are in
+        const silent_audio_index = this.controller.get_silent_audio_position();
+        let timestamp_in_range = null;
+        for (let i = 0; i < this.timestamps_of_tracks_cache.length; i++) {
+            if(i === silent_audio_index) continue; // skip silent audio
+            const timestamp = this.timestamps_of_tracks_cache[i];
+            if(!timestamp) continue;
+            if (timestamp.start_timestamp <= this.current_time + 0.1 && timestamp.end_timestamp >= this.current_time + 0.1) {
+                timestamp_in_range = timestamp;
+            }
+        }
+        if (!timestamp_in_range) return false;
+
+        return timestamp_in_range.video_id !== this.controller?.playlist_manager?.current_song_identifier?.video_id && this.current_track_timestamp.video_id === this.controller?.playlist_manager?.current_song_identifier?.video_id;
+    }
+
+    public update_current_track_timestamp(): void {
+        this.update_tracks_cache();
+        // const current_timestamp = this.timestamps_of_tracks_cache?.[this.current_track_index];
+        const current_timestamp = this.timestamps_of_tracks_cache?.[this.current_track_index + 1];
+        this.current_track_timestamp = current_timestamp || null;
+    }
+
+    public do_any_tracks_have_audio_ahead_of_current(): boolean {
+        if (!this.current_track_timestamp) return false;
+
+        const current_index = this.current_track_index;
+        if (current_index === -1) return false;
+        for (let i = current_index + 1; i < this.timestamps_of_tracks_cache.length; i++) {
+            const track = this.timestamps_of_tracks_cache[i];
+            if(!track) continue;
+            if (track.has_audio_segments) return true;
+        }
+        return false;
     }
 
     private is_first_track: boolean = true;
@@ -392,13 +555,13 @@ class BufferController {
         }
         this.using_silent_source = true;
 
-        await this.load_and_play('/music/audio/silent/audio/master.m3u8');
+        await this.load_and_play(this.silent_audio_url);
     }
 
     /**
      * Safari-friendly buffer clearing (more conservative)
      */
-    private async safari_clear_buffer(): Promise<void> {
+    public async safari_clear_buffer(): Promise<void> {
         if (!this.media_source) return;
 
         console.log('🍎 Safari: Gentle buffer clear');
@@ -459,7 +622,7 @@ class BufferController {
     /**
      * Aggressive buffer clearing for Chrome/Firefox
      */
-    private async clear_buffer(): Promise<void> {
+    public async clear_buffer(): Promise<void> {
         if (!this.media_source) {
             console.warn('⚠️ No MediaSource to clear');
             return;
@@ -528,6 +691,18 @@ class BufferController {
         }
 
         console.log('✅ Buffer cleared');
+    }
+
+    public async flush_buffer(on_flush?: () => void): Promise<void> {
+        if (!this.hls) {
+            console.warn('⚠️ No HLS instance to flush buffer');
+            return;
+        }
+        this.hls.audioStreamController.flushMainBuffer(0, Infinity);
+        this.hls.once(Hls.Events.BUFFER_FLUSHED, () => {
+            console.log('✅ Buffer flushed');
+            on_flush?.();
+        });
     }
 
     public async slice_buffer(start: number, end: number): Promise<void> {
@@ -645,6 +820,8 @@ class BufferController {
         if (this.audio_element) {
             console.log(`⏩ Seeking to ${time.toFixed(2)}s`);
             this.audio_element.currentTime = time;
+
+            console.log('   Current time after seek:', this.audio_element.currentTime);
             
             if (this.hls) {
                 this.hls.startLoad(time, true);
@@ -795,7 +972,7 @@ class BufferController {
         }
         
         const currentTime = this.audio_element?.currentTime ?? 0;
-        console.log('🔄 Reloading playlist, preserving position:', currentTime);
+        // console.log('🔄 Reloading playlist, preserving position:', currentTime);
         
         // Clear level details to force a playlist refetch
         // This is the non-disruptive approach - HLS.js will reload the playlist
@@ -805,7 +982,6 @@ class BufferController {
             // Clear the details to force a reload
             const level = this.hls.levels[currentLevel];
             (level as any).details = undefined;
-            console.log('🔄 Cleared level details, triggering reload...');
         }
         
         // Stop and restart loading at current position
@@ -818,6 +994,7 @@ class BufferController {
         // Restart loading at current position - this will refetch the playlist
         // The second parameter (true) skips seeking to start position
         this.hls.startLoad(currentTime, true);
+        // this.timestamps_of_tracks_cache = this.controller.http_interceptor_service.timestamps_of_tracks;
     }
 
     /**

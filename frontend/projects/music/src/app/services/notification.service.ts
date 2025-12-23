@@ -10,6 +10,7 @@ export enum NotificationType {
 export interface NotificationAction {
     label: string;
     callback: () => void;
+    icon?: string;
 }
 
 export interface Notification {
@@ -24,6 +25,8 @@ export interface Notification {
     actions?: NotificationAction[];
     autoDismiss?: boolean;
     dismissTime?: number;
+    details?: string;
+    hideStackCount?: boolean;
 }
 
 export interface NotificationOptions {
@@ -32,6 +35,8 @@ export interface NotificationOptions {
     actions?: NotificationAction[];
     autoDismiss?: boolean;
     dismissTime?: number; // in milliseconds
+    details?: string;
+    hideStackCount?: boolean;
 }
 
 @Injectable({
@@ -69,6 +74,8 @@ export class NotificationService {
 
             if (existingNotification) {
                 // Stack the notification
+                if(existingNotification.hideStackCount) return;
+
                 existingNotification.stackCount++;
                 existingNotification.stackedMessages.push(message);
                 existingNotification.timestamp = Date.now();
@@ -89,7 +96,9 @@ export class NotificationService {
             stackedMessages: [message],
             actions: options.actions,
             autoDismiss: options.autoDismiss ?? (type === NotificationType.INFO),
-            dismissTime: options.dismissTime ?? 5000
+            dismissTime: options.dismissTime ?? 5000,
+            details: options.details ?? '',
+            hideStackCount: options.hideStackCount ?? false,
         };
 
         // Add notification and maintain MAX_TOWERS limit
@@ -111,6 +120,7 @@ export class NotificationService {
     }
 
     public info(message: string, options: NotificationOptions = {}): void {
+        console.log('NotificationService.info called with message:', message, 'and options:', options);
         this.show(message, NotificationType.INFO, options);
     }
 

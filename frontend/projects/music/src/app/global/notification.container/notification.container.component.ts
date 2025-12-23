@@ -136,13 +136,13 @@ export class NotificationContainerComponent implements OnInit, OnDestroy {
     get_notification_icon_color(type: NotificationType): string {
         switch(type) {
             case NotificationType.INFO:
-                return '#1b1b1b';
+                return 'var(--color-text)';
             case NotificationType.WARNING:
                 return '#FFA000';
             case NotificationType.ERROR:
                 return '#D32F2F';
             default:
-                return '#1976D2';
+                return 'var(--color-primary)';
         }
     }
 }

@@ -1,18 +1,219 @@
 const CACHE_NAME_PREFIX = 'sinc_music';
-const VERSION_URL = '/music/app/version.txt';  
-const LOGGING_ENABLED = false;
+const VERSION_URL = 'app/version.txt';
+const LOGGING = false;
+const SW_VERSION = '1.0.5'; 
 
-let CURRENT_CACHE_NAME = `${CACHE_NAME_PREFIX}_v1`;
+const CACHE_NAME = `${CACHE_NAME_PREFIX}_cache_v${SW_VERSION}`;
 
-// Track if we need to notify clients about critical updates
-let pending_critical_update = false;
+class Service_Worker {
+    version = SW_VERSION;
+    cached_app_version = "0.0.0";
+    fetched_app_version = "0.0.0";
+    
+    constructor(service_worker) {
+        this.file_manager = new File_Manager();
+        this.database_ready = this.file_manager.open_database();
+        this.network_manager = new Network_Manager(this.file_manager, this);
+        this.self = service_worker;
+
+        this.initialize();
+    }
+
+    initialize() {
+        this.on_install_event();
+        this.on_activate_event();
+        this.initialize_fetch_event();
+        this.initialize_message_event();
+        this.check_for_app_update();
+    }
+
+    on_install_event() {
+        this.self.addEventListener('install', (event) => {
+            event.waitUntil(
+                (async () => {
+                    if (LOGGING) console.log(`Service Worker installing - Version: ${this.version}`);
+                    
+                    // Pre-cache static assets
+                    this.network_manager.cache_all_static_files();
+
+                    // Force the waiting service worker to become the active service worker
+                    await this.self.skipWaiting();
+                })()
+            );
+        });
+    }
+
+    on_activate_event() {
+        this.self.addEventListener('activate', (event) => {
+            event.waitUntil(
+                (async () => {
+                    if (LOGGING) console.log(`Service Worker activated - Version: ${this.version}`);
+                    
+                    // Wait for database to be ready
+                    await this.database_ready;
+                    
+                    // Delete old caches
+                    const cacheNames = await caches.keys();
+                    await Promise.all(
+                        cacheNames
+                            .filter(cacheName => cacheName.startsWith(CACHE_NAME_PREFIX) && cacheName !== CACHE_NAME)
+                            .map(cacheName => {
+                                if (LOGGING) console.log('Deleting old cache:', cacheName);
+                                return caches.delete(cacheName);
+                            })
+                    );
+                    
+                    // Check for app updates after activation
+                    // this.check_for_app_update();
+                    
+                    // Notify all clients about the update
+                    // const clients = await this.self.clients.matchAll();
+                    // clients.forEach(client => {
+                    //     client.postMessage({
+                    //         type: 'SW_UPDATED',
+                    //         version: this.version
+                    //     });
+                    // });
+                    
+                    await this.self.clients.claim();
+                })()
+            );
+        });
+    }
+
+    initialize_fetch_event() {
+        this.self.addEventListener('fetch', (event) => {
+            event.respondWith(
+                (async () => {
+                    // Wait for database to be ready before handling fetch
+                    await this.database_ready;
+                    return this.network_manager.handle_fetch(event.request);
+                })()
+            );
+        });
+    }
+
+    initialize_message_event() {
+        this.self.addEventListener('message', (event) => {
+            this.handle_message_event(event);
+        });
+    }
+
+    handle_message_event(event) {
+        const { type, payload } = event.data;
+        if (LOGGING) console.log('SW received message:', type, payload);
+        switch (type) {
+            case 'CHECK_FOR_APP_UPDATE':
+                this.check_for_app_update();
+                break;
+            default:
+                if (LOGGING) console.warn('SW received unknown message type:', type);
+        }
+    }
+
+    post_message_to_all_clients(type, payload) {
+        const message = { type, payload };
+        this.self.clients.matchAll().then(clients => {
+            clients.forEach(client => {
+                client.postMessage(message);
+            });
+        });
+    }
+
+    async check_for_app_update() {
+        // Wait for database to be ready before checking for updates
+        await this.database_ready;
+        
+        const [cached_version = "0.0.0", latest_version = "0.0.0"] = await Promise.all([
+            this.fetch_cached_app_version(),
+            this.fetch_latest_app_version()
+        ]);
+        this.cached_app_version = cached_version.trim();
+        this.fetched_app_version = latest_version.trim();
+
+        // Cache the latest version
+        if(this.fetched_app_version && this.fetched_app_version !== "0.0.0" && this.cached_app_version !== this.fetched_app_version) await this.cache_app_version(this.fetched_app_version);
+
+        const should_update = this.should_update_app();
+        this.post_message_to_all_clients('APP_VERSION', {
+            cached_version: this.cached_app_version,
+            latest_version: this.fetched_app_version,
+            should_update,
+            update_type: this.determine_update_type(this.cached_app_version, this.fetched_app_version),
+            service_worker_version: this.version,
+        });
+    }
+
+    should_update_app() {
+        if(LOGGING) console.log('Comparing app versions - Cached:', this.cached_app_version, 'Fetched:', this.fetched_app_version);
+        if(this.cached_app_version === "0.0.0" || this.fetched_app_version === "0.0.0") return false;
+        const should_update =  this.cached_app_version !== this.fetched_app_version; 
+        if(should_update) {
+            const update_type = this.determine_update_type(this.cached_app_version, this.fetched_app_version);
+            if(LOGGING) console.log(`App update available: ${this.cached_app_version} -> ${this.fetched_app_version} (${update_type})`);
+            this.file_manager.set_file_priority_threshold(
+                update_type === 'major' ? 3 :
+                update_type === 'minor' ? 2 :
+                update_type === 'patch' ? 1 : 0);
+        }
+        return should_update;
+    }
+    // 0.0.# => patch
+    // 0.#.0 => minor
+    // #.0.0 => major
+    determine_update_type(old_version, new_version) {
+        const old_parts = old_version.split('.').map(Number);
+        const new_parts = new_version.split('.').map(Number);
+
+        if (old_parts[0] !== new_parts[0]) return 'major';
+        if (old_parts[1] !== new_parts[1]) return 'minor';
+        if (old_parts[2] !== new_parts[2]) return 'patch';
+        return 'none';
+    }
+
+    async fetch_cached_app_version() {
+        try {
+            const response = await this.file_manager.cache_fetch(new Request(VERSION_URL));
+            if (response) {
+                return response.text();
+            } else {
+                return "0.0.0";
+            }
+        } catch (error) {
+            console.error('Error fetching cached app version:', error);
+        }
+    }
+
+    async cache_app_version(version) {
+        try {
+            const response = new Response(version, {
+                headers: { 'Content-Type': 'text/plain' }
+            });
+            await this.file_manager.cache_file(new Request(VERSION_URL), response);
+            if (LOGGING) console.log('Cached app version:', version);
+        } catch (error) {
+            console.error('Error caching app version:', error);
+        }
+    }
+
+    async fetch_latest_app_version() {
+        try {
+            const response = await fetch(VERSION_URL, { cache: 'no-store' });
+            if (response.ok) {
+                return response.text();
+            } else {
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+        } catch (error) {
+            console.error('Error fetching latest app version:', error);
+        }
+    }
+}
 
 class File_Manager {
-    static database_name = 'sinc_music_file_manager';
-    static store_name = 'files';
-
-    static STATIC_CACHE_URLS = [
-        '/music/',
+    static DATABASE_NAME = 'sinc_music_file_manager';
+    static OBJECT_STORE_NAME = 'files';
+    static STATIC_FILE_URLS = [
         '/music/index.html',
         '/music/app/manifest.webmanifest',
         '/music/app/version.txt',
@@ -66,93 +267,58 @@ class File_Manager {
         '/music/x.svg',
         '/music/audio/silent/audio/master.m3u8',
         '/music/audio/silent/audio/aac/ultra-low/32k.m3u8',
-        '/music/audio/silent/audio/aac/ultra-low/32k_0.ts',
-    ];
-    static STATIC_ASSET_DIRECTORIES = [
-        '/music/app/'
+        '/music/audio/silent/audio/aac/ultra-low/32k_60.ts',
     ];
 
-    cache_all_static_files() {
-        Promise.all(
-            File_Manager.STATIC_CACHE_URLS.map(async (url) => {
-                try {
-                    const response = await fetch(url, { cache: 'no-cache' });
-                    if (response.ok) {
-                        const cache = await caches.open(CURRENT_CACHE_NAME);
-                        await cache.put(url, response.clone());
-                        if (LOGGING_ENABLED) console.log('Cached static file:', url);
-                        // Store in IndexedDB as 'updated'
-                        this.store_file(url, 'updated');
-                    } else {
-                        throw new Error(`Failed to fetch ${url}: ${response.status}`);
-                    }
-                } catch (error) {
-                    console.warn('Error caching static file:', url, error.message);
-                }
-            })
-        );
+    database = null;
+    database_opened = false;
+    // file class 
+    // 0 => no_cache
+    // 1 => tiny change
+    // 2 => minor change
+    // 3 => major change
+    // 4 => static
+    file_priority_threshold = 0; // any file with classification <= this value will be refreshed (network first) but 0 is no_cache
+    constructor () { }
 
-        // this.cache_all_static_files_in_directories();
+    set_file_priority_threshold(threshold) {
+        this.file_priority_threshold = threshold;
+        if (LOGGING) console.log('File priority threshold set to:', this.file_priority_threshold);
+
+        const files_to_update = this.get_all_files_less_equal_classification(this.file_priority_threshold);
+        files_to_update.then((files) => {
+            files.forEach((file) => {
+                this.index_file(file.url, 'need_update');
+            });
+        }).catch((error) => {
+            this.handle_error(error);
+        });
     }
 
-    cache_all_static_files_in_directories() {
-        return Promise.all(
-            File_Manager.STATIC_ASSET_DIRECTORIES.map(async (directory) => {
-                try {
-                    const response = await fetch(directory, { cache: 'no-cache' });
-                    if (response.ok) {
-                        const text = await response.text();
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(text, 'text/html');
-                        const links = Array.from(doc.querySelectorAll('a'))
-                            .map(a => a.getAttribute('href'))
-                            .filter(href => href && !href.startsWith('http') && !href.startsWith('https') && !href.startsWith('//'))
-                            .map(href => {
-                                if (href.startsWith('/')) return href; // absolute path
-                                if (directory.endsWith('/')) return directory + href; // relative to directory
-                                return directory + '/' + href; // fallback
-                            });
-                        await Promise.all(
-                            links.map(async (url) => {
-                                try {
-                                    const fileResponse = await fetch(url, { cache: 'no-cache' });
-                                    if (fileResponse.ok) {
-                                        const cache = await caches.open(CURRENT_CACHE_NAME);
-                                        await cache.put(url, fileResponse.clone());
-                                        if (LOGGING_ENABLED) console.log('Cached asset file:', url);
-                                        // Store in IndexedDB as 'updated'
-                                        this.store_file(url, 'updated');
-                                    } else {
-                                        throw new Error(`Failed to fetch ${url}: ${fileResponse.status}`);
-                                    }
-                                } catch (error) {
-                                    console.warn('Error caching asset file:', url, error.message);
-                                }
-                            })
-                        );
-                    } else {
-                        throw new Error(`Failed to fetch directory ${directory}: ${response.status}`);
-                    }
-                } catch (error) {
-                    console.warn('Error processing directory:', directory, error.message);
-                }
-            })
-        );
+    handle_error(error) {
+        if(LOGGING) console.error('File_Manager Error:', error);
+        else { 
+            // Handle error silently
+        };
     }
 
     open_database() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(File_Manager.database_name, 1);
+            const request = indexedDB.open(File_Manager.DATABASE_NAME, 2);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                if (!db.objectStoreNames.contains(File_Manager.store_name)) {
-                    const store = db.createObjectStore(File_Manager.store_name, { keyPath: 'url' });
+                if (!db.objectStoreNames.contains(File_Manager.OBJECT_STORE_NAME)) {
+                    const store = db.createObjectStore(File_Manager.OBJECT_STORE_NAME, { keyPath: 'url' });
 
                     store.createIndex('status', 'status', { unique: false });
                     store.createIndex('class', 'class', { unique: false });
                 }
             };
-            request.onsuccess = () => resolve(request.result);
+            request.onsuccess = () => {
+                this.database = request.result;
+                this.database_opened = true;
+                resolve(request.result);
+            };
             request.onerror = () => reject(request.error);
         });
     }
@@ -160,904 +326,330 @@ class File_Manager {
     // gets the file's type and then returns the classification
     // depending on the files type, we can classify if it needs an update based on the version update scheme:
 
-    // tiny update: (0.0.#) -> highest priority (tiny)
+    // no cache (0)
+    // tiny update: (0.0.#) -> highest priority (1)
     //      This is for files that are frequently updated, like small assets or configuration files.
-    // minor update: (0.#.0) -> medium priority (minor)
-    //      This is for files that are updated less frequently, like images or stylesheets.
-    // major update: (#.0.0) -> lowest priority (major)
+    // minor update: (0.#.0) -> medium priority (2)
+    //      This is for files that are updated less frequently, like images.
+    // major update: (#.0.0) -> lowest priority (3)
     //      This is for files that are rarely updated, like scripts or libraries. but when they are updated, they are significant changes.
     get_file_classification(url) {
         if (!url) {
-            if (LOGGING_ENABLED) console.warn('get_file_classification called with empty URL');
+            if (LOGGING) console.warn('get_file_classification called with empty URL');
             return 'no_cache'; // Default to no_cache if no URL is provided
         }
-        if (LOGGING_ENABLED) console.log('Classifying file:', url);
+        if (LOGGING) console.log('Classifying file:', url);
         const file_extension = url.split('.').pop().toLowerCase();
 
         const classifications = {
-            'js': 'tiny', 
-            'ts': 'no cache', // HLS song segments should not be cached
-            'm3u8': 'no cache', // HLS playlists should not be cached
-            'css': 'tiny', 
-            'html': 'tiny', 
-            'png': 'minor', 
-            'jpg': 'minor',
-            'jpeg': 'minor',
-            'gif': 'minor',
-            'svg': 'minor',
-            'json': 'minor',
-            'txt': 'tiny',
-            'svg': 'minor',
+            'js': 1, 
+            'css': 1, 
+            'html': 1, 
+            'ts': 0, // HLS song segments should not be cached
+            'm3u8': 0, // HLS playlists should not be cached
+            'png': 2, 
+            'jpg': 2,
+            'jpeg': 2,
+            'gif': 2,
+            'svg': 2,
+            'json': 2,
+            'txt': 1,
+            'svg': 2,
+            'webmanifest': 3,
+            'manifest': 3,
+            
         };
+        if(!file_extension) return 0;
 
-        return classifications[file_extension] || 'tiny'; // Default to tiny if not classified (meaning it is a frequently updated file)
+        return classifications[file_extension] || 1; // Default to tiny if not classified (meaning it is a frequently updated file)
     }
 
-    // if true, then serve cache version first
-    is_file_minor_or_major(url) {
-        const classification = this.get_file_classification(url.pathname);
-        return classification === 'minor' || classification === 'major';
-    }
+    // status => 'updated' | 'need_update'
+    async index_file(url, status = 'updated') {
+        if (!this.database_opened) return this.handle_error({message: 'Database not opened yet'});
+        try {
+            const classification = this.get_file_classification(url);
+            if (!await this.should_cache_file(url)) return;
 
-    // status = 'updated' | 'needs_update'
-    async store_file(url, status = 'updated') {
-        const db = await this.open_database();
-        const classification = this.get_file_classification(url.pathname);
-        if(classification === 'no cache') {
-            if (LOGGING_ENABLED) console.warn('Skipping caching for no cache classification:', url);
-            return; // Skip storing files that should not be cached
-        }
+            const transaction = this.database.transaction([File_Manager.OBJECT_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(File_Manager.OBJECT_STORE_NAME);
 
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(File_Manager.store_name, 'readwrite');
-            const store = transaction.objectStore(File_Manager.store_name);
-
-            const record = {
+            const file_record = {
                 url: url,
+                class: classification,
                 status: status,
-                class: classification, // classify the file based on its type
             };
 
-            const request = store.put(record);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => {
-                if (LOGGING_ENABLED) console.log('File stored:', url, 'Status:', status);
-                db.close();
-            }
-            transaction.onerror = () => {
-                console.error('Transaction error:', transaction.error);
-                reject(transaction.error);
-            }
-        });
-    }
-
-    async get_file(url) {
-        const db = await this.open_database();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(File_Manager.store_name, 'readonly');
-            const store = transaction.objectStore(File_Manager.store_name);
-            const request = store.get(url);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => {
-                if (LOGGING_ENABLED) console.log('File retrieved:', url);
-                db.close();
-            }
-            transaction.onerror = () => {
-                console.error('Transaction error:', transaction.error);
-                reject(transaction.error);
-            }
-        });
-    }
-
-    async get_all_files_by_status(status) {
-        const db = await this.open_database();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(File_Manager.store_name, 'readonly');
-            const store = transaction.objectStore(File_Manager.store_name);
-            const index = store.index('status');
-            const request = index.getAll(status);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => {
-                if (LOGGING_ENABLED) console.log('Files retrieved by status:', status);
-                db.close();
-            }
-            transaction.onerror = () => {
-                console.error('Transaction error:', transaction.error);
-                reject(transaction.error);
-            }
-        });
-    }
-
-    async get_all_files_by_classification(classification) {
-        const db = await this.open_database();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(File_Manager.store_name, 'readonly');
-            const store = transaction.objectStore(File_Manager.store_name);
-            const index = store.index('class');
-            const request = index.getAll(classification);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => {
-                if (LOGGING_ENABLED) console.log('Files retrieved by classification:', classification);
-                db.close();
-            }
-            transaction.onerror = () => {
-                console.error('Transaction error:', transaction.error);
-                reject(transaction.error);
-            }
-        });
-    }
-
-    // Consume a fetch request and check IndexedDB for the file
-    // If the file is updated, use the cache strategy: cache_first
-    // if file not found or marked as 'needs_update', fetch from network and store in IndexedDB: network_first
-    async get_strategy(url) {
-        // consume fetch request
-        const file = await this.get_file(url.pathname);
-
-        if (file) {
-            if (LOGGING_ENABLED) console.log('File found in IndexedDB:', file.url, 'Status:', file.status);
-            // If the file is marked as 'needs_update', we can still serve it from cache
-            if (file.status === 'needs_update') {
-                if (LOGGING_ENABLED) console.log('needs_update status:', file.url);
-                return 'network_first';
-            }
-
-            if(this.is_file_minor_or_major(url)) {
-                return 'cache_first';
-            }
-        }
-
-        // Default to network_first
-        if (LOGGING_ENABLED) console.log('File not found in IndexedDB, proceeding with fetch:', url.pathname);
-        return 'network_first';
-    }
-
-    async handle_fetch_request(request) {
-        const url = new URL(request.url);
-        const strategy = await this.get_strategy(url);
-
-        if (LOGGING_ENABLED) console.log('Fetch strategy for', url.pathname, ':', strategy);
-
-        try {
-            if (strategy === 'cache_first') return await this.cache_first(request, url);
-            else return await this.network_first(request, url); // default to network_first
-        } catch (error) {
-            // Log the error and return a fallback response
-            console.error(`Error in fetch strategy for ${url.pathname}:`, error);
-            return new Response('Error fetching resource', {
-                status: 500,
-                headers: { 'Content-Type': 'text/plain' }
-            });
-        }
-    }
-
-    async network_first(request, url) {
-        try {
-            const network_response = await fetch(request, { cache: 'no-cache' });
-            if (!network_response.ok) throw new Error(`Network response not ok: ${network_response.status}`);
-
-            // Check if this is a critical file (JS files that need reload)
-            const is_critical = this.is_critical_file(url);
-            
-            // Cache successful responses
-            const cache = await caches.open(CURRENT_CACHE_NAME);
-            await cache.put(request, network_response.clone());
-            if (LOGGING_ENABLED) console.log('Served from network and cached:', url);
-
-            // Store in IndexedDB
-            this.store_file(url.pathname, 'updated');
-
-            // Clean up old versions of hashed files (Angular build files with hash in filename)
-            if (this.is_hashed_file(url.pathname)) {
-                await this.cleanup_old_hashed_files(url.pathname);
-            }
-
-            // If this is a critical JS file update, notify clients to reload
-            if (is_critical) {
-                pending_critical_update = true;
-                this.notify_clients_critical_update();
-            }
-
-            return network_response; // Return the network response directly
-        } catch (error) {
-            // last resort, try to serve from cache
-            const cached_response = await caches.match(request);
-            if (!cached_response) throw new Error(`Network first strategy failed for "${url.pathname}": ${error.message}`);
-            if (LOGGING_ENABLED) console.warn('Served from cache (network_first):', url.pathname);
-            return cached_response;
-        }
-    }
-
-    async cache_first(request, url) {
-        try {
-            const cached_response = await caches.match(request);
-            if (cached_response) {
-                if (LOGGING_ENABLED) console.log('🌐 Served from cache (cache_first):', url.pathname);
-                return cached_response;
-            }
-
-            // not in cache, try network
-            return await this.network_first(request, url);
-        } catch (error) {
-            throw new Error(`Cache first strategy failed for "${url.pathname}": ${error.message}`);
-        }
-    }
-
-    async update_all_files_status_by_version_update(update_type, stored_version, server_version) {
-        if(update_type === 'tiny') {
-            // update all files marked as 'updated' to 'needs_update'
-            const files = await this.get_all_files_by_classification('tiny');
-            for (const file of files) {
-                await this.store_file(file.url, 'needs_update');
-                if (LOGGING_ENABLED) console.log(`Updated file status to 'needs_update': ${file.url}`);
-            }
-        }
-        else if(update_type === 'minor') {
-            // update all files marked as 'updated' to 'needs_update'
-            const files = [...(await this.get_all_files_by_classification('minor')), ...(await this.get_all_files_by_classification('tiny'))];
-            for (const file of files) {
-                await this.store_file(file.url, 'needs_update');
-                if (LOGGING_ENABLED) console.log(`Updated file status to 'needs_update': ${file.url}`);
-            }
-        } 
-        else if(update_type === 'major') {
-            // CLEAR ALL FILES
-            const files = await this.get_all_files_by_status('updated');
-            for (const file of files) {
-                await this.store_file(file.url, 'needs_update');
-                if (LOGGING_ENABLED) console.log(`Updated file status to 'needs_update': ${file.url}`);
-            }
-        }
-        else if (update_type === 'full') {
-            // CLEAR CACHE AND DATABASE
-            if( LOGGING_ENABLED) console.warn('Clearing all files in IndexedDB');
-        }
-
-        // Notify clients about the update
-        pending_critical_update = true;
-        this.notify_clients_update(stored_version, server_version, update_type);
-    }
-
-
-
-
-
-
-
-
-
-
-
-    // Notify clients about updates
-    async notify_clients_update(stored_version, server_version, update_type) {
-        try {
-            if (self.clients && self.clients.matchAll) {
-                const clients = await self.clients.matchAll({ type: 'window' });
-                clients.forEach(client => {
-                    if (LOGGING_ENABLED) console.log('Notifying client of update:', stored_version, '->', server_version);
-                    client.postMessage({
-                        type: 'update_available',
-                        payload: {
-                            stored_version,
-                            server_version,
-                            update_type
-                        }
-                    });
-                });
-            }
-        } catch (error) {
-            console.error('Error notifying clients of update:', error);
-        }
-    }
-
-    get_version_update_type(current_version, server_version) {
-        const current_parts = current_version.split('.').map(Number);
-        const server_parts = server_version.split('.').map(Number);
-
-        if (server_parts[0] > current_parts[0]) return 'major'; // Major update
-        if (server_parts[1] > current_parts[1]) return 'minor'; // Minor update
-        if (server_parts[2] > current_parts[2]) return 'tiny'; // Tiny update
-
-        return null; // No update needed
-    }
-
-    // Check if a file is critical (JS files that require full reload)
-    is_critical_file(url) {
-        const pathname = typeof url === 'string' ? url : url.pathname;
-        
-        // Angular critical files that require reload
-        const critical_patterns = [
-            'main.',           // Angular main bundle
-            'polyfills.',      // Polyfills bundle
-            'runtime.',        // Angular runtime
-            'vendor.',         // Vendor libraries
-            'chunk-',          // Lazy-loaded chunks
-            'scripts.'         // Additional scripts
-        ];
-        
-        // Must be a JavaScript file and match critical patterns
-        if (!pathname.endsWith('.js')) return false;
-        
-        return critical_patterns.some(pattern => pathname.includes(pattern));
-    }
-
-    async check_and_notify_critical_updates() {
-        const db = await this.open_database();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction(File_Manager.store_name, 'readonly');
-            const store = transaction.objectStore(File_Manager.store_name);
-            const index = store.index('status');
-            const request = index.getAll('updated');
+            const request = store.put(file_record);
             request.onsuccess = () => {
-                const files = request.result;
-                const critical_files = files.filter(file => this.is_critical_file(file.url));
-                
-                if (critical_files.length > 0) {
-                    pending_critical_update = true;
-                    if (LOGGING_ENABLED) console.log('Pending critical update for files:', critical_files);
-                }
-                
-                resolve(request.result);
+                if (LOGGING) console.log(`File indexed successfully: ${url}`);
             };
-            request.onerror = () => reject(request.error);
-
-            transaction.oncomplete = () => {
-                if (LOGGING_ENABLED) console.log('Checked for critical updates');
-                db.close();
-            }
-            transaction.onerror = () => {
-                console.error('Transaction error:', transaction.error);
-                reject(transaction.error);
-            }
-        });
-    }
-
-    // Check if a file is a hashed build file (e.g., main-ABCD1234.js, polyfills-WXYZ5678.js)
-    is_hashed_file(pathname) {
-        const filename = pathname.split('/').pop();
-        // Match Angular hashed files: name-HASH.extension
-        const hashed_pattern = /^(main|polyfills|runtime|vendor|scripts|chunk-|styles)-[A-Z0-9]{8,}\.(js|css)$/i;
-        return hashed_pattern.test(filename);
-    }
-
-    // Get the base name from a hashed file (e.g., "main" from "main-ABCD1234.js")
-    get_hashed_file_base(pathname) {
-        const filename = pathname.split('/').pop();
-        const match = filename.match(/^(main|polyfills|runtime|vendor|scripts|chunk-\w+|styles)-[A-Z0-9]{8,}\.(js|css)$/i);
-        if (match) {
-            return match[1]; // Return the base name (e.g., "main", "polyfills")
-        }
-        return null;
-    }
-
-    // Clean up old versions of hashed files, keeping only the newest one
-    async cleanup_old_hashed_files(new_pathname) {
-        try {
-            const base_name = this.get_hashed_file_base(new_pathname);
-            if (!base_name) return;
-
-            const cache = await caches.open(CURRENT_CACHE_NAME);
-            const cached_keys = await cache.keys();
-            
-            // Find all cached files with the same base name
-            const old_versions = cached_keys.filter(request => {
-                const url = new URL(request.url);
-                if (url.pathname === new_pathname) return false; // Don't delete the new version
-                
-                const cached_base = this.get_hashed_file_base(url.pathname);
-                return cached_base === base_name;
-            });
-
-            // Delete old versions from cache
-            for (const request of old_versions) {
-                const url = new URL(request.url);
-                await cache.delete(request);
-                if (LOGGING_ENABLED) console.log('🗑️ Deleted old hashed file from cache:', url.pathname);
-                
-                // Also delete from IndexedDB
-                await this.delete_file(url.pathname);
-            }
-
-            if (old_versions.length > 0) {
-                console.log(`🧹 Cleaned up ${old_versions.length} old version(s) of ${base_name}`);
-            }
+            request.onerror = () => {
+                this.handle_error(request.error);
+            };
         } catch (error) {
-            console.error('Error cleaning up old hashed files:', error);
+            this.handle_error(error);
         }
     }
 
-    // Delete a file from IndexedDB
-    async delete_file(url) {
+    async get_all_files_less_equal_classification(classification) {
+        if (!this.database_opened) {
+            this.handle_error({message: 'Database not opened yet'});
+            return [];
+        }
         try {
-            const db = await this.open_database();
+            const transaction = this.database.transaction([File_Manager.OBJECT_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(File_Manager.OBJECT_STORE_NAME);
+            const index = store.index('class');
+            // Get all files with classification between 1 and the specified classification (inclusive)
+            // IDBKeyRange.bound(lower, upper, lowerOpen, upperOpen)
+            const request = index.getAll(IDBKeyRange.bound(1, classification, false, false));
+
             return new Promise((resolve, reject) => {
-                const transaction = db.transaction(File_Manager.store_name, 'readwrite');
-                const store = transaction.objectStore(File_Manager.store_name);
-                const request = store.delete(url);
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-
-                transaction.oncomplete = () => {
-                    if (LOGGING_ENABLED) console.log('File deleted from IndexedDB:', url);
-                    db.close();
-                }
-                transaction.onerror = () => {
-                    console.error('Transaction error:', transaction.error);
-                    reject(transaction.error);
-                }
+                request.onsuccess = () => {
+                    resolve(request.result);
+                };
+                request.onerror = () => {
+                    reject(request.error);
+                };
             });
         } catch (error) {
-            console.warn('Error deleting file from IndexedDB:', error);
+            this.handle_error(error);
+            return [];
         }
     }
-}
 
-const file_manager = new File_Manager();
-
-// Install event - check version and cache accordingly
-self.addEventListener('install', (event) => {
-    if(LOGGING_ENABLED) console.log('installing sw...');
-    event.waitUntil(
-        check_version_and_cache()
-            .then(() => {
-                if(LOGGING_ENABLED) console.log('sw installed');
-                return self.skipWaiting();
-            })
-            .catch(error => {
-                console.error('sw installation failed:', error);
-                return self.skipWaiting();
-            })
-    )
-});
-
-// Activate event
-self.addEventListener('activate', event => {
-    event.waitUntil(
-        (async () => {
-            // Take control of all clients immediately
-            await self.clients.claim();
-            
-            // ✅ Send cached version to all clients after activation
-            await send_version_to_clients();
-
-            // If there was a critical update, notify clients to reload
-            if (pending_critical_update) {
-                file_manager.notify_clients_critical_update();
-            }
-        })()
-    );
-});
-
-// ✅ Function to send the current cached version to all clients
-async function send_version_to_clients() {
-    try {
-        if (self.clients && self.clients.matchAll) {
-            const clients = await self.clients.matchAll({ type: 'window' });
-            if (clients.length > 0) {
-                // Get the cached version
-                const cache = await caches.open(CURRENT_CACHE_NAME);
-                const cached_version_response = await cache.match(VERSION_URL);
-                
-                if (cached_version_response) {
-                    const cached_version = (await cached_version_response.text()).trim().toLowerCase();
-                    if(LOGGING_ENABLED) console.log('Sending cached version to clients:', cached_version);
-                    
-                    clients.forEach(client => {
-                        if(LOGGING_ENABLED) console.log('Posting version message to client');
-                        client.postMessage({
-                            type: 'update_stored_version',
-                            payload: {
-                                version: cached_version,
-                            }
-                        });
-                    });
-                } else {
-                    if(LOGGING_ENABLED) console.log('No cached version found to send to clients');
-                }
-            } else {
-                if(LOGGING_ENABLED) console.log('No clients found to send version to');
-            }
+    async get_indexed_file(url) {
+        if (!this.database_opened) {
+            this.handle_error({message: 'Database not opened yet'});
+            return null;
         }
-    } catch (error) {
-        console.error('Error sending version to clients:', error);
-    }
-}
-
-async function check_version_and_cache() {
-    try {
-        const cache = await caches.open(CURRENT_CACHE_NAME);
-        const stored_version_response = await cache.match(VERSION_URL);
-        const stored_version = stored_version_response ?
-            (await stored_version_response.text()).trim().toLowerCase() :
-            '0.0.0'; // Default version if not found
-
-        if(LOGGING_ENABLED) console.log('Stored version:', stored_version);
-
-        // Fetch the current version from the server
-        let server_version = null;
         try {
-            const response = await fetch(VERSION_URL, {
-                cache: 'no-cache',
-                headers: { 'Cache-Control': 'no-cache' }
+            const transaction = this.database.transaction([File_Manager.OBJECT_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(File_Manager.OBJECT_STORE_NAME);
+            const request = store.get(url);
+
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => {
+                    resolve(request.result);
+                };
+                request.onerror = () => {
+                    reject(request.error);
+                };
             });
-            if (response.ok) {
-                server_version = (await response.text()).trim().toLowerCase();
-                if(LOGGING_ENABLED) console.log('Server version:', server_version);
-                
-                // ✅ Cache the server version immediately
-                const cache = await caches.open(CURRENT_CACHE_NAME);
-                await cache.put(VERSION_URL, new Response(server_version, { 
-                    headers: { 'Content-Type': 'text/plain' } 
-                }));
-                if(LOGGING_ENABLED) console.log('Cached server version:', server_version);
-                
-            } else {
-                throw new Error(`${response.status}`);
+        } catch (error) {
+            this.handle_error(error);
+            return null;
+        }
+    }
+
+    is_local_url(url) {
+        try {
+            const parsedUrl = new URL(url, self.location.href);
+            return parsedUrl.origin === self.location.origin;
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
+    async should_cache_file(url) {
+        const url_object = new URL(url);
+        if (!this.is_local_url(url_object)) return false; // cache only local files
+        const classification = this.get_file_classification(url_object.href) || 0;
+
+        if (classification === 0) return false; // no_cache
+        // check if cached at all, if not, cache it
+        const cached = await this.get_indexed_file(url_object.href);
+        if (!cached) return true;
+        
+        // if already cached, check classification against threshold to see if we should refresh
+        if (classification <= this.file_priority_threshold) return true;
+        return false;
+    }
+
+    async cache_fetch(request) {
+        try {
+            const cache = await caches.match(request);
+            return cache || null;
+        } catch (error) {
+            this.handle_error(error);
+            return null;
+        }
+    }
+
+    async cache_file(request, response) {
+        try {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response);
+            await this.index_file(request.url);
+        } catch (error) {
+            this.handle_error(error);
+        }
+    }
+}
+
+class Network_Manager {
+    constructor(file_manager, service_worker) {
+        this.service_worker = service_worker;
+        this.file_manager = file_manager;
+    }
+
+    handle_error(error) {
+        if(LOGGING) console.error('Network_Manager Error:', error);
+        else {
+            // Handle error silently
+        };
+    }
+
+    is_session_request(url) {
+        try {
+            const parsed_url = new URL(url, self.location.href);
+            return parsed_url.pathname.includes('session');
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
+    async fetch(request, cache = false) {
+        if (this.is_session_request(request.url)) {
+            return await new Promise((resolve, reject) => {
+                this.service_worker.post_message_to_all_clients('SESSION_REQUEST', { url: request.url });
+
+                // wait for response from client
+                const message_handler = (event) => {
+                    const { type, payload } = event.data;
+                    if (type === 'SESSION_RESPONSE' && payload.url === request.url) {
+                        this.service_worker.self.removeEventListener('message', message_handler);
+                        resolve(new Response(payload.data, { status: 200 }));
+                    }
+                };
+                this.service_worker.self.addEventListener('message', message_handler);
+
+                // timeout after 5 seconds
+                setTimeout(() => {
+                    this.service_worker.self.removeEventListener('message', message_handler);
+                    reject(new Response('Session request timed out', { status: 504 }));
+                }, 5000);
+            });
+        }
+
+        const response = await fetch(request);
+        if(!response || !response.ok) {
+            this.handle_error(new Error(`Network request failed for ${request.url} with status ${response.status}`));
+            return response;
+        }
+
+        if(cache) {
+            try {
+                this.file_manager.cache_file(request, response.clone());
+            } catch (error) {
+                this.handle_error(error);
+            }
+        }
+
+        return response;
+    }
+
+    async cache_first_fetch(request, cache_override = null) {
+        try {
+            const cachedResponse = await this.file_manager.cache_fetch(request);
+            if (cachedResponse) return cachedResponse;
+
+            return await this.fetch(request, cache_override ?? await this.file_manager.should_cache_file(request.url));
+        } catch (error) {
+            this.handle_error(error);
+            // Always return a valid Response
+            return new Response('Network Error', { 
+                status: 503, 
+                statusText: 'Service Unavailable' 
+            });
+        }
+    }
+
+    async network_first_fetch(request, cache_override = null) {
+        try {
+            const response = await this.fetch(request, cache_override ?? await this.file_manager.should_cache_file(request));
+            if (response && response.ok) {
+                return response;
+            }
+            // If network fetch failed, try cache
+            const cachedResponse = await this.file_manager.cache_fetch(request);
+            if (cachedResponse) return cachedResponse;
+
+            return response; // return the failed response
+        } catch (error) {
+            this.handle_error(error);
+            // Always return a valid Response
+            return new Response('Network Error', { 
+                status: 503, 
+                statusText: 'Service Unavailable' 
+            });
+        }
+    }
+
+    is_local_url(url) {
+        try {
+            const parsedUrl = new URL(url, self.location.href);
+            return parsedUrl.origin === self.location.origin;
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
+    async get_fetch_strategy(url) {
+        if (!this.is_local_url(url)) return 'network_first';
+
+        const file = await this.file_manager.get_indexed_file(url.href);
+        if (!file) return 'network_first'; // no record
+        if(file.status === 'need_update') return 'network_first';
+        const classification = this.file_manager.get_file_classification(url.href);
+
+        if (classification <= this.file_manager.file_priority_threshold) return 'network_first';
+        return 'cache_first';
+    }
+
+    async handle_fetch(request, cache_override = null) {
+        try {
+            const url = new URL(request.url);
+            const strategy = await this.get_fetch_strategy(url);
+            if(LOGGING) console.log('Handling fetch for:', request.url, 'with strategy:', strategy);
+            
+            switch (strategy) {
+                case 'no_cache':
+                case 'network_first':
+                    return await this.network_first_fetch(request, cache_override ?? await this.file_manager.should_cache_file(url));
+                case 'cache_first':
+                    return await this.cache_first_fetch(request, cache_override);
+                default:
+                    throw new Error(`Unknown fetch strategy: ${strategy}`);
             }
         } catch (error) {
-            console.warn('Could not fetch server version:', error.message);
+            this.handle_error(error);
+            return new Response('Service Worker Error', { 
+                status: 500, 
+                statusText: 'Internal Service Worker Error' 
+            });
         }
+    }
 
-        // compare versions
-        if (server_version && server_version !== stored_version) {
-            // version mismatch - update cache
-            const update_type = file_manager.get_version_update_type(stored_version, server_version);
-            if(LOGGING_ENABLED) console.log('Version update detected:', stored_version, '->', server_version, 'Type:', update_type);
-            
-            file_manager.update_all_files_status_by_version_update(update_type, stored_version, server_version);
-            
-            // For any version change, we should consider it critical since Angular apps
-            // can have breaking changes even in minor updates
-            pending_critical_update = true;
-        } else {
-            // version match or no server version available (use existing cache)
-            console.log(server_version ? 'Version match, using existing cache' : 'No server version available, using existing cache');
-        }
-
-    } catch (error) {
-        console.error('Error during version check and cache update:', error);
-        throw error; // Rethrow to let the install event handle it
+    cache_all_static_files() {
+        Promise.all(
+            File_Manager.STATIC_FILE_URLS.map((url) => {
+                try {
+                    // fetch and store
+                    const request = new Request(url);
+                    this.handle_fetch(request, true);
+                } catch (error) {
+                    this.handle_error(error);
+                }
+            })
+        )
     }
 }
 
-// async function update_cache(new_version) {
-//     try {
-//         // first update the local cache version
-//         let cache = await caches.open(CURRENT_CACHE_NAME);
-//         await cache.put(VERSION_URL, new Response(new_version, { headers: { 'Content-Type': 'text/plain' } }));
-//         if(LOGGING_ENABLED) console.log('Updated local version to:', new_version);
+if (LOGGING) console.log('Service Worker script loaded');
 
-//         // then update the cache with static files
-//         if(LOGGING_ENABLED) console.log('static files');
-//         const static_files_promises = STATIC_CACHE_URLS.map(async (url) => {
-//             try {
-//                 const response = await fetch(url, { cache: 'no-cache' });
-//                 if (response.ok) {
-//                     await cache.put(url, response.clone());
-//                     if(LOGGING_ENABLED) console.log('Cached:', url);
-//                 } else {
-//                     throw new Error(`Failed to fetch ${url}: ${response.status}`);
-//                 }
-//             } catch (error) {
-//                 console.warn('Error caching:', url, error.message);
-//             }
-//         });
-
-//         await Promise.allSettled(static_files_promises);
-//         if(LOGGING_ENABLED) console.log('Static files cached');
-
-//     } catch (error) {
-//         console.error('Error updating cache:', error);
-//         throw error; // Rethrow to let the install event handle it
-//     }
-// }
-
-// Clean up old caches
-// async function cleanupOldCaches() {
-//   const cacheNames = await caches.keys();
-//   const deletionPromises = cacheNames
-//     .filter(name => name.startsWith(CACHE_NAME_PREFIX) && name !== CURRENT_CACHE_NAME)
-//     .map(name => {
-//       console.log('🗑️ Deleting old cache:', name);
-//       return caches.delete(name);
-//     });
-  
-//   await Promise.all(deletionPromises);
-// }
-
-// Fetch event - serve from cache with network fallback
-self.addEventListener('fetch', (event) => {
-    const { request } = event;
-    const url = new URL(request.url);
-
-    // Skip non-GET requests
-    if (request.method !== 'GET') return;
-
-    // Skip external requests (YouTube thumbnails, Spotify images, etc.)
-    // Only intercept requests from our own origin
-    const is_same_origin = url.origin === self.location.origin;
-    const is_music_path = url.pathname.startsWith('/music/');
-    
-    if (!is_same_origin || !is_music_path) {
-        // Let external requests pass through - browser's HTTP cache will handle them
-        if (LOGGING_ENABLED) console.log('⏭️ Skipping service worker cache for external/non-music resource:', url.href);
-        return;
-    }
-
-    // Handle version.txt requests specially
-    if (url.pathname === VERSION_URL) {
-        event.respondWith(handle_version_request(request));
-        return;
-    }
-
-    // For all other local requests, use our caching strategy
-    event.respondWith(
-        file_manager.handle_fetch_request(request)
-    );
-});
-
-
-// Handle version.txt requests - cache first for regular requests
-async function handle_version_request(request) {
-    try {
-        const network_response = await fetch(request, { cache: 'no-cache' });
-        if (network_response.ok) {
-            // Clone the response before consuming its body
-            const response_clone = network_response.clone();
-            const version_text = await response_clone.text();
-            const cache = await caches.open(CURRENT_CACHE_NAME);
-            await cache.put(VERSION_URL, new Response(version_text, { headers: { 'Content-Type': 'text/plain' } }));
-
-            // ✅ Send message to clients to update version
-            if (self.clients && self.clients.matchAll) {
-                const clients = await self.clients.matchAll({ type: 'window' });
-                clients.forEach(client => {
-                    if(LOGGING_ENABLED) console.log('Sending version update to client:', version_text.trim().toLowerCase());
-                    client.postMessage({
-                        type: 'update_stored_version',
-                        payload: {
-                            version: version_text.trim().toLowerCase(),
-                        }
-                    });
-                });
-            }
-            
-            if(LOGGING_ENABLED) console.log('🌐 Served version from network and stored');
-            // Return a new response with the version text to avoid body lock issues
-            return new Response(version_text, { 
-                status: network_response.status,
-                statusText: network_response.statusText,
-                headers: network_response.headers 
-            });
-        }
-    } catch (error) {
-        console.warn('⚠️ Network failed for version check:', error.message);
-    }
-  
-    // ✅ If network fails, try to serve from cache and still send to clients
-    try {
-        const cache = await caches.open(CURRENT_CACHE_NAME);
-        const cached_response = await cache.match(VERSION_URL);
-        if (cached_response) {
-            const cached_version = await cached_response.text();
-            
-            // Send cached version to clients
-            if (self.clients && self.clients.matchAll) {
-                const clients = await self.clients.matchAll({ type: 'window' });
-                clients.forEach(client => {
-                    if(LOGGING_ENABLED) console.log('Sending cached version to client:', cached_version.trim().toLowerCase());
-                    client.postMessage({
-                        type: 'update_stored_version',
-                        payload: {
-                            version: cached_version.trim().toLowerCase(),
-                        }
-                    });
-                });
-            }
-            
-            if(LOGGING_ENABLED) console.log('📦 Served version from cache');
-            return new Response(cached_version, { 
-                headers: { 'Content-Type': 'text/plain' }
-            });
-        }
-    } catch (cache_error) {
-        console.warn('⚠️ Cache failed for version check:', cache_error.message);
-    }
-  
-    // Fallback response if both network and cache fail
-    return new Response('0.0.0', { 
-        headers: { 'Content-Type': 'text/plain' }
-    });
-}
-
-// async function handle_fetch_request(request) {
-//     try {
-//         const url = new URL(request.url);
-
-//         if(LOGGING_ENABLED) console.log('🔍 Fetching:', url.pathname);
-
-//         // Check cache first
-//         const cached_response = await caches.match(request);
-//         if (cached_response) {
-//             if(LOGGING_ENABLED) console.log('📦 Served from cache:', url.pathname);
-//             return cached_response;
-//         }
-
-//         // not in cache, try network
-//         try {
-//             const network_response = await fetch(request, { cache: 'no-cache' });
-//             if (network_response.ok) {
-//                 // Cache successful responses
-//                 const cache = await caches.open(CURRENT_CACHE_NAME);
-//                 cache.put(request, network_response.clone());
-//                 if(LOGGING_ENABLED) console.log('🌐 Served from network and cached:', url.pathname);
-//                 return network_response;
-//             } else {
-//                 throw new Error(`Network response not ok: ${network_response.status}`);
-//             }
-//         } catch (network_error) {
-//             // Network failed, try cache again
-//             const fallback_response = await caches.match(request);
-//             if (fallback_response) {
-//                 if(LOGGING_ENABLED) console.log('📦 Served fallback from cache:', url.pathname);
-//                 return fallback_response;
-//             }
-//             // Optionally, serve a custom offline page
-//             if (url.pathname === '/music/' || url.pathname === '/music/index.html') {
-//                 return new Response('<h1>Offline</h1><p>The app is offline and the server is unreachable.</p>', {
-//                     headers: { 'Content-Type': 'text/html' }
-//                 });
-//             }
-//             // Otherwise, return a generic offline response
-//             return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
-//         }
-
-//         // If we reach here, it means both cache and network failed
-//     } catch (error) {
-//         console.error('Fetch error:', error);
-//     }
-// }
-
-// Message handler for cache management
-self.addEventListener('message', (event) => {
-  if (!event.data) return;
-  
-  const { type, payload } = event.data;
-
-  console.log('🔧 Service Worker received message:', type, payload);
-  
-  switch(type) {
-    case "GET_VERSION":
-      event.waitUntil(
-        (async () => {
-          try {
-            const cache = await caches.open(CURRENT_CACHE_NAME);
-            const cached_version_response = await cache.match(VERSION_URL);
-            let current_version = '0.0.0';
-            
-            if (cached_version_response) {
-              current_version = (await cached_version_response.text()).trim().toLowerCase();
-            }
-            
-            if (event.source && event.source.postMessage) {
-              event.source.postMessage({
-                type: "update_stored_version",
-                payload: {
-                  version: current_version
-                }
-              });
-            }
-          } catch (error) {
-            console.error('❌ Get version failed:', error);
-          }
-        })()
-      );
-      break;
-
-    case "SKIP_WAITING":
-      // Force the service worker to become active immediately
-      event.waitUntil(
-        (async () => {
-          try {
-            await self.skipWaiting();
-            pending_critical_update = false;
-            if (LOGGING_ENABLED) console.log('Service worker skipped waiting');
-          } catch (error) {
-            console.error('❌ Skip waiting failed:', error);
-          }
-        })()
-      );
-      break;
-
-    case "CHECK_CRITICAL_UPDATE":
-      // Check if there's a pending critical update
-      if (event.source && event.source.postMessage) {
-        event.source.postMessage({
-          type: "critical_update_status",
-          payload: {
-            has_critical_update: pending_critical_update
-          }
-        });
-      }
-      break;
-
-    case "CLEANUP_OLD_HASHED_FILES":
-      // Manually trigger cleanup of all old hashed files
-      event.waitUntil(
-        (async () => {
-          try {
-            const cache = await caches.open(CURRENT_CACHE_NAME);
-            const cached_keys = await cache.keys();
-            
-            // Group files by their base name
-            const file_groups = new Map();
-            
-            for (const request of cached_keys) {
-              const url = new URL(request.url);
-              if (file_manager.is_hashed_file(url.pathname)) {
-                const base_name = file_manager.get_hashed_file_base(url.pathname);
-                if (!file_groups.has(base_name)) {
-                  file_groups.set(base_name, []);
-                }
-                file_groups.get(base_name).push({ request, url, pathname: url.pathname });
-              }
-            }
-            
-            let total_deleted = 0;
-            
-            // For each group, keep only the most recent one (last in array) and delete the rest
-            for (const [base_name, files] of file_groups) {
-              if (files.length > 1) {
-                // Sort by pathname to ensure consistent ordering
-                files.sort((a, b) => a.pathname.localeCompare(b.pathname));
-                
-                // Keep the last one, delete all others
-                for (let i = 0; i < files.length - 1; i++) {
-                  const file = files[i];
-                  await cache.delete(file.request);
-                  await file_manager.delete_file(file.pathname);
-                  total_deleted++;
-                  if (LOGGING_ENABLED) console.log('🗑️ Deleted old hashed file:', file.pathname);
-                }
-              }
-            }
-            
-            console.log(`🧹 Cleanup complete: Deleted ${total_deleted} old hashed file(s)`);
-            
-            if (event.source && event.source.postMessage) {
-              event.source.postMessage({
-                type: "cleanup_complete",
-                payload: {
-                  deleted_count: total_deleted
-                }
-              });
-            }
-          } catch (error) {
-            console.error('❌ Cleanup failed:', error);
-            if (event.source && event.source.postMessage) {
-              event.source.postMessage({
-                type: "cleanup_error",
-                payload: {
-                  error: error.message
-                }
-              });
-            }
-          }
-        })()
-      );
-      break;
-      
-    default:
-      return;
-  }
-});
-
-console.log('✅ Service Worker loaded successfully');
+const service_worker_instance = new Service_Worker(self);

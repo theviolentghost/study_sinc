@@ -8,6 +8,7 @@ import { Skip_Event, Skip_Result } from './media.player/playlist.manager';
 import { SettingsService } from './settings.service';
 import { NotificationService } from './src/app/services/notification.service';
 // import { DJMixingService, MixStyle } from './dj.mixing.service';
+import { SessionPlaylistInterceptorService } from './media.player/http.interceptor.service';
 
 @Injectable({
   providedIn: 'root'
@@ -72,12 +73,12 @@ export class MusicPlayerService {
     }
     get song_time_elapsed(): number {
         if(this.media_controller.is_current_song_loading()) return 0; // song loaded doesnt match media data (aka loading song)
-        return this.buffer_controller.current_time || 0;
+        return this.media_controller.current_time || 0;
     }
     get song_duration(): number {
         if(this.media_controller?.current_song?.video_duration && this.media_controller?.current_song?.video_duration > 0) return (this.media_controller?.current_song?.video_duration || 0) / 1000;
         if(this.media_controller.is_current_song_loading()) return 0; // song loaded doesnt match media data (aka loading song)
-        return this.buffer_controller.duration;
+        return this.media_controller.song_duration || 0;
     }
     get shuffle(): boolean {
         return this.media_controller.shuffle;
@@ -143,10 +144,15 @@ export class MusicPlayerService {
     //     return this.settings.dj_mix_style as MixStyle;
     // }
 
-    constructor(private media: MusicMediaService, private settings: SettingsService, private notification_service: NotificationService, private injector: Injector) {
+    constructor(
+        private media: MusicMediaService, 
+        private settings: SettingsService,
+        private notification_service: NotificationService, 
+        private session_playlist_interceptor: SessionPlaylistInterceptorService
+    ) {
         this.buffer_controller = new BufferController(this.settings, null);
         // Pass the buffer_controller to media_controller so they share the same instance
-        this.media_controller = new MusicMediaManager(this.media, this.settings, this, this.buffer_controller, this.notification_service);
+        this.media_controller = new MusicMediaManager(this.media, this.settings, this, this.session_playlist_interceptor, this.buffer_controller, this.notification_service);
         // Now set the controller reference in buffer_controller
         this.buffer_controller.set_controller(this.media_controller);
         
@@ -257,6 +263,9 @@ export class MusicPlayerService {
     }
 
     public seek_to(time: number): void {
+        if(this.media_controller.use_streaming_playlist) {
+            time += this.buffer_controller?.current_track_timestamp?.start_timestamp || 0;
+        }
         this.media_controller?.seek_to(time);
     }
 
@@ -369,6 +378,17 @@ export class MusicPlayerService {
     public remove_song_from_playlist_queue(song_key: string): void {
         this.media_controller.playlist_manager.remove_track_from_queue(song_key);
     }
+
+    public queue_updated(): void {
+        this.media_controller.queue_updated();
+    }
+
+
+
+
+
+
+
     
     // ==================== DJ Mode Methods ====================
     

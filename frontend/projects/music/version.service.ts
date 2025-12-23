@@ -1,174 +1,82 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 
+import { ServiceWorkerMessageDistributorService, AppVersionMessage } from './src/service.worker.message.distributor';
+import { NotificationService } from './src/app/services/notification.service';
+
 @Injectable({
   providedIn: 'root'
 })
 export class VersionService {
     private _version: string = '0.0.0';
+    private _server_version: string = '0.0.0';
+    private _service_worker_version: string = '0.0.0';
     private _minor_outdated: boolean = false; // is app minor outdated? (0.0.0 -> 0.1.0) or (0.0.0 -> 0.0.1)
-    private _major_outdated: boolean = false; // is app major outdated? (0.0.0 -> 1.0.0) or (0.0.0 -> 1.1.0)
-    
-    // Observable for critical updates that require reload
-    private _critical_update_available = new BehaviorSubject<boolean>(false);
-    public critical_update_available$ = this._critical_update_available.asObservable();
-    
-    private _update_message: string = '';
-    private _show_update_prompt: boolean = false;
+    private _major_outdated: boolean = false; // is app major outdated? (0.0.0 -> 1.0.0) or (0.0.0 -> 0.1.0)
 
-    constructor() {
-        this.initialize_service_worker_listener();
+    constructor(
+        private sw_message_distributor: ServiceWorkerMessageDistributorService,
+        private notification_service: NotificationService
+    ) {
+        this.sw_message_distributor.app_version.subscribe(this.handle_app_version_message.bind(this));
     }
 
-    private initialize_service_worker_listener() {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                const { type, payload } = event.data;
-                
-                switch (type) {
-                    case 'update_stored_version':
-                        this.version = payload.version;
-                        break;
-                        
-                    case 'critical_update_available':
-                        this._critical_update_available.next(true);
-                        this._update_message = payload.message || 'A critical update is available.';
-                        this._show_update_prompt = true;
-                        this.show_update_notification();
-                        break;
-                        
-                    case 'critical_update_status':
-                        if (payload.has_critical_update) {
-                            this._critical_update_available.next(true);
-                            this._show_update_prompt = true;
+    private handle_app_version_message(payload: AppVersionMessage) {
+        const { cached_version, latest_version, should_update, update_type, service_worker_version } = payload;
+        this._version = cached_version;
+        this._server_version = latest_version;
+        this._service_worker_version = service_worker_version;
+
+        if(should_update) {
+            switch(update_type) {
+                // @ts-ignore
+                case 'major':
+                    this._major_outdated = true;
+                case 'minor':
+                    this._minor_outdated = true;
+                    this.notification_service.info(
+                        `New update available`,
+                        {
+                            details: `Update ${this._version} to ${this._server_version}`,
+                            autoDismiss: false,
+                            actions: [
+                                {
+                                    label: 'Update Now',
+                                    callback: () => {
+                                        window.location.reload();
+                                    },
+                                    icon: 'check.svg'
+                                },
+                                {
+                                    label: 'Later',
+                                    callback: () => {
+                                        // Do nothing
+                                    },
+                                    icon: 'x.svg'
+                                }
+                            ],
+                            hideStackCount: true
                         }
-                        break;
-                }
-            });
-
-            // Listen for service worker updates
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                // Service worker has been updated, reload the page
-                if (this._critical_update_available.value) {
-                    this.force_reload();
-                }
-            });
-
-            // Check if there's already a critical update pending
-            this.check_for_pending_critical_update();
-        }
-    }
-
-    private async check_for_pending_critical_update() {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({
-                type: 'CHECK_CRITICAL_UPDATE'
-            });
-        }
-    }
-
-    private show_update_notification() {
-        // Show update notification to user
-        if (this.is_standalone_mode()) {
-            // In PWA mode, show a more prominent notification
-            this.show_standalone_update_dialog();
-        } else {
-            // In browser mode, can be less intrusive
-            console.log('🔄 Update available:', this._update_message);
-        }
-    }
-
-    private is_standalone_mode(): boolean {
-        return window.matchMedia('(display-mode: standalone)').matches ||
-               (window.navigator as any).standalone === true;
-    }
-
-    private show_standalone_update_dialog() {
-        // Create a simple update dialog
-        const dialog = document.createElement('div');
-        dialog.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            border: 2px solid #007AFF;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            z-index: 10000;
-            max-width: 90%;
-            text-align: center;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        `;
-        
-        dialog.innerHTML = `
-            <h3 style="margin: 0 0 15px 0; color: #007AFF;">Update Available</h3>
-            <p style="margin: 0 0 20px 0; color: #333;">${this._update_message}</p>
-            <button id="update-now" style="
-                background: #007AFF;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 12px 24px;
-                font-size: 16px;
-                margin-right: 10px;
-                cursor: pointer;
-            ">Update Now</button>
-            <button id="update-later" style="
-                background: #f0f0f0;
-                color: #333;
-                border: none;
-                border-radius: 8px;
-                padding: 12px 24px;
-                font-size: 16px;
-                cursor: pointer;
-            ">Later</button>
-        `;
-
-        document.body.appendChild(dialog);
-
-        // Handle button clicks
-        dialog.querySelector('#update-now')?.addEventListener('click', () => {
-            this.apply_update();
-            document.body.removeChild(dialog);
-        });
-
-        dialog.querySelector('#update-later')?.addEventListener('click', () => {
-            document.body.removeChild(dialog);
-            this._show_update_prompt = false;
-        });
-    }
-
-    public async apply_update() {
-        if ('serviceWorker' in navigator) {
-            try {
-                const registration = await navigator.serviceWorker.getRegistration();
-                if (registration && registration.waiting) {
-                    // Tell the service worker to skip waiting
-                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                } else {
-                    // No waiting service worker, just reload
-                    this.force_reload();
-                }
-            } catch (error) {
-                console.error('Error applying update:', error);
-                this.force_reload();
+                    );
+                    break;
+                case 'patch':
+                    // this.notification_service.info(`Patch update available: ${latest_version} (current: ${cached_version})`);
+                    // break;
+                case 'none':
+                    break;
             }
         }
     }
 
-    private force_reload() {
-        window.location.reload();
-    }
-
-    // Existing getters and setters
-    set version(value: string) {
-        this._version = value;
-    }
     get version(): string {
         return this._version;
-    }   
+    }
+    get server_version(): string {
+        return this._server_version;
+    }
+    get service_worker_version(): string {
+        return this._service_worker_version;
+    }
     set minor_outdated(value: boolean) {
         this._minor_outdated = value;
     }
@@ -180,13 +88,5 @@ export class VersionService {
     }
     get major_outdated(): boolean {
         return this._major_outdated;
-    }
-
-    get show_update_prompt(): boolean {
-        return this._show_update_prompt;
-    }
-
-    get update_message(): string {
-        return this._update_message;
     }
 }

@@ -423,8 +423,40 @@ class Adaptive_Stream {
             }
         });
 
-        // Download endpoint - streams all HLS segments as a single concatenated response
-        // This allows the frontend to receive all .ts segments in order
+        app.get('/hls/bundle', async (req, res) => {
+            try {
+                const { video_id, qualities = this.profile_progression } = req.query;
+                if (!this.is_valid_video_id(video_id)) {
+                    return res.status(400).json({ error: 'Invalid video ID', success: false });
+                }
+                console.log(`HLS bundle request: ${video_id} (qualities: ${qualities})`);
+                
+                // Create HLS stream (will skip if already exists)
+                await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
+                
+                // Wait for stream to be fully ready
+                await this.wait_for_stream_complete(video_id, 60000);
+
+                const bundle = await this.get_hls_bundle(video_id, Array.isArray(qualities) ? qualities : [qualities]);
+
+                res.setHeader('Content-Type', 'application/json');
+                res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+
+                return res.status(200).json({
+                    success: true,
+                    video_id,
+                    ...bundle
+                });
+            } catch (error) {
+                console.error('Error during HLS bundle request:', error.message);
+                return res.status(500).json({ 
+                    error: error.message || 'Internal server error',
+                    success: false 
+                });
+            }
+        });
+
+
         app.get('/download/hls/bundle', async (req, res) => {
             try {
                 const { video_id, quality = 'high' } = req.query;
@@ -769,36 +801,48 @@ class Adaptive_Stream {
         });
     }
 
-    async get_hls_bundle(video_id, quality = 'high') {
-        const codec = this.codecs[0];
-        const profile = quality;
+    async get_hls_bundle(video_id, profiles = this.profile_progression, codecs = this.codecs) {
+        let profile_data = {};
 
-        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
-        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
-        
-        // Read the playlist
-        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
-        
-        // Parse segment filenames from playlist
-        const segment_files = playlist_content
-            .split('\n')
-            .filter(line => line.endsWith('.ts'))
-            .map(line => line.trim());
+        for(let codec of codecs) {
+            if(!Adaptive_Stream.profiles[codec]) continue;
+            for(let profile of profiles) {
+                if(!Adaptive_Stream.profiles[codec][profile]) continue;
+
+                // Check if audio exists for this codec/profile
+                const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+                const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+                const relative_playlist_path = path.join('hls', path.relative(this.hls_root, playlist_path));
+                const exists = file_system.existsSync(playlist_path);
+                if(!exists) {
+                    // no available codec/profile
+                    continue;
+                }
+
+                const segments = await this.parse_playlist_segments(playlist_path);
+
+                profile_data[codec] = profile_data[codec] || {};
+                profile_data[codec][profile] = {
+                    playlist_url: relative_playlist_path,
+                    profile_data: Adaptive_Stream.profiles[codec]?.[profile],
+                    codec: codec,
+                    profiles: profile,
+                    segments: segments,
+                    segment_count: segments.length
+                }
+            }
+        }
         
         return {
             master_playlist_url: `/hls/raw/${video_id}/audio/master.m3u8`,
-            quality_playlist_url: `/hls/raw/${video_id}/audio/${codec}/${profile}/${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`,
-            segment_urls: segment_files.map(seg => `/hls/raw/${video_id}/audio/${codec}/${profile}/${seg}`),
-            codec,
-            profile,
-            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
-            segment_count: segment_files.length
+            profile_data,
+            profiles,
+            codecs
         };
     }
 
-    async get_hls_bundle_with_data(video_id, quality = 'high') {
+    async get_hls_bundle_with_data(video_id, profile = 'high') {
         const codec = this.codecs[0];
-        const profile = quality;
 
         const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
         const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);

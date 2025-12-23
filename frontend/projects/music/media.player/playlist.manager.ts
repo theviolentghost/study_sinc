@@ -1,4 +1,4 @@
-import { MusicMediaService, Song_Data, Song_Playlist, Song_Playlist_Identifier } from "../music.media.service";
+import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Playlist_Identifier } from "../music.media.service";
 import MusicMediaManager from "./media.manager";
 
 export enum Skip_Event {
@@ -7,6 +7,7 @@ export enum Skip_Event {
     SONG_BLEND,
     OMIT_HISTORY,
     USER_INITIATED,
+    OMIT_SKIP,
 }
 export enum Skip_Result {
     SKIPPED,
@@ -16,6 +17,9 @@ export enum Skip_Result {
 
 class MusicPlaylistManager {
     public current_song_key: string | null = null;
+    public get current_song_identifier(): Song_Identifier | null {
+        return this.current_song_key ? this.media.parse_song_key(this.current_song_key) : null;
+    }
     public playnext: string[] = []; // same as queue, jus has priority and doesnt get changed on playlist changes
     public queue: string[] = [];
     public history_stack: string[] = [];
@@ -46,7 +50,15 @@ class MusicPlaylistManager {
         return null;
     }
 
+    get full_queue(): string[] {
+        return [...this.history_stack, ...(this.current_song_key ? [this.current_song_key] : []), ...this.playnext, ...this.queue];
+    }
+
     constructor(private media: MusicMediaService, private manager: MusicMediaManager) {}
+
+    // get_song_index_in_full_queue(song_key: string): number {
+    //     return this.full_queue.indexOf(song_key);
+    // }
 
     public async load_playlist(
         identifier: Song_Playlist_Identifier | null, 
@@ -88,14 +100,24 @@ class MusicPlaylistManager {
             return;
         }
 
+        this.manager.set_streaming_playlist_queue(this.full_queue);
+
         if(this.manager.use_streaming_playlist) {
-            this.media.get_new_streaming_playlist_url(video_ids_queue).then(url => {
+            this.media.get_streaming_playlist_url().then(url => {
                 this.manager.set_streaming_playlist(url);
             });
         }
     }
 
     public next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        if(this.manager.use_streaming_playlist) {
+            return this.playlist_next(event);
+        } else {
+            return this.track_next(event);
+        }
+    }
+
+    private track_next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
         if(this.manager.repeat && event === Skip_Event.DEFAULT) {
             this.manager.seek_to(0);
             return Skip_Result.REPLAY;
@@ -131,7 +153,81 @@ class MusicPlaylistManager {
         return Skip_Result.SKIPPED;
     }
 
+    private playlist_next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        if(this.manager.repeat && event === Skip_Event.DEFAULT) {
+            this.manager.seek_to(0);
+            return Skip_Result.REPLAY;
+        }
+
+        if(this.queue.length <= this.minimum_queue_size_before_queue_refresh) {
+            this.refresh_queue();
+
+            if(!this.has_next_song) {
+                console.warn('No songs available to skip to next.');
+                return Skip_Result.NOTHING;
+            }
+        }
+
+        const next_song_key = this.playnext.length > 0 ? this.playnext.shift()! : this.queue.shift()!;
+        if(this.current_song_key) {
+            const current_song_key = this.current_song_key;
+            if(event !== Skip_Event.OMIT_HISTORY) {
+                this.history_stack.push(current_song_key);
+            }
+        }
+        this.current_song_key = next_song_key;
+        this.manager.buffer_controller.current_track_index++;
+        this.manager.load_track(next_song_key, true);
+        this.manager.set_streaming_playlist_queue(this.full_queue);
+        // move to end of current song
+        // console.log('moving to end of current track', this.manager.buffer_controller.current_track_timestamp);
+        // if(this.manager.buffer_controller.current_track_timestamp) {
+        //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
+        // }
+        const silent_audio_position = this.manager.get_silent_audio_position();
+        if(silent_audio_position !== -1) {
+            this.manager.buffer_controller.using_silent_source = true;
+            this.manager.seek_to(silent_audio_position);
+        }
+
+        this.manager.buffer_controller.update_current_track_timestamp();
+        // if(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current()) {
+        //     // have to flush buffer
+        // }
+        this.manager.buffer_controller.update_playlist(() => {
+            if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
+                if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            }
+        });
+
+        // this.manager.buffer_controller.update_tracks_cache();
+
+        // this.manager.update_media_session(this.current_song_key);
+        // console.log(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current(), 'next song key:', next_song_key);
+        // if(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current()) {
+        // console.log('Flushing buffer ahead of current track for smooth transition.');
+        // this.manager.buffer_controller.reload_manifest();
+        // this.manager.buffer_controller.flush_buffer(() => {
+        //     this.manager.load_track(next_song_key, true);
+        //     this.manager.set_streaming_playlist_queue(this.full_queue);
+        //     this.manager.buffer_controller.update_current_track_timestamp();
+        //     console.log('current http interceptor song queue', this.manager.http_interceptor_service.song_queue , 'current time stamp cache', this.manager.buffer_controller.timestamps_of_tracks_cache);
+        //     if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp?.end_timestamp);
+        // });
+        // }
+        return Skip_Result.SKIPPED;
+    }
+
     public previous(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        if(this.manager.use_streaming_playlist) {
+            return this.playlist_previous(event);
+        } else {
+            return this.track_previous(event);
+        }
+    }
+
+    // previous song when using per track loading (not playlist url)
+    private track_previous(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
         if(!this.has_previous_song) {
             console.warn('No more songs in the history to skip to previous.');
             // skip to start of current song
@@ -153,6 +249,70 @@ class MusicPlaylistManager {
             console.error('Error loading previous song:', previous_song_key, error);
         });
 
+        return Skip_Result.SKIPPED;
+    }
+
+    private playlist_previous(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        if(!this.has_previous_song) {
+            console.warn('No more songs in the history to skip to previous.');
+            // skip to start of current song
+            // this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            return Skip_Result.REPLAY;
+        }
+        // if current time > 15 seconds, skip to start of current song
+        // if(this.manager.current_time > 15) {
+        //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+        //     return Skip_Result.REPLAY;
+        // }
+        const previous_song_key = this.history_stack.pop()!;
+        this.queue.unshift(this.current_song_key);
+        this.current_song_key = previous_song_key;
+
+        this.manager.buffer_controller.current_track_index--;
+        this.manager.load_track(previous_song_key, true);
+        this.manager.set_streaming_playlist_queue(this.full_queue);
+        this.manager.buffer_controller.update_current_track_timestamp();
+        if(this.manager.buffer_controller.current_track_timestamp) {
+            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp + 0.01);
+        }
+        // this.manager.update_media_session(this.current_song_key);
+        // this.manager.load_track(previous_song_key, true);
+        // this.manager.buffer_controller.update_tracks_cache();
+        // this.manager.buffer_controller.update_current_track_timestamp();
+        // console.log('current track', this.manager.buffer_controller.current_track_timestamp);
+        // console.log('tracls cache', this.manager.buffer_controller.timestamps_of_tracks_cache);
+
+
+        // this.manager.load_track(previous_song_key, true);
+        // this.manager.set_streaming_playlist_queue(this.full_queue);
+
+        // find new current time stamp
+        // find index of current time in timestamps_of_tracks_cache
+        // let index = -1;
+        // const current_time = this.manager.real_time;
+        // // console.log('Finding previous track timestamp info for current time:', current_time, this.manager.buffer_controller.timestamps_of_tracks_cache);
+        // // for(const timestamp_info of this.manager.buffer_controller.timestamps_of_tracks_cache) {
+        // for(let i = 0; i < this.manager.buffer_controller.timestamps_of_tracks_cache.length; i++) {
+        //     const timestamp_info = this.manager.buffer_controller.timestamps_of_tracks_cache[i];
+        //     if (current_time >= timestamp_info.start_timestamp && current_time <= timestamp_info.end_timestamp) {
+        //         index = i;
+        //         break;
+        //     }
+        // }
+
+        // this.manager.buffer_controller.reload_manifest();
+        // console.log('Flushing buffer ahead of current track for smooth transition.');
+        // this.manager.buffer_controller.flush_buffer(() => {
+        //     const index = this.manager.buffer_controller.current_track_index - 1;
+
+        //     if(index < 0) {
+        //         console.warn('Could not find previous track timestamp info.');
+        //         this.manager.seek_to(0);
+        //         return Skip_Result.SKIPPED;
+        //     }
+        //     const new_timestamp_info = this.manager.buffer_controller.timestamps_of_tracks_cache[index];
+        //     this.manager.seek_to(new_timestamp_info.start_timestamp);
+        // });
         return Skip_Result.SKIPPED;
     }
 
@@ -221,6 +381,7 @@ class MusicPlaylistManager {
             }
             
             this.queue = filtered_songs.map(identifier => this.media.song_key(identifier));
+            this.manager.set_streaming_playlist_queue(this.full_queue);
             return;
         }
 
@@ -275,6 +436,7 @@ class MusicPlaylistManager {
                 this.queue = [...original_order].map(identifier => this.media.song_key(identifier));
             }
         }
+        this.manager.set_streaming_playlist_queue(this.full_queue);
     }
 
     public remove_track_from_queue(song_key: string): void {
@@ -291,6 +453,7 @@ class MusicPlaylistManager {
         if(queue_index !== -1) {
             this.queue.splice(queue_index, 1);
             console.log('Removed song from queue:', song_key);
+            this.manager.set_streaming_playlist_queue(this.full_queue);
             return;
         }
 
@@ -300,6 +463,7 @@ class MusicPlaylistManager {
     public add_song_to_play_next(song_key: string): void {
         console.log('Adding song to play next:', song_key);
         this.playnext.push(song_key);
+        this.manager.set_streaming_playlist_queue(this.full_queue);
         // preload the song
         this.manager.load_track(song_key, false).catch(error => {
             console.error('Error preloading song for play next:', song_key, error);

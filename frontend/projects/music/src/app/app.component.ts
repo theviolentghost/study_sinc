@@ -44,11 +44,11 @@ export class AppComponent implements OnInit, OnDestroy {
             label: 'Search',
             icon: 'search.svg'
         },
-        {
-            url: 'discover',
-            label: 'Discover',
-            icon: 'world-search.svg'
-        },
+        // {
+        //     url: 'discover',
+        //     label: 'Discover',
+        //     icon: 'world-search.svg'
+        // },
         {
             url: 'settings',
             label: 'More',
@@ -81,14 +81,14 @@ export class AppComponent implements OnInit, OnDestroy {
 
     ngOnInit() {
         // Subscribe to critical update notifications
-        const criticalUpdateSub = this.version_service.critical_update_available$.subscribe(
-            (hasUpdate) => {
-                if (hasUpdate && this.is_standalone_mode()) {
-                    console.log('🔄 Critical update detected in standalone mode');
-                }
-            }
-        );
-        this.subscriptions.push(criticalUpdateSub);
+        // const criticalUpdateSub = this.version_service.critical_update_available$.subscribe(
+        //     (hasUpdate) => {
+        //         if (hasUpdate && this.is_standalone_mode()) {
+        //             console.log('🔄 Critical update detected in standalone mode');
+        //         }
+        //     }
+        // );
+        // this.subscriptions.push(criticalUpdateSub);
 
         // on route change 
         // const routeSub = this.router.events.subscribe(() => {
