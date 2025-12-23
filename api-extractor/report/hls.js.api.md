@@ -77,6 +77,7 @@ export type ABRControllerConfig = {
     abrBandWidthFactor: number;
     abrBandWidthUpFactor: number;
     abrMaxWithRealBitrate: boolean;
+    abrSwitchInterval: number;
     maxStarvationDelay: number;
     maxLoadingDelay: number;
 };
@@ -686,6 +687,7 @@ export class BufferController extends Logger implements ComponentAPI {
 // @public (undocumented)
 export type BufferControllerConfig = {
     appendErrorMaxRetry: number;
+    appendTimeout: number;
     backBufferLength: number;
     frontBufferFlushThreshold: number;
     liveDurationInfinity: boolean;
@@ -2011,6 +2013,7 @@ export type GapControllerConfig = {
     nudgeOffset: number;
     nudgeMaxRetry: number;
     nudgeOnVideoHole: boolean;
+    skipBufferHolePadding: number;
 };
 
 // Warning: (ae-missing-release-tag) "HdcpLevel" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3357,6 +3360,8 @@ export class LevelDetails {
 export class LevelKey implements DecryptData {
     constructor(method: string, uri: string, format: string, formatversions?: number[], iv?: Uint8Array<ArrayBuffer> | null, keyId?: string);
     // (undocumented)
+    static addKeyIdForUri(uri: string): Uint8Array<ArrayBuffer>;
+    // (undocumented)
     static clearKeyUriToKeyIdMap(): void;
     // (undocumented)
     readonly encrypted: boolean;
@@ -4092,6 +4097,7 @@ export type MetadataControllerConfig = {
     enableEmsgMetadataCues: boolean;
     enableEmsgKLVMetadata: boolean;
     enableID3MetadataCues: boolean;
+    emsgKLVSchemaUri?: string;
 };
 
 // Warning: (ae-missing-release-tag) "MetadataSample" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -4481,6 +4487,8 @@ export type SourceBufferName = 'video' | 'audio' | 'audiovideo';
 export interface SourceBufferTrack extends BaseTrack {
     // (undocumented)
     buffer?: ExtendedSourceBuffer;
+    // (undocumented)
+    bufferAppendTimeoutId?: number;
     // (undocumented)
     ended?: boolean;
     // (undocumented)
