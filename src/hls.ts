@@ -93,13 +93,13 @@ export default class Hls implements HlsEventEmitter {
   private _emitter: HlsEventEmitter = new EventEmitter();
   private _autoLevelCapping: number = -1;
   private _maxHdcpLevel: HdcpLevel = null;
-  private abrController: AbrComponentAPI;
+  public abrController: AbrComponentAPI;
   private bufferController: BufferController;
   private capLevelController: CapLevelController;
   private latencyController: LatencyController;
   private levelController: LevelController;
   private streamController: StreamController;
-  private audioStreamController?: AudioStreamController;
+  public audioStreamController?: AudioStreamController;
   private subtititleStreamController?: SubtitleStreamController;
   private audioTrackController?: AudioTrackController;
   private subtitleTrackController?: SubtitleTrackController;

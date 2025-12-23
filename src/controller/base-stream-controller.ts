@@ -627,7 +627,7 @@ export default class BaseStreamController
     );
   }
 
-  protected flushMainBuffer(
+  public flushMainBuffer(
     startOffset: number,
     endOffset: number,
     type: SourceBufferName | null = null,

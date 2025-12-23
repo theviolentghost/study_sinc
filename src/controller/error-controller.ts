@@ -446,7 +446,10 @@ export default class ErrorController
           break;
         }
       }
-      if (nextLevel > -1 && hls.loadLevel !== nextLevel) {
+      console.log('NORNIE: new level', nextLevel);
+
+      nextLevel = levelIndex; // NORNIE TESTING
+      if (nextLevel > -1 /*&& hls.loadLevel !== nextLevel*/) {
         data.levelRetry = true;
         this.playlistError = 0;
         return {
