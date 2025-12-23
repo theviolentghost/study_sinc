@@ -168,7 +168,7 @@
 .title {
     font-size: var(--space-5);
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--color-universal-white);
     text-align: center;
     width: 100%;
     overflow: hidden;
@@ -384,7 +384,7 @@
 .info .title {
     font-size: var(--space-6);
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--color-universal-white);
     text-align: center;
     width: 100%;
     text-align: left;
@@ -406,6 +406,11 @@
 .artists {
     animation: fade-in-from-bottom 0.45s ease-in-out 0.1s forwards;
     opacity: 0;
+    width: calc(100% + var(--space-7));
+    display: flex; 
+    flex-direction: row; 
+    align-items: center; 
+    overflow: hidden;
 }
 .quick-playlist-action {
     position: absolute;
@@ -450,7 +455,7 @@
             border: none;
 
             &::before {
-                background-color: var(--color-background);
+                background-color: var(--color-universal-white);
                 scale: 0.9;
             }
 
@@ -926,7 +931,7 @@
     mask-repeat: no-repeat;
     top: 0;
     left: 0;
-    background-color: var(--color-background-950);
+    background-color: var(--color-universal-white);
 }
 .controls .control-button .indicator {
     position: absolute;

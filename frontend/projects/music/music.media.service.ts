@@ -352,13 +352,13 @@ export class MusicMediaService {
 
     public async replace_song_key(old_song_key: string, new_song_key: string, new_song_data?: Song_Data): Promise<void> {
         try {
-            const song_data = new_song_data || await get(old_song_key);
+            const song_data = new_song_data ? {...new_song_data} : await this.get_song_data(old_song_key);
             if (!song_data || !song_data?.id) {
                 console.warn(`No song data found for key: ${old_song_key}`);
                 return;
             }
 
-            console.log(`Replacing song key: ${old_song_key} => ${new_song_key}`);
+            console.log(`Replacing song key: ${old_song_key} => ${new_song_key}`, song_data);
 
             // Step 1: Save new song data (keep old one for now)
             await this.save_song_to_indexDB(new_song_key, song_data);
@@ -382,6 +382,30 @@ export class MusicMediaService {
 
             // Step 3: Create copies and update all playlists atomically
             const playlists_to_update: Array<{ identifier: any, updated_playlist: any }> = [];
+
+            // Update song cache - always add the new key, remove old if it exists
+            if ((this.playerService as any).media_controller?.song_cache) {
+                console.log('Updating player song cache...');
+                const song_cache = (this.playerService as any).media_controller.song_cache;
+                
+                // Remove old key if it exists
+                if (song_cache.has(old_song_key)) {
+                    song_cache.delete(old_song_key);
+                }
+                
+                // Always add the new key with song data
+                song_cache.set(new_song_key, song_data);
+            }
+
+            // Update playlist manager
+            if ((this.playerService as any).media_controller?.playlist_manager) {
+                const playlist_manager = (this.playerService as any).media_controller.playlist_manager;
+                playlist_manager.queue = playlist_manager.queue.map((key: string) => key === old_song_key ? new_song_key : key);
+                playlist_manager.playnext = playlist_manager.playnext.map((key: string) => key === old_song_key ? new_song_key : key);
+                playlist_manager.history_stack = playlist_manager.history_stack.map((key: string) => key === old_song_key ? new_song_key : key);
+            } else {
+                console.warn('No playlist_manager found on media_controller');
+            }
 
             // Handle player's current playlist if it has this song
             if (this.playerService?.current_playlist?.songs?.has(old_song_key)) {
@@ -421,31 +445,6 @@ export class MusicMediaService {
                     this.playerService.current_playlist.songs.set(new_song_key, song_data.id);
                 }
 
-                // Update playlist manager
-                if ((this.playerService as any).media_controller?.playlist_manager) {
-                    const playlist_manager = (this.playerService as any).media_controller.playlist_manager;
-                    
-                    if (playlist_manager.queue) {
-                        playlist_manager.queue = playlist_manager.queue.map((key: string) => key === old_song_key ? new_song_key : key);
-                    }
-                    if (playlist_manager.playnext) {
-                        playlist_manager.playnext = playlist_manager.playnext.map((key: string) => key === old_song_key ? new_song_key : key);
-                    }
-                    if (playlist_manager.history_stack) {
-                        playlist_manager.history_stack = playlist_manager.history_stack.map((key: string) => key === old_song_key ? new_song_key : key);
-                    }
-
-                    // Update song cache
-                    if ((this.playerService as any).media_controller?.song_cache) {
-                        const song_cache = (this.playerService as any).media_controller.song_cache;
-                        if (song_cache.has(old_song_key)) {
-                            const cached_song = song_cache.get(old_song_key);
-                            song_cache.delete(old_song_key);
-                            song_cache.set(new_song_key, cached_song);
-                        }
-                    }
-                }
-
                 if (this.playerService.playlist_identifier) {
                     playlists_to_update.push({
                         identifier: this.playerService.playlist_identifier,
@@ -462,8 +461,6 @@ export class MusicMediaService {
                     });
                 }
             }
-
-            console.log(this.playerService.current_playlist, old_song_key, new_song_key);
 
             // Handle playlists service's selected playlist if it has this song
             if (this.playlist_service?.selected_playlist?.songs?.has(old_song_key)) {
@@ -590,7 +587,8 @@ export class MusicMediaService {
             }
 
             // Step 5: Only now delete the old song key (after all playlists are saved)
-            await del(old_song_key);
+            // await del(old_song_key);
+            await this.remove_song_key(bare_old_song_key);
             console.log('✓ Deleted old song key from IndexedDB');
 
             console.log(`✓ Successfully replaced song key: ${old_song_key} -> ${new_song_key}`);
@@ -895,8 +893,10 @@ export class MusicMediaService {
 
     async save_song_to_indexDB(key: string, data: Song_Data): Promise<boolean> {
         try {
-            console.log('Saving song to IndexedDB with key:', key);
+            console.log('Saving song to IndexedDB with key:', key, data);
             await set(key, data);
+            // add it to the song cache
+            this.playerService.song_cache?.set(key, data);
             console.log('Song successfully saved to IndexedDB');
             return true; // Success
         } catch (error) {
@@ -1111,6 +1111,13 @@ export class MusicMediaService {
     }
 
     async get_song_data(key: string): Promise<Song_Data | null> {
+        // check cache first
+        const cached_song = this.playerService.song_cache.get(key);
+        if (cached_song) {
+            return cached_song;
+        }
+
+        // fetch from IndexedDB
         const song_data = await this.get_song_from_indexDB(key);
         if (song_data) {
             return song_data;

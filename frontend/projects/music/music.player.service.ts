@@ -64,7 +64,7 @@ export class MusicPlayerService {
         return this.media_controller.playlist_manager.has_previous_song;
     }
     get player_status(): 'playing' | 'paused' | 'stopped' {
-        // if(this.buffer_controller?.is_stalled) return 'stopped';
+        if(this.buffer_controller.stalled) return 'stopped';
         if(this.media_controller.is_current_song_loading()) return 'stopped';
         if(!this.buffer_controller?.has_audio || this.buffer_controller?.using_silent_source) return 'stopped';
         if(this.buffer_controller?.is_playing) return 'playing';

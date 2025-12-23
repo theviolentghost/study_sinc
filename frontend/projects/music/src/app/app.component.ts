@@ -113,6 +113,9 @@ export class AppComponent implements OnInit, OnDestroy {
     get app_version(): string {
         return this.version_service.version || '0.0.0';
     }
+    get worker_version(): string {
+        return this.version_service.service_worker_version || '0.0.0';
+    }
     public cache_name: string = '';
 
     on_navigation_link_click(link: { url: string, label: string, icon: string }) {

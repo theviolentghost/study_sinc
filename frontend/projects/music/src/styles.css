@@ -16,7 +16,7 @@
     --space-11: 240px;   /* 240px */
     --space-12: 400px;   /* 400px */
 
-    --color-background-50: hsl(38, 44%, 95%);
+    /* --color-background-50: hsl(38, 44%, 95%);
     --color-background-100: hsl(40, 41%, 90%);
     --color-background-200: hsl(40, 43%, 80%);
     --color-background-300: hsl(39, 42%, 70%);
@@ -29,17 +29,20 @@
     --color-background-950: hsl(38, 44%, 5%);
 
     --color-background: hsl(39, 43%, 91%);
-    --color-neutral: hsl(45, 2%, 35%);
+    --color-neutral: hsl(204, 3%, 66%);
     --color-text: hsl(243, 76%, 5%);
-    --color-primary: hsl(38, 100%, 50%);
+    --color-primary: hsl(38, 100%, 50%); */
 
     --color-deny:rgb(185, 18, 18);
     --color-warning: hsl(49, 100%, 50%);
     --color-success: hsl(142, 100%, 41%);
     --default-primary-color: hsl(38, 100%, 60%);
+
+    --color-universal-white: hsl(243, 76%, 95%);
+    --color-universal-black: hsl(243, 76%, 5%);
 }
     
-@media (prefers-color-scheme: dark) {
+/* @media (prefers-color-scheme: dark) { */
     :root {
         --color-background-50: hsl(60, 0%, 5%);
         --color-background-100: hsl(0, 0%, 7%);
@@ -58,7 +61,7 @@
         --color-text: hsl(243, 76%, 95%);
         --color-primary: hsl(38, 100%, 60%);
     }
-}
+/* } */
 
 * {
     box-sizing: border-box;

@@ -86,7 +86,7 @@
                 <div class="info">
                     <div class="title">{{current_media_data?.original_song_name || current_media_data?.song_name || "#no name"}}</div>
                     <!-- <div class="artist">{{current_media_data?.original_artists?.[0]?.name || "#no artist"}}</div> -->
-                    <div class="artists" style="display: flex; flex-direction: row; align-items: center; width: 80vw; overflow: hidden;">
+                    <div class="artists">
                         <div class="explicit" [style.--mask]="'url(\'explicit.svg\')'" *ngIf="current_media_data?.explicit"></div>
                         <div 
                             class="artist"

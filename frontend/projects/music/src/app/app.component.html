@@ -21,5 +21,5 @@
         <div class="icon" [style.mask-image]="'url(' + link.icon + ')'"></div>
         <span class="label">{{ link.label }}</span>
     </button>
-    <div style="position: absolute; right: var(--space-4); font-size: 12px">{{app_version}}</div>
+    <div style="position: absolute; right: var(--space-4); font-size: 12px; display: flex; flex-direction: column; align-items: center;"><span>{{app_version}}</span><span style="scale: 0.8; ">W.{{worker_version}}</span></div>
 </div>
