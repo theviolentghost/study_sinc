@@ -192,7 +192,9 @@ class MusicPlaylistManager {
 
         this.manager.buffer_controller.update_current_track_timestamp();
         if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
-            if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            setTimeout(() => {
+                if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            }, 100);
         }
 
         // start preloading next song in queue

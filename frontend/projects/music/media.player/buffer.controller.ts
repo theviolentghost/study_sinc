@@ -430,11 +430,11 @@ class BufferController {
         });
     }
 
-    public async update_playlist(on_update?: () => void): Promise<void> {
+    public async update_playlist(on_update?: () => void, type: 'current' | 'to_end' = 'to_end'): Promise<void> {
         this.reload_manifest();
         this.hls.once(Events.LEVEL_LOADED, () => {
             console.log('✅ Playlist updated');
-            this.flush_buffer(() => on_update?.());
+            this.flush_buffer(() => on_update?.(), type);
         });
     }
 
@@ -699,12 +699,24 @@ class BufferController {
         console.log('✅ Buffer cleared');
     }
 
-    public async flush_buffer(on_flush?: () => void): Promise<void> {
+    public async flush_buffer(on_flush?: () => void, type: 'current' | 'to_end' = 'to_end'): Promise<void> {
         if (!this.hls) {
             console.warn('⚠️ No HLS instance to flush buffer');
             return;
         }
-        this.hls.audioStreamController.flushMainBuffer(0, Infinity);
+        switch(type) {
+            case 'current':
+                const current_time = this.current_time;
+                console.log(`🧹 Flushing buffer around current time: ${current_time.toFixed(2)}s`);
+                this.hls.audioStreamController.flushMainBuffer(0, Infinity);
+                break;
+            case 'to_end':
+                const start_offset = this.controller.song_duration - this.controller.current_time;
+                console.log(`🧹 Flushing buffer to end at: ${start_offset.toFixed(2)}s`);
+                this.hls.audioStreamController.flushMainBuffer(start_offset - 0.1, Infinity);
+                break;
+        }
+        // this.hls.audioStreamController.flushMainBuffer(0, Infinity);
         this.hls.once(Hls.Events.BUFFER_FLUSHED, () => {
             console.log('✅ Buffer flushed');
             on_flush?.();
