@@ -11,7 +11,7 @@ import { MusicPlayerService } from '../../music.player.service';
 import { VersionService } from '../../version.service';
 import { GlobalInfoService } from '../../global.info.service';
 import { LoadingOverlayComponent } from './global/loading.overlay/loading.overlay.component';
-import { LoadingService } from './services/loading.service';
+import { LoadingService } from '../../loading.service';
 
 @Component({
     selector: 'app-root',

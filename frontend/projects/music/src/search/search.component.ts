@@ -8,7 +8,7 @@ import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
 import { GlobalInfoService } from '../../global.info.service';
 import { InViewDirective } from './in-view.directive';
-import { LoadingService } from '../app/services/loading.service';
+import { LoadingService } from '../../loading.service';
 
 @Component({
   selector: 'media-search',

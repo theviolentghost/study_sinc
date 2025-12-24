@@ -716,6 +716,7 @@ export class QuickActionComponent {
 
     stop_dragging() {
         this.dragging = false;
+        this.player.queue_updated();
     }
 
     // Header drag properties

@@ -26,6 +26,12 @@ export interface HLS_Bundle {
     profile_data: any;
 }
 
+export interface HLS_Segment {
+    filename: string; // e.g., 'segment0.ts'
+    data?: string; // base64 encoded segment data
+    duration: number; // duration in seconds
+}
+
 export interface Track_Timestamp {
     video_id: string;
     start_timestamp: number;
@@ -190,6 +196,7 @@ export class SessionPlaylistInterceptorService {
     public profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
 
     private hls_bundles = new Map<string, HLS_Bundle>();
+    private segment_blob_urls = new Map<string, string>(); // Map of segment URL -> blob URL
     private silent_audio_url: string = '/music/audio/silent/audio/master.m3u8';
     private silent_audio_segment_url: string = '/music/audio/silent/audio/aac/ultra-low/32k_60.ts';
     private silent_audio_duration: number = 60.0523; // duration in seconds
@@ -202,6 +209,45 @@ export class SessionPlaylistInterceptorService {
         this.service_worker_message_distributor.session_request.subscribe((url: string) => {
             this.service_worker_message_distributor.post_message('SESSION_RESPONSE', { data: this.handle_request(url), url });
         });
+    }
+
+    // Create blob URLs from base64 segment data
+    private create_blob_url_for_segment(base64_data: string): string {
+        try {
+            // Decode base64 to binary
+            const binary_string = atob(base64_data);
+            const bytes = new Uint8Array(binary_string.length);
+            for (let i = 0; i < binary_string.length; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            
+            // Create blob with correct MIME type for MPEG-TS
+            const blob = new Blob([bytes], { type: 'video/mp2t' });
+            return URL.createObjectURL(blob);
+        } catch (error) {
+            console.error('Error creating blob URL:', error);
+            return null;
+        }
+    }
+
+    // Clean up blob URLs to prevent memory leaks
+    public cleanup_blob_urls(video_id?: string): void {
+        if (video_id) {
+            // Clean up blob URLs for a specific video
+            const prefix = `/hls/raw/${video_id}/`;
+            for (const [url, blob_url] of this.segment_blob_urls.entries()) {
+                if (url.startsWith(prefix)) {
+                    URL.revokeObjectURL(blob_url);
+                    this.segment_blob_urls.delete(url);
+                }
+            }
+        } else {
+            // Clean up all blob URLs
+            for (const blob_url of this.segment_blob_urls.values()) {
+                URL.revokeObjectURL(blob_url);
+            }
+            this.segment_blob_urls.clear();
+        }
     }
 
     public handle_request(url: string): string | null {
@@ -348,9 +394,17 @@ export class SessionPlaylistInterceptorService {
             }
             is_first_source = false;
 
-            const track_profile_data = track.profile_data?.[codec]?.[profile];
+            let track_profile_data = track.profile_data?.[codec]?.[profile];
             if(!track_profile_data) {
-                console.warn(`No profile data found for track ${track.video_id} with codec ${codec} and profile ${profile}`);
+                for(let index = this.profile_progression.length - 1; index >= 0; index--) {
+                    const alternate_profile = this.profile_progression[index];
+                    track_profile_data = track.profile_data?.[codec]?.[alternate_profile];
+                    if(track_profile_data) break;
+                }
+            }
+            if(!track_profile_data) {
+                console.warn(`No profile data found for track ${track.video_id} with codec ${codec} and profile ${profile}. or any alternate profile: ${this.profile_progression.join(', ')}`);
+                console.log('Available profile data:', track);
                 updated_timestamps.push(null);
                 continue;
             }
@@ -358,9 +412,30 @@ export class SessionPlaylistInterceptorService {
             const track_segments = track_profile_data.segments;
             let track_duration = 0;
             for (let segment_index = 0; segment_index < (track_profile_data?.segment_count || track_segments.length); segment_index++) {
-                const segment = track_segments[segment_index];
-                lines.push(`#EXTINF:${segment.duration.toFixed(6)},`);
-                lines.push(`/hls/raw/${track.video_id}/audio/${codec}/${profile}/${segment.filename}`);
+                const segment: HLS_Segment = track_segments[segment_index];
+                
+                const segment_url = `/hls/raw/${track.video_id}/audio/${codec}/${profile}/${segment.filename}`;
+                
+                // If segment has data (downloaded), create blob URL
+                if (segment?.data) {
+                    // Check if we already have a blob URL for this segment
+                    if (!this.segment_blob_urls.has(segment_url)) {
+                        const blob_url = this.create_blob_url_for_segment(segment.data);
+                        if (blob_url) {
+                            this.segment_blob_urls.set(segment_url, blob_url);
+                        }
+                    }
+                    
+                    // Use blob URL if available, otherwise fall back to network URL
+                    const url_to_use = this.segment_blob_urls.get(segment_url) || segment_url;
+                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},`);
+                    lines.push(url_to_use);
+                } else {
+                    // No cached data, use network URL
+                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},`);
+                    lines.push(segment_url);
+                }
+                
                 total_duration += segment.duration;
                 track_duration += segment.duration;
             }
@@ -405,6 +480,7 @@ export class SessionPlaylistInterceptorService {
         this.hls_bundles.set(bundle.video_id, bundle);
         // now look through song queue and see if any missing, if so emit event to update playlists with the indexes of the missing tracks now available
         const missing_tracks: number[] = [];
+        console.log('SessionPlaylistInterceptorService: song queue', this.song_queue);
         for (const [index, song_key] of this.song_queue.entries()) {
             const parsed_song_key = this.media.parse_song_key(song_key);
             if (!parsed_song_key || !parsed_song_key.video_id) continue;
@@ -414,7 +490,10 @@ export class SessionPlaylistInterceptorService {
             }
         }
 
+        console.log('SessionPlaylistInterceptorService: New bundle added for video_id', bundle.video_id, 'Missing tracks indexes to update:', missing_tracks);
+
         this.create_session_playlist(undefined, undefined, this.get_tracks_for_session_playlist(), null);
+        console.log('Updated tracks cache after adding new bundle:', this.timestamps_of_tracks_cache);
         if (missing_tracks.length > 0) {
             this.playlist_updated.emit(missing_tracks);
         }

@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
-import { LoadingService } from '../../services/loading.service';
+import { LoadingService } from '../../../../loading.service';
 
 @Component({
     selector: 'loading-overlay',

@@ -155,7 +155,7 @@ class MusicPlaylistManager {
 
     private playlist_next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
         if(this.manager.repeat && event === Skip_Event.DEFAULT) {
-            this.manager.seek_to(0);
+            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
             return Skip_Result.REPLAY;
         }
 
@@ -191,30 +191,14 @@ class MusicPlaylistManager {
         }
 
         this.manager.buffer_controller.update_current_track_timestamp();
-        // if(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current()) {
-        //     // have to flush buffer
-        // }
-        this.manager.buffer_controller.update_playlist(() => {
-            if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
-                if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
-            }
-        });
+        if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
+            if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+        }
 
-        // this.manager.buffer_controller.update_tracks_cache();
+        // start preloading next song in queue
+        const following_song_key = this.next_song_key;
+        this.manager.load_track(following_song_key, false);
 
-        // this.manager.update_media_session(this.current_song_key);
-        // console.log(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current(), 'next song key:', next_song_key);
-        // if(this.manager.buffer_controller.do_any_tracks_have_audio_ahead_of_current()) {
-        // console.log('Flushing buffer ahead of current track for smooth transition.');
-        // this.manager.buffer_controller.reload_manifest();
-        // this.manager.buffer_controller.flush_buffer(() => {
-        //     this.manager.load_track(next_song_key, true);
-        //     this.manager.set_streaming_playlist_queue(this.full_queue);
-        //     this.manager.buffer_controller.update_current_track_timestamp();
-        //     console.log('current http interceptor song queue', this.manager.http_interceptor_service.song_queue , 'current time stamp cache', this.manager.buffer_controller.timestamps_of_tracks_cache);
-        //     if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp?.end_timestamp);
-        // });
-        // }
         return Skip_Result.SKIPPED;
     }
 
@@ -256,14 +240,14 @@ class MusicPlaylistManager {
         if(!this.has_previous_song) {
             console.warn('No more songs in the history to skip to previous.');
             // skip to start of current song
-            // this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
             return Skip_Result.REPLAY;
         }
         // if current time > 15 seconds, skip to start of current song
-        // if(this.manager.current_time > 15) {
-        //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
-        //     return Skip_Result.REPLAY;
-        // }
+        if(this.manager.current_time > 15) {
+            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+            return Skip_Result.REPLAY;
+        }
         const previous_song_key = this.history_stack.pop()!;
         this.queue.unshift(this.current_song_key);
         this.current_song_key = previous_song_key;
@@ -275,44 +259,6 @@ class MusicPlaylistManager {
         if(this.manager.buffer_controller.current_track_timestamp) {
             this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp + 0.01);
         }
-        // this.manager.update_media_session(this.current_song_key);
-        // this.manager.load_track(previous_song_key, true);
-        // this.manager.buffer_controller.update_tracks_cache();
-        // this.manager.buffer_controller.update_current_track_timestamp();
-        // console.log('current track', this.manager.buffer_controller.current_track_timestamp);
-        // console.log('tracls cache', this.manager.buffer_controller.timestamps_of_tracks_cache);
-
-
-        // this.manager.load_track(previous_song_key, true);
-        // this.manager.set_streaming_playlist_queue(this.full_queue);
-
-        // find new current time stamp
-        // find index of current time in timestamps_of_tracks_cache
-        // let index = -1;
-        // const current_time = this.manager.real_time;
-        // // console.log('Finding previous track timestamp info for current time:', current_time, this.manager.buffer_controller.timestamps_of_tracks_cache);
-        // // for(const timestamp_info of this.manager.buffer_controller.timestamps_of_tracks_cache) {
-        // for(let i = 0; i < this.manager.buffer_controller.timestamps_of_tracks_cache.length; i++) {
-        //     const timestamp_info = this.manager.buffer_controller.timestamps_of_tracks_cache[i];
-        //     if (current_time >= timestamp_info.start_timestamp && current_time <= timestamp_info.end_timestamp) {
-        //         index = i;
-        //         break;
-        //     }
-        // }
-
-        // this.manager.buffer_controller.reload_manifest();
-        // console.log('Flushing buffer ahead of current track for smooth transition.');
-        // this.manager.buffer_controller.flush_buffer(() => {
-        //     const index = this.manager.buffer_controller.current_track_index - 1;
-
-        //     if(index < 0) {
-        //         console.warn('Could not find previous track timestamp info.');
-        //         this.manager.seek_to(0);
-        //         return Skip_Result.SKIPPED;
-        //     }
-        //     const new_timestamp_info = this.manager.buffer_controller.timestamps_of_tracks_cache[index];
-        //     this.manager.seek_to(new_timestamp_info.start_timestamp);
-        // });
         return Skip_Result.SKIPPED;
     }
 

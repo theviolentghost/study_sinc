@@ -10,8 +10,8 @@ import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
 import { HotActionService } from '../../hot.action.service';
 import { SettingsService } from '../../settings.service';
-import { NotificationService } from '../app/services/notification.service';
-import { LoadingService } from '../app/services/loading.service';
+import { NotificationService } from '../../notification.service';
+import { LoadingService } from '../../loading.service';
 
 @Component({
     selector: 'app-playlist',
@@ -1128,11 +1128,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     async play(track_data: Song_Data | null) {
         if (!track_data) return;
         if(this.dont_play) return;
-        console.log('Playing track:', track_data);
         
         this.player.open_player.emit();
 
-        // this.player.update_media_session(track_data);
+        this.player.media_controller.playlist_manager.current_song_key = this.media.song_key(track_data.id);
         await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false);
         this.player.load_and_play_track(track_data);
         this.player.remove_song_from_playlist_queue(this.media.song_key(track_data.id));

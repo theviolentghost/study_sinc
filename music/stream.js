@@ -156,7 +156,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '1.0',
+                hls_time: '8.0',
                 hls_preset: 'ultrafast',
             },
             'low': {
@@ -170,7 +170,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '4.0',
+                hls_time: '8.0',
                 hls_preset: 'ultrafast',
             },
             'medium': {
@@ -459,13 +459,28 @@ class Adaptive_Stream {
 
         app.get('/download/hls/bundle', async (req, res) => {
             try {
-                const { video_id, quality = 'high' } = req.query;
+                let { video_id, qualities } = req.query;
                 
                 if (!this.is_valid_video_id(video_id)) {
                     return res.status(400).json({ error: 'Invalid video ID', success: false });
                 }
                 
-                console.log(`Download HLS bundle request: ${video_id} (quality: ${quality})`);
+                // Parse qualities if it's a string
+                if (typeof qualities === 'string') {
+                    try {
+                        qualities = JSON.parse(qualities);
+                    } catch (e) {
+                        // If not JSON, treat as single quality
+                        qualities = [qualities];
+                    }
+                }
+                
+                // Default to all profiles if not specified
+                if (!qualities || !Array.isArray(qualities) || qualities.length === 0) {
+                    qualities = this.profile_progression;
+                }
+                
+                console.log(`Download HLS bundle request: ${video_id} (qualities: ${qualities})`);
                 
                 // Create HLS stream (will skip if already exists)
                 await this.create_hls_stream(video_id, this.codecs, this.profile_progression);
@@ -477,7 +492,7 @@ class Adaptive_Stream {
                 // await this.mark_as_permanent(video_id);
                 
                 // Stream the bundle as JSON with base64 encoded segments
-                const bundle = await this.get_hls_bundle_with_data(video_id, quality);
+                const bundle = await this.get_hls_bundle_with_data(video_id, qualities, this.codecs);
                 
                 res.setHeader('Content-Type', 'application/json');
                 res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
@@ -495,107 +510,6 @@ class Adaptive_Stream {
                     success: false 
                 });
             }
-        });
-
-        app.get('/session/new', async (req, res) => {
-            try {
-                const video_ids = req.query.video_ids;
-                if (!Array.isArray(video_ids) || video_ids.length === 0) {
-                    return res.status(400).json({ error: 'Invalid video IDs', success: false });
-                }
-
-                const session_data = await this.create_session(video_ids);
-                return res.status(200).json({ success: true, session_data, playlist_url: session_data.playlist_url });
-            } catch (error) {
-                console.error('Error creating new session:', error.message);
-                return res.status(500).json({ success: false, error: error.message });
-            }
-        });
-
-        app.post('/session/:session_id/request/:video_id', async (req, res) => {
-            try {
-                const { session_id, video_id } = req.params;
-                const options = req.body;
-
-                const result = await this.add_song_to_session(session_id, video_id, options);
-                if (!result) {
-                    return res.status(500).json({ error: 'Failed to request song to streaming playlist', success: false });
-                }
-
-                return res.status(200).json({ success: true, data: result });
-            } catch (error) {
-                console.error('Error handling song request:', error.message);
-                return res.status(500).json({ error: error.message || 'Internal server error', success: false });
-            }
-        });
-
-        app.get('/session/:session_id/dj/mix', async (req, res) => {
-            const { session_id } = req.params;
-            const { current_song_id, next_song_id, quality = 'high', mix_style = 'balanced' } = req.query;
-                
-            if (!this.is_valid_video_id(current_song_id) || !this.is_valid_video_id(next_song_id)) {
-                return res.status(400).json({ 
-                    error: 'Invalid video IDs', 
-                    success: false 
-                });
-            }
-
-            try {
-                // const mix_data = await this.create_dj_mix(session_id, video_ids);
-                console.log(`DJ Mix request: ${current_song_id} -> ${next_song_id} (quality: ${quality}, style: ${mix_style})`);
-                
-                // Ensure both songs are available in HLS (wait for completion)
-                await Promise.all([
-                    this.create_hls_stream(current_song_id, this.codecs, this.profile_progression),
-                    this.create_hls_stream(next_song_id, this.codecs, this.profile_progression)
-                ]);
-                
-                // Wait for both streams to be complete (needed for stitching)
-                await Promise.all([
-                    this.wait_for_stream_complete(current_song_id, 60000),
-                    this.wait_for_stream_complete(next_song_id, 60000)
-                ]);
-                
-                // Call Python DJ service to get mix data with crossfade WAV
-                const mix_result = await call_dj_api('/get_stitched_mix', {
-                    song_id_1: current_song_id,
-                    song_id_2: next_song_id,
-                    mix_style: mix_style
-                });
-                console.log(`DJ Mix info received:`, mix_result.mix_info);
-                const mix_data = mix_result.mix_info;
-
-                this.add_mix_to_session(session_id, mix_data);
-                return res.status(200).json({ success: true, mix_data });
-            } catch (error) {
-                console.error('Error creating DJ mix:', error.message);
-                return res.status(500).json({ success: false, error: error.message });
-            }
-        });
-
-        app.get('/session/:session_id/audio/:codec/:profile/playlist.m3u8', async (req, res) => {
-            console.log('Session playlist request:', req.params);
-            const { session_id, codec, profile } = req.params;
-            const { live, ended } = req.query;
-
-            const options = {
-                live: live === 'true' || live === '1',
-                ended: ended === 'true' || ended === '1'
-            };
-
-            const playlist_file = await this.generate_session_playlist(session_id, codec, profile, null, options);
-            
-            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            
-            // For live playlists, prevent caching so HLS.js refetches
-            if (options.live && !options.ended) {
-                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-                res.setHeader('Pragma', 'no-cache');
-                res.setHeader('Expires', '0');
-            }
-            
-            return res.status(200).send(playlist_file);
         });
     }
 
@@ -841,52 +755,85 @@ class Adaptive_Stream {
         };
     }
 
-    async get_hls_bundle_with_data(video_id, profile = 'high') {
-        const codec = this.codecs[0];
+    async get_hls_bundle_with_data(video_id, profiles = this.profile_progression, codecs = this.codecs) {
+        let profile_data = {};
 
-        const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
-        const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
-        
-        // Read the playlist
-        const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
-        
-        // Also read master playlist
-        const master_playlist_path = path.join(this.hls_raw_audio_directory, video_id, 'audio', 'master.m3u8');
-        const master_playlist_content = await file_system.promises.readFile(master_playlist_path, 'utf-8');
-        
-        // Parse segment filenames from playlist
-        const segment_files = playlist_content
-            .split('\n')
-            .filter(line => line.endsWith('.ts'))
-            .map(line => line.trim());
-        
-        // Read all segments and encode as base64
-        const segments = await Promise.all(
-            segment_files.map(async (filename) => {
-                const segment_path = path.join(audio_dir, filename);
-                const data = await file_system.promises.readFile(segment_path);
-                return {
-                    filename,
-                    data: data.toString('base64'),
-                    size: data.length
-                };
-            })
-        );
-        
-        // Calculate total size
-        const total_size = segments.reduce((sum, seg) => sum + seg.size, 0);
+        for(let codec of codecs) {
+            if(!Adaptive_Stream.profiles[codec]) continue;
+            for(let profile of profiles) {
+                if(!Adaptive_Stream.profiles[codec][profile]) continue;
+
+                // Check if audio exists for this codec/profile
+                const audio_dir = path.join(this.hls_raw_audio_directory, video_id, 'audio', codec, profile);
+                const playlist_path = path.join(audio_dir, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+                const relative_playlist_path = path.join('hls', path.relative(this.hls_root, playlist_path));
+                const exists = file_system.existsSync(playlist_path);
+                if(!exists) {
+                    // no available codec/profile
+                    continue;
+                }
+
+                // Read the playlist
+                const playlist_content = await file_system.promises.readFile(playlist_path, 'utf-8');
+                
+                // Parse segment filenames and durations from playlist
+                const lines = playlist_content.split('\n');
+                const segment_info = [];
+                let current_duration = 0;
+                
+                for (const line of lines) {
+                    if (line.startsWith('#EXTINF:')) {
+                        // Parse duration: #EXTINF:1.021678,
+                        const duration_match = line.match(/#EXTINF:([\d.]+)/);
+                        if (duration_match) {
+                            current_duration = parseFloat(duration_match[1]);
+                        }
+                    } else if (line.endsWith('.ts') && !line.startsWith('#')) {
+                        // This is a segment filename
+                        segment_info.push({
+                            filename: line.trim(),
+                            duration: current_duration
+                        });
+                        current_duration = 0;
+                    }
+                }
+                
+                // Read all segments and encode as base64
+                const segments_with_data = await Promise.all(
+                    segment_info.map(async (info) => {
+                        const segment_path = path.join(audio_dir, info.filename);
+                        const data = await file_system.promises.readFile(segment_path);
+                        return {
+                            filename: info.filename,
+                            data: data.toString('base64'),
+                            size: data.length,
+                            duration: info.duration
+                        };
+                    })
+                );
+
+                const segments = await this.parse_playlist_segments(playlist_path);
+
+                profile_data[codec] = profile_data[codec] || {};
+                profile_data[codec][profile] = {
+                    playlist_url: relative_playlist_path,
+                    playlist_content: playlist_content,
+                    profile_data: Adaptive_Stream.profiles[codec]?.[profile],
+                    codec: codec,
+                    profile: profile,
+                    segments: segments_with_data,
+                    // segments_with_data: segments_with_data,
+                    segment_count: segments.length,
+                    total_size: segments_with_data.reduce((sum, seg) => sum + seg.size, 0)
+                }
+            }
+        }
         
         return {
-            master_playlist: master_playlist_content,
-            quality_playlist: playlist_content,
-            segments,
-            codec,
-            profile,
-            bitrate: Adaptive_Stream.profiles[codec][profile].bitrate,
-            segment_count: segments.length,
-            total_size,
-            // Include relative paths for reconstructing URLs
-            base_path: `/hls/raw/${video_id}/audio/${codec}/${profile}/`
+            master_playlist_url: `/hls/raw/${video_id}/audio/master.m3u8`,
+            profile_data,
+            profiles,
+            codecs
         };
     }
 

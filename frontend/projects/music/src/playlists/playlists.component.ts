@@ -5,7 +5,7 @@ import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Play
 import { PlaylistsService } from '../../playlists.service';
 import { HotActionService } from '../../hot.action.service';
 import { MusicPlayerService } from '../../music.player.service';
-import { LoadingService } from '../app/services/loading.service';
+import { LoadingService } from '../../loading.service';
 
 @Component({
   selector: 'app-playlists',

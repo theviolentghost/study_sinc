@@ -6,6 +6,7 @@ import { AuthService } from '../../src/app/auth.service';
 import { MusicPlayerService } from './music.player.service';
 import { PlaylistsService } from './playlists.service';
 import { Mix_Data, Mix_Data_Parameters } from './media.player/media.mixer';
+import { HLS_Bundle, HLS_Segment } from './media.player/http.interceptor.service';
 
 export enum DownloadQuality {
     "Q0" = '0', // high
@@ -52,25 +53,11 @@ export interface Song_Data {
     explicit?: boolean; // whether the song is marked as explicit
 }
 
-// HLS Bundle for offline playback - stores all data needed to reconstruct HLS stream
-export interface HLS_Bundle {
-    master_playlist: string; // content of master.m3u8
-    quality_playlist: string; // content of the quality-specific .m3u8
-    segments: HLS_Segment[]; // array of segment data
-    codec: string; // e.g., 'aac'
-    profile: string; // e.g., 'high'
-    bitrate: string; // e.g., '192k'
-    segment_count: number;
-    total_size: number; // total size in bytes
-    base_path: string; // original base path for reference
-    downloaded_at: number; // timestamp when downloaded
-}
-
-export interface HLS_Segment {
-    filename: string; // e.g., 'segment0.ts'
-    data: string; // base64 encoded segment data
-    size: number; // size in bytes
-}
+// export interface HLS_Segment {
+//     filename: string; // e.g., 'segment0.ts'
+//     data: string; // base64 encoded segment data
+//     size: number; // size in bytes
+// }
 
 export interface Song_Identifier {
     video_id: string; // the video ID from which this song was downloaded
@@ -721,19 +708,7 @@ export class MusicMediaService {
 
             try {
                 const hls_response = await lastValueFrom(
-                    this.http.get<{
-                        success: boolean;
-                        video_id: string;
-                        master_playlist: string;
-                        quality_playlist: string;
-                        segments: { filename: string; data: string; size: number }[];
-                        codec: string;
-                        profile: string;
-                        bitrate: string;
-                        segment_count: number;
-                        total_size: number;
-                        base_path: string;
-                    }>(`/download/hls/bundle`, {
+                    this.http.get<any>(`/download/hls/bundle`, {
                         params: { 
                             video_id: video_id,
                             quality: hls_quality 
@@ -751,26 +726,9 @@ export class MusicMediaService {
                     return;
                 }
 
-                console.log('HLS bundle received:', {
-                    segments: hls_response.segment_count,
-                    total_size: `${(hls_response.total_size / (1024 * 1024)).toFixed(2)} MB`,
-                    codec: hls_response.codec,
-                    profile: hls_response.profile
-                });
-
                 // Create the HLS bundle object
-                const hls_bundle: HLS_Bundle = {
-                    master_playlist: hls_response.master_playlist,
-                    quality_playlist: hls_response.quality_playlist,
-                    segments: hls_response.segments,
-                    codec: hls_response.codec,
-                    profile: hls_response.profile,
-                    bitrate: hls_response.bitrate,
-                    segment_count: hls_response.segment_count,
-                    total_size: hls_response.total_size,
-                    base_path: hls_response.base_path,
-                    downloaded_at: Date.now()
-                };
+                const hls_bundle: HLS_Bundle = hls_response;
+                console.log('HLS Bundle prepared:', hls_bundle);
 
                 this.download_progress_map.set(video_id, 100);
 
@@ -782,7 +740,7 @@ export class MusicMediaService {
 
                 song_data.downloaded = true;
                 song_data.download_hls_bundle = hls_bundle;
-                song_data.download_options = { bit_rate: hls_response.bitrate };
+                // song_data.download_options = { bit_rate: hls_response.bitrate };
 
                 const result = await this.save_song_to_indexDB(song_key, song_data);
                 if (!result) {
@@ -925,110 +883,110 @@ export class MusicMediaService {
     private hls_blob_url_cache: Map<string, { playlist_url: string; segment_urls: Map<string, string>; created_at: number }> = new Map();
     private hls_blob_url_cache_ttl = 30 * 60 * 1000; // 30 minutes
 
-    async get_audio_source_from_indexDB(key: string): Promise<string | null> {
-        const song_data = await this.get_song_from_indexDB(key);
+    // async get_audio_source_from_indexDB(key: string): Promise<string | null> {
+    //     const song_data = await this.get_song_from_indexDB(key);
         
-        if (song_data && song_data.downloaded) {
-            // Check for HLS bundle first (new format)
-            if (song_data.download_hls_bundle) {
-                const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
-                return hls_urls?.playlist_url || null;
-            }
+    //     if (song_data && song_data.downloaded) {
+    //         // Check for HLS bundle first (new format)
+    //         if (song_data.download_hls_bundle) {
+    //             const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
+    //             return hls_urls?.playlist_url || null;
+    //         }
             
-            // Fallback to legacy MP3 blob
-            if (song_data.download_audio_blob) {
-                return URL.createObjectURL(song_data.download_audio_blob);
-            }
-        }
+    //         // Fallback to legacy MP3 blob
+    //         if (song_data.download_audio_blob) {
+    //             return URL.createObjectURL(song_data.download_audio_blob);
+    //         }
+    //     }
         
-        return await this.get_audio_stream(key); 
-    }
+    //     return await this.get_audio_stream(key); 
+    // }
 
-    // Get HLS stream info - either from bundle or network
-    async get_offline_hls_stream(key: string): Promise<{ playlist_url: string; is_offline: boolean } | null> {
-        const song_data = await this.get_song_from_indexDB(key);
+    // // Get HLS stream info - either from bundle or network
+    // async get_offline_hls_stream(key: string): Promise<{ playlist_url: string; is_offline: boolean } | null> {
+    //     const song_data = await this.get_song_from_indexDB(key);
         
-        if (song_data?.downloaded && song_data.download_hls_bundle) {
-            const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
-            if (hls_urls) {
-                return { playlist_url: hls_urls.playlist_url, is_offline: true };
-            }
-        }
+    //     if (song_data?.downloaded && song_data.download_hls_bundle) {
+    //         const hls_urls = await this.create_hls_blob_urls_from_bundle(key, song_data.download_hls_bundle);
+    //         if (hls_urls) {
+    //             return { playlist_url: hls_urls.playlist_url, is_offline: true };
+    //         }
+    //     }
         
-        // Fallback to network stream
-        const stream_response = await this.get_hls_stream(key);
-        if (stream_response?.playlist_url) {
-            return { playlist_url: stream_response.playlist_url, is_offline: false };
-        }
+    //     // Fallback to network stream
+    //     const stream_response = await this.get_hls_stream(key);
+    //     if (stream_response?.playlist_url) {
+    //         return { playlist_url: stream_response.playlist_url, is_offline: false };
+    //     }
         
-        return null;
-    }
+    //     return null;
+    // }
 
     // Create blob URLs from stored HLS bundle for offline playback
-    async create_hls_blob_urls_from_bundle(
-        key: string, 
-        bundle: HLS_Bundle
-    ): Promise<{ playlist_url: string; segment_urls: Map<string, string> } | null> {
-        // Check cache first
-        const cached = this.hls_blob_url_cache.get(key);
-        if (cached && (Date.now() - cached.created_at) < this.hls_blob_url_cache_ttl) {
-            return { playlist_url: cached.playlist_url, segment_urls: cached.segment_urls };
-        }
+    // async create_hls_blob_urls_from_bundle(
+    //     key: string, 
+    //     bundle: HLS_Bundle
+    // ): Promise<{ playlist_url: string; segment_urls: Map<string, string> } | null> {
+    //     // Check cache first
+    //     const cached = this.hls_blob_url_cache.get(key);
+    //     if (cached && (Date.now() - cached.created_at) < this.hls_blob_url_cache_ttl) {
+    //         return { playlist_url: cached.playlist_url, segment_urls: cached.segment_urls };
+    //     }
 
-        // Clean up old cached URLs if exists
-        if (cached) {
-            URL.revokeObjectURL(cached.playlist_url);
-            cached.segment_urls.forEach(url => URL.revokeObjectURL(url));
-            this.hls_blob_url_cache.delete(key);
-        }
+    //     // Clean up old cached URLs if exists
+    //     if (cached) {
+    //         URL.revokeObjectURL(cached.playlist_url);
+    //         cached.segment_urls.forEach(url => URL.revokeObjectURL(url));
+    //         this.hls_blob_url_cache.delete(key);
+    //     }
 
-        try {
-            // Create blob URLs for each segment
-            const segment_urls = new Map<string, string>();
+    //     try {
+    //         // Create blob URLs for each segment
+    //         const segment_urls = new Map<string, string>();
             
-            for (const segment of bundle.segments) {
-                // Convert base64 to Uint8Array
-                const binary_string = atob(segment.data);
-                const bytes = new Uint8Array(binary_string.length);
-                for (let i = 0; i < binary_string.length; i++) {
-                    bytes[i] = binary_string.charCodeAt(i);
-                }
+    //         for (const segment of bundle.segments) {
+    //             // Convert base64 to Uint8Array
+    //             const binary_string = atob(segment.data);
+    //             const bytes = new Uint8Array(binary_string.length);
+    //             for (let i = 0; i < binary_string.length; i++) {
+    //                 bytes[i] = binary_string.charCodeAt(i);
+    //             }
                 
-                // Create blob and URL
-                const segment_blob = new Blob([bytes], { type: 'video/mp2t' });
-                const segment_url = URL.createObjectURL(segment_blob);
-                segment_urls.set(segment.filename, segment_url);
-            }
+    //             // Create blob and URL
+    //             const segment_blob = new Blob([bytes], { type: 'video/mp2t' });
+    //             const segment_url = URL.createObjectURL(segment_blob);
+    //             segment_urls.set(segment.filename, segment_url);
+    //         }
 
-            // Modify the playlist to use blob URLs
-            let modified_playlist = bundle.quality_playlist;
-            segment_urls.forEach((blob_url, filename) => {
-                // Replace segment filenames with blob URLs in the playlist
-                modified_playlist = modified_playlist.replace(
-                    new RegExp(filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-                    blob_url
-                );
-            });
+    //         // Modify the playlist to use blob URLs
+    //         let modified_playlist = bundle.quality_playlist;
+    //         segment_urls.forEach((blob_url, filename) => {
+    //             // Replace segment filenames with blob URLs in the playlist
+    //             modified_playlist = modified_playlist.replace(
+    //                 new RegExp(filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+    //                 blob_url
+    //             );
+    //         });
 
-            // Create blob URL for the modified playlist
-            const playlist_blob = new Blob([modified_playlist], { type: 'application/vnd.apple.mpegurl' });
-            const playlist_url = URL.createObjectURL(playlist_blob);
+    //         // Create blob URL for the modified playlist
+    //         const playlist_blob = new Blob([modified_playlist], { type: 'application/vnd.apple.mpegurl' });
+    //         const playlist_url = URL.createObjectURL(playlist_blob);
 
-            // Cache the URLs
-            this.hls_blob_url_cache.set(key, {
-                playlist_url,
-                segment_urls,
-                created_at: Date.now()
-            });
+    //         // Cache the URLs
+    //         this.hls_blob_url_cache.set(key, {
+    //             playlist_url,
+    //             segment_urls,
+    //             created_at: Date.now()
+    //         });
 
-            console.log(`Created HLS blob URLs for offline playback: ${bundle.segment_count} segments`);
+    //         console.log(`Created HLS blob URLs for offline playback: ${bundle.segment_count} segments`);
 
-            return { playlist_url, segment_urls };
-        } catch (error) {
-            console.error('Error creating HLS blob URLs from bundle:', error);
-            return null;
-        }
-    }
+    //         return { playlist_url, segment_urls };
+    //     } catch (error) {
+    //         console.error('Error creating HLS blob URLs from bundle:', error);
+    //         return null;
+    //     }
+    // }
 
     // Clean up blob URLs when no longer needed
     cleanup_hls_blob_urls(key: string): void {

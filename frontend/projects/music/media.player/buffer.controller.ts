@@ -204,14 +204,8 @@ class BufferController {
                 }
             }
 
-            // console.log('BUFFER_APPEND', 'event', event, 'data', data);
             // check if startPTS or endPTS are within current_track_timestamp, if so, update has_audio accordingly
             if (this.current_track_timestamp && data.type === 'audio' && data.frag) {
-                // console.log('Checking fragment PTS against current track timestamp:', data, data.frag, data.frag.startPTS, data.frag.endPTS);
-                // if (data.frag.startPTS >= this.current_track_timestamp.start_timestamp && data.frag.endPTS <= this.current_track_timestamp.end_timestamp) {
-                //     this.current_track_timestamp.has_audio_segments = true;
-                //     console.log('✅ Current track has audio segments');
-                // }
                 // check to see which timestamp this fragment belongs to
                 // first check if current_track_timestamp matches, if greater than seacrh next index, if less than search previous index
                 const fragment_start = data.frag.startPTS;
@@ -272,7 +266,7 @@ class BufferController {
 
         hls.on(Events.ERROR, (event, data) => {
 
-            console.error('HLS Error:', data.details, 'fatal:', data.fatal);
+            // console.error('HLS Error:', data.details, 'fatal:', data.fatal);
 
             if(this.controller.use_streaming_playlist) {
                 // For streaming playlists, mark as stalled on specific errors
@@ -368,7 +362,6 @@ class BufferController {
     }
 
     public update_tracks_cache(): void {
-        console.log('Updating tracks cache in BufferController');
         this.last_requested_tracks_cache = this.controller.http_interceptor_service.get_timestamps_of_tracks();
     }
 
@@ -376,6 +369,7 @@ class BufferController {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
         this.hls = this.create_hls_instance(true);
+        this.controller.queue_updated();
         this.hls.attachMedia({
             media: this.audio_element,
             // mediaSource: this.media_source,
@@ -383,7 +377,6 @@ class BufferController {
         });
         this.hls.loadSource(url);
         this.hls.startLoad(60, true); // start loading after silent segment to prioritize real audio
-        this.controller.seek_to(60);
         this.update_tracks_cache();
 
         this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
@@ -394,6 +387,7 @@ class BufferController {
                 this.using_silent_source = false;
                 return;
             }
+            this.controller.update_media_session_position();
             if (this.did_song_end()) {
                 console.log('✅ Song finished (detected by FRAG_CHANGED), emitting end event');
                 this.controller?.on_song_ended();
@@ -405,20 +399,32 @@ class BufferController {
         this.controller.http_interceptor_service.playlist_updated.subscribe((missing_tracks: number[]) => {
             // console.log('Playlist updated, refreshing tracks cache', missing_tracks);
             this.update_tracks_cache();
-            // console.log('Updated tracks cache:', this.timestamps_of_tracks_cache);
+            // console.log('Updated tracks cache:', this.timestamps_of_tracks_cache, missing_tracks, this.current_track_index);
             for (let index of missing_tracks) {
                 if(index === this.current_track_index) {
+                    console.log('Current track index', this.current_track_index, 'was missing but is now loaded');
                     // Current track missing, but now loaded
                     this.update_current_track_timestamp();
                     if(!this.current_track_timestamp) {
                         console.warn('Current track index', this.current_track_index, 'is still missing after playlist update.');
                         return;
                     }
-                    // this.reload_manifest();
-                    this.update_playlist(() => {
-                        this.current_time = this.current_track_timestamp.start_timestamp;
-                        console.log('Current track index', this.current_track_index, 'was missing but is now loaded and seeking to', this.current_track_timestamp.start_timestamp);
-                    });
+                    if(this.current_track_index === 0) {
+                        // just seek
+                        setTimeout(() => {
+                            this.current_time = this.current_track_timestamp.start_timestamp;
+                        }, 100);
+                    } else {
+                        this.update_playlist(() => {
+                            setTimeout(() => {
+                                this.current_time = this.current_track_timestamp.start_timestamp;
+                                if(this.is_safari) {
+                                    this.safari_play();
+                                }
+                                console.log('Current track index', this.current_track_index, 'was missing but is now loaded and seeking to', this.current_track_timestamp.start_timestamp);
+                            }, 100);
+                        });
+                    }
                 }
             }
         });

@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 
 import { ServiceWorkerMessageDistributorService, AppVersionMessage } from './src/service.worker.message.distributor';
-import { NotificationService } from './src/app/services/notification.service';
+import { NotificationService } from './notification.service';
 
 @Injectable({
   providedIn: 'root'

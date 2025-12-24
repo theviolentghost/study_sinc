@@ -3,7 +3,7 @@ import BufferController from "./buffer.controller";
 import { MusicMediaService, Song_Data, Song_Identifier } from "../music.media.service";
 import { Skip_Event } from "./playlist.manager";
 import { SettingsService } from "../settings.service";
-import { NotificationService } from "../src/app/services/notification.service";
+import { NotificationService } from "../notification.service";
 import MediaMixer from "./media.mixer";
 import { MusicPlayerService } from "../music.player.service";
 import { SessionPlaylistInterceptorService, HLS_Bundle } from "./http.interceptor.service";
@@ -142,9 +142,16 @@ class MusicMediaManager {
         // before setting the queue, based on the current index of the current song, see if we need to flush the buffer after said index
         // we see which indices of 'songs' and 'this.http_interceptor_service.song_queue' match
         // to do
-
-
-
+        for(let index = this.buffer_controller.current_track_index + 1; index < songs.length; index++) {
+            if(!this.http_interceptor_service.song_queue?.[index]) continue;
+            if(this.http_interceptor_service.song_queue[index] !== songs[index]) {
+                // mismatch found, flush buffer from this index onwards
+                // this.buffer_controller.flush_buffer_after_index(index);
+                setTimeout(() => this.buffer_controller.update_playlist(null), 50);
+                console.log('Flushed buffer due to playlist queue change at index:', index);
+                break;
+            }
+        }
 
         this.http_interceptor_service.song_queue = songs;
     }
@@ -254,7 +261,7 @@ class MusicMediaManager {
 
         navigator.mediaSession.setActionHandler('seekto', (event) => {
             const seek_time = event.seekTime || 0;
-            this.seek_to(seek_time);
+            this.player.seek_to(seek_time);
         });
     }
 
@@ -434,6 +441,13 @@ class MusicMediaManager {
                     this.set_streaming_playlist(url);
                 });
             } 
+
+            if(song_data && song_data.downloaded) {
+                this.loading_tracks.set(song_key, 'loaded');
+                // use downloaded bundle
+                this.http_interceptor_service.add_bundle(song_data.download_hls_bundle);
+                return;
+            }
 
             this.media.request_song_to_streaming_hls_bundle(song_identifier.video_id, { mix: false }).then((hls_stream_bundle) => {
                 // handle the appended song data
@@ -783,6 +797,7 @@ class MusicMediaManager {
     public async update_media_session(data: Song_Identifier | Song_Data | string): Promise<void> {
         if (!('mediaSession' in navigator) || !data) return;
         this.configure_media_session();
+        console.log('Updating media session with data:', data);
 
         let metadata: Song_Data | null = null;
 

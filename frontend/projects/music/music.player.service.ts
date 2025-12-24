@@ -6,7 +6,7 @@ import MusicMediaManager from './media.player/media.manager';
 import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Playlist_Identifier } from './music.media.service';
 import { Skip_Event, Skip_Result } from './media.player/playlist.manager';
 import { SettingsService } from './settings.service';
-import { NotificationService } from './src/app/services/notification.service';
+import { NotificationService } from './notification.service';
 // import { DJMixingService, MixStyle } from './dj.mixing.service';
 import { SessionPlaylistInterceptorService } from './media.player/http.interceptor.service';
 

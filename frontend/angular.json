@@ -140,7 +140,7 @@
                   "maximumError": "4MB"
                 }
               ],
-              "outputHashing": "all",
+              "outputHashing": "none",
               "serviceWorker": "projects/music/ngsw-config.json",
               "namedChunks": false,
               "optimization": {

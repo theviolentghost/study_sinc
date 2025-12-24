@@ -581,7 +581,15 @@ class Network_Manager {
             return response; // return the failed response
         } catch (error) {
             this.handle_error(error);
-            // Always return a valid Response
+            
+            // Network is completely offline, try cache as fallback
+            const cachedResponse = await this.file_manager.cache_fetch(request);
+            if (cachedResponse) {
+                if (LOGGING) console.log('Serving cached response for offline request:', request.url);
+                return cachedResponse;
+            }
+            
+            // No cache available, return error
             return new Response('Network Error', { 
                 status: 503, 
                 statusText: 'Service Unavailable' 

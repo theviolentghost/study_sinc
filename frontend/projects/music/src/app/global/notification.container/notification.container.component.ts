@@ -2,7 +2,7 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { trigger, transition, style, animate, query, stagger } from '@angular/animations';
 import { Subscription } from 'rxjs';
-import { NotificationService, Notification, NotificationType } from '../../services/notification.service';
+import { NotificationService, Notification, NotificationType } from '../../../../notification.service';
 
 @Component({
     selector: 'notification-container',
