@@ -180,15 +180,15 @@ class MusicPlaylistManager {
         this.manager.load_track(next_song_key, true);
         this.manager.set_streaming_playlist_queue(this.full_queue);
         // move to end of current song
-        // console.log('moving to end of current track', this.manager.buffer_controller.current_track_timestamp);
-        // if(this.manager.buffer_controller.current_track_timestamp) {
-        //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
-        // }
-        const silent_audio_position = this.manager.get_silent_audio_position();
-        if(silent_audio_position !== -1) {
-            this.manager.buffer_controller.using_silent_source = true;
-            this.manager.seek_to(silent_audio_position);
+        console.log('moving to end of current track', this.manager.buffer_controller.current_track_timestamp);
+        if(this.manager.buffer_controller.current_track_timestamp) {
+            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
         }
+        // const silent_audio_position = this.manager.get_silent_audio_position();
+        // if(silent_audio_position !== -1) {
+        //     this.manager.buffer_controller.using_silent_source = true;
+        //     this.manager.seek_to(silent_audio_position);
+        // }
 
         this.manager.buffer_controller.update_current_track_timestamp();
         if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {

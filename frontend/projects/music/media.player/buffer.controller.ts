@@ -232,6 +232,13 @@ class BufferController {
 
                 if (relevant_timestamp) {
                     relevant_timestamp.has_audio_segments = true;
+                    if(current_index === this.current_track_index) {
+                        // song that is trying to play
+                        if(this.using_silent_source) {
+                            this.using_silent_source = false;
+                            this.controller.seek_to(this.current_track_timestamp.start_timestamp);
+                        }
+                    }
                 }
             }
 
@@ -376,7 +383,8 @@ class BufferController {
             // overrides: { endOfStream: false }
         });
         this.hls.loadSource(url);
-        this.hls.startLoad(60, true); // start loading after silent segment to prioritize real audio
+        this.hls.startLoad(0); 
+        this.using_silent_source = true;
         this.update_tracks_cache();
 
         this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
@@ -713,7 +721,7 @@ class BufferController {
             case 'to_end':
                 const start_offset = this.controller.song_duration - this.controller.current_time;
                 console.log(`🧹 Flushing buffer to end at: ${start_offset.toFixed(2)}s`);
-                this.hls.audioStreamController.flushMainBuffer(start_offset - 0.1, Infinity);
+                this.hls.audioStreamController.flushMainBuffer(this.current_time + start_offset - 0.1, Infinity);
                 break;
         }
         // this.hls.audioStreamController.flushMainBuffer(0, Infinity);
