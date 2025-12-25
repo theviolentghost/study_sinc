@@ -95,7 +95,7 @@
             </div>
         </div>
         <div class="extra-info" [style.--color]="get_playlist_primary_color()">
-            <div class="source" [style.--color]="get_source_color(video?.id?.source)" [style.--mask]="'url(\'brand-' + video?.id?.source + '.svg\')'"></div>
+            <div class="source" [style.--color]="get_source_color(video?.id?.source)" [style.--mask]="'url(\'brand-' + (video?.id?.source || 'youtube') + '.svg\')'"></div>
             <div class="liked" *ngIf="video?.liked" [style.--mask]="'url(' + 'heart-fill.svg' + ')'"></div>
             <div class="downloaded" *ngIf="video?.downloaded && video?.download_hls_bundle" [style.--mask]="'url(' + 'cloud-download.svg' + ')'"></div>
         </div>

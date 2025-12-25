@@ -222,6 +222,10 @@ export class MusicPlayerService {
         this.media_controller.configure_media_session();
         console.log('Audio element set in MusicPlayerService.');
 
+        element.addEventListener('timeupdate', () => {
+            this.media_controller.update_media_session_position();
+        });
+
         // Listen for custom song_ended event from BufferController
         // this.buffer_controller.events.addEventListener('song_ended', (event: Event) => {
         //     const customEvent = event as CustomEvent;

@@ -476,11 +476,16 @@ export class SessionPlaylistInterceptorService {
 
     public add_bundle(bundle: HLS_Bundle): void {
         if(!bundle || !bundle.video_id) return;
-        if(this.hls_bundles.has(bundle.video_id)) return;
+        if(this.hls_bundles.has(bundle.video_id)) {
+            // check to see if the existing bundle is different, if so replace it
+            const existing_bundle = this.hls_bundles.get(bundle.video_id);
+            if(existing_bundle && existing_bundle === bundle) {
+                return;
+            }
+        }
         this.hls_bundles.set(bundle.video_id, bundle);
         // now look through song queue and see if any missing, if so emit event to update playlists with the indexes of the missing tracks now available
         const missing_tracks: number[] = [];
-        console.log('SessionPlaylistInterceptorService: song queue', this.song_queue);
         for (const [index, song_key] of this.song_queue.entries()) {
             const parsed_song_key = this.media.parse_song_key(song_key);
             if (!parsed_song_key || !parsed_song_key.video_id) continue;
@@ -490,10 +495,7 @@ export class SessionPlaylistInterceptorService {
             }
         }
 
-        console.log('SessionPlaylistInterceptorService: New bundle added for video_id', bundle.video_id, 'Missing tracks indexes to update:', missing_tracks);
-
         this.create_session_playlist(undefined, undefined, this.get_tracks_for_session_playlist(), null);
-        console.log('Updated tracks cache after adding new bundle:', this.timestamps_of_tracks_cache);
         if (missing_tracks.length > 0) {
             this.playlist_updated.emit(missing_tracks);
         }

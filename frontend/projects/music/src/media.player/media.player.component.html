@@ -95,7 +95,7 @@
                             <div>{{ artist.name }}</div>
                             <span *ngIf="!isLast">, </span>
                         </div>
-                        <div class="source" [style.--color]="get_source_color(current_media_data?.id?.source)" [style.--mask]="'url(\'brand-' + current_media_data?.id?.source + '.svg\')'"></div>
+                        <div class="source" [style.--color]="get_source_color(current_media_data?.id?.source)" [style.--mask]="'url(\'brand-' + (current_media_data?.id?.source || 'youtube') + '.svg\')'"></div>
                     </div>
                 </div>
             </div>

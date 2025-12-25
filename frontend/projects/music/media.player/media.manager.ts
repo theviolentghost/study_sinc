@@ -60,6 +60,9 @@ class MusicMediaManager {
     }
     get current_time(): number {
         // return this.buffer_controller.current_time;
+        if(this.buffer_controller.using_silent_source) {
+            return 0;
+        }
         if(this.use_streaming_playlist) {
             // console.log('current time requested, current track timestamp:', this.buffer_controller.current_track_timestamp, this.buffer_controller?.current_time - this.buffer_controller.current_track_timestamp?.start_timestamp);
             const difference = this.buffer_controller.current_time - (this.buffer_controller.current_track_timestamp?.start_timestamp || 0);

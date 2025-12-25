@@ -440,7 +440,8 @@ class Adaptive_Stream {
                 const bundle = await this.get_hls_bundle(video_id, Array.isArray(qualities) ? qualities : [qualities]);
 
                 res.setHeader('Content-Type', 'application/json');
-                res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+                // res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); // Disable caching
 
                 return res.status(200).json({
                     success: true,
@@ -511,6 +512,10 @@ class Adaptive_Stream {
                 });
             }
         });
+
+        // app.get('/hls//.*/', (req, res) => {
+        //     return res.status(404).json({success: false, error: "Not found"});
+        // });
     }
 
     is_valid_video_id(video_id) {
