@@ -141,18 +141,20 @@ class MusicMediaManager {
         // this.shuffle = this.settings.shuffle_playback;
     }
 
-    public set_streaming_playlist_queue(songs: string[]): void {
+    public set_streaming_playlist_queue(songs: string[], skip_buffer_flush: boolean = false): void {
         // before setting the queue, based on the current index of the current song, see if we need to flush the buffer after said index
         // we see which indices of 'songs' and 'this.http_interceptor_service.song_queue' match
         // to do
-        for(let index = this.buffer_controller.current_track_index + 1; index < songs.length; index++) {
-            if(!this.http_interceptor_service.song_queue?.[index]) continue;
-            if(this.http_interceptor_service.song_queue[index] !== songs[index]) {
-                // mismatch found, flush buffer from this index onwards
-                // this.buffer_controller.flush_buffer_after_index(index);
-                setTimeout(() => this.buffer_controller.update_playlist(null), 50);
-                console.log('Flushed buffer due to playlist queue change at index:', index);
-                break;
+        if(!skip_buffer_flush) {
+            for(let index = this.buffer_controller.current_track_index + 1; index < songs.length; index++) {
+                if(!this.http_interceptor_service.song_queue?.[index]) continue;
+                if(this.http_interceptor_service.song_queue[index] !== songs[index]) {
+                    // mismatch found, flush buffer from this index onwards
+                    // this.buffer_controller.flush_buffer_after_index(index);
+                    setTimeout(() => this.buffer_controller.update_playlist(null), 50);
+                    console.log('Flushed buffer due to playlist queue change at index:', index);
+                    break;
+                }
             }
         }
 
@@ -276,9 +278,12 @@ class MusicMediaManager {
     public update_media_session_position(progress: number = this.current_time, duration: number = this.song_duration): void {
         if (!('mediaSession' in navigator) || !('setPositionState' in navigator.mediaSession)) return;
 
+        if(!Number.isFinite(progress) || Number.isNaN(progress)) progress = 0;
+        if(!Number.isFinite(duration) || Number.isNaN(duration)) duration = 0;
+
         try {
             navigator.mediaSession.setPositionState({
-                duration: Math.max(duration, 0),
+                duration: Math.min(Math.max(duration, 0), Number.MAX_SAFE_INTEGER),
                 playbackRate: 1.0,
                 position: Math.max(Math.min(progress, duration), 0),
             });
@@ -335,12 +340,16 @@ class MusicMediaManager {
     }
     public is_current_song_loading(): boolean {
         if(!this.loading_tracks.has(this.playlist_manager.current_song_key)) return false;
+        if(this.buffer_controller.current_track_timestamp?.video_id === '#silent_audio' || this.buffer_controller.current_time <= 60) return true; // the first 60 seconda are always silent
+        const song_identifier = this.playlist_manager.current_song_identifier;
+        if(this.buffer_controller.current_track_timestamp?.video_id === song_identifier.video_id && !this.buffer_controller.current_track_timestamp.has_audio_segments) return true;
+        if(!this.http_interceptor_service.is_index_loaded(this.buffer_controller.current_track_index)) return true;
         return this.loading_tracks.get(this.playlist_manager.current_song_key) !== 'loaded';
     }
     private loading_tracks: Map<string, 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded'> = new Map<string, 'fetching_video_id' | 'fetching_audio_stream' | 'fetching_audio_data' | 'loaded'>(); // song_keys currently being loaded, to its state
     // private loading_types: Map<string, 'current' | 'preload'> = new Map<string, 'current' | 'preload'>(); // song_keys being loaded, to its type
     // if load_into_source is false, we are just telling the server to create the stream
-    public async load_track(data: Song_Identifier | Song_Data | string, load_into_source: boolean = true): Promise<void> {
+    public async load_track(data: Song_Identifier | Song_Data | string, load_into_source: boolean = true): Promise<Song_Data | null> {
         let song_data: Song_Data | null = null;
         let song_identifier: Song_Identifier | null = null;
         let song_key: string | null = null;
@@ -373,14 +382,14 @@ class MusicMediaManager {
         } else {
             console.error('Invalid data provided to load_track:', data);
             this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, true);
-            return;
+            return null;
         }
 
         // at this point, song_key and song_identifier must be set
         if(!song_key || !song_identifier) {
             console.error('Failed to determine song key or identifier in load_track:', data);
             this.load_error(song_key || 'unknown', Audio_Error.DOES_NOT_EXIST, true);
-            return;
+            return null;
         }
 
         if(load_into_source) {
@@ -414,6 +423,7 @@ class MusicMediaManager {
                         if(song_data && song_data?.id) song_data.id.video_id = video_id;
 
                         await this.media.replace_song_key(old_song_key, song_key, song_data !== null ? song_data : undefined);
+                        this.queue_updated();
                     } else {
                         if(this.is_song_key_equal_to_current(song_key)) this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key));
                         return;
@@ -449,17 +459,23 @@ class MusicMediaManager {
                 this.loading_tracks.set(song_key, 'loaded');
                 // use downloaded bundle
                 this.http_interceptor_service.add_bundle(song_data.download_hls_bundle);
-                return;
+                return song_data;
             }
 
             this.media.request_song_to_streaming_hls_bundle(song_identifier.video_id, { mix: false }).then((hls_stream_bundle) => {
                 // handle the appended song data
+                console.log('hls stream bundle received for load_track:');
                 this.http_interceptor_service.add_bundle(hls_stream_bundle);
+                console.log('hls bundle added')
                 this.loading_tracks.set(song_key, 'loaded'); // technically not loaded yet, but close enough
             });
+
+            return song_data;
         } else {
             // old method 
             // do later
+
+            return song_data;
         }
     }
 
@@ -782,13 +798,14 @@ class MusicMediaManager {
     //     }
     // }
 
-    public async load_track_and_play(data: Song_Identifier | Song_Data | string): Promise<void> {
-        await this.load_track(data, true);
+    public async load_track_and_play(data: Song_Identifier | Song_Data | string): Promise<Song_Data | null> {
+        const load_result = await this.load_track(data, true);
         this.play();
+        return load_result;
     }
 
-    public queue_updated(): void {
-        this.set_streaming_playlist_queue(this.playlist_manager.full_queue);
+    public queue_updated(skip_buffer_flush: boolean = false): void {
+        this.set_streaming_playlist_queue(this.playlist_manager.full_queue, skip_buffer_flush);
     }
 
     public async set_streaming_playlist(playlist_url: string | null): Promise<void> {

@@ -35,18 +35,18 @@ class MediaMixer {
     }
 
     public async mix_and_load_into_player(player: MusicPlayerService): Promise<void> {
-        await this.get_mix_data(this.song_out_id, this.song_in_id, { mixing_strategy: 'balanced' });
-        console.log('Mix data received:', this.current_mix_data);
-        if (!this.current_mix_data || !this.current_mix_data.success) {
-            console.error('Failed to get mix data');
-            return;
-        }
-        // clear already buffered data beyond mix out time to allow smooth transition
-        await player.buffer_controller.slice_buffer(
-            Math.floor((this.current_mix_data.mix_info.mix_out_time || 0) / this.current_mix_data.mix_info.segment_duration) * this.current_mix_data.mix_info.segment_duration,
-            Infinity
-        );
-        return player.buffer_controller.load_and_play(this.current_mix_data.playlist_url, true, false);
+        // await this.get_mix_data(this.song_out_id, this.song_in_id, { mixing_strategy: 'balanced' });
+        // console.log('Mix data received:', this.current_mix_data);
+        // if (!this.current_mix_data || !this.current_mix_data.success) {
+        //     console.error('Failed to get mix data');
+        //     return;
+        // }
+        // // clear already buffered data beyond mix out time to allow smooth transition
+        // await player.buffer_controller.slice_buffer(
+        //     Math.floor((this.current_mix_data.mix_info.mix_out_time || 0) / this.current_mix_data.mix_info.segment_duration) * this.current_mix_data.mix_info.segment_duration,
+        //     Infinity
+        // );
+        // return player.buffer_controller.load_and_play(this.current_mix_data.playlist_url, true, false);
     }
 }
 

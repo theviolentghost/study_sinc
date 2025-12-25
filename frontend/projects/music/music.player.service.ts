@@ -66,6 +66,7 @@ export class MusicPlayerService {
     }
     get player_status(): 'playing' | 'paused' | 'stopped' {
         if(this.buffer_controller.stalled) return 'stopped';
+        if(this.buffer_controller.using_silent_source) return 'stopped';
         if(this.media_controller.is_current_song_loading()) return 'stopped';
         if(!this.buffer_controller?.has_audio || this.buffer_controller?.using_silent_source) return 'stopped';
         if(this.buffer_controller?.is_playing) return 'playing';
@@ -278,10 +279,11 @@ export class MusicPlayerService {
         this.add_song_to_cache(song);
     }
 
-    public async load_and_play_track(song: Song_Data | Song_Identifier | string): Promise<void> {
-        await this.media_controller.load_track(song);
-        this.generate_colors_for_song(song);
+    public async load_and_play_track(song: Song_Data | Song_Identifier | string): Promise<Song_Data | null> {
+        const loaded_song = await this.media_controller.load_track(song);
+        this.generate_colors_for_song(loaded_song || song);
         this.play();
+        return loaded_song;
     }
 
     public async load_track(song: Song_Data): Promise<void> {

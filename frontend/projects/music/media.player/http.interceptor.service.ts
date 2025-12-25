@@ -511,11 +511,22 @@ export class SessionPlaylistInterceptorService {
         this.get_tracks_for_session_playlist(); // This will ensure the timestamps cache is updated
     }
 
+    public is_index_loaded(index: number): boolean {
+        const song_key = this.song_queue[index];
+        if(!song_key) return false;
+
+        const tracks = this.get_tracks_for_session_playlist();
+        return tracks[index] != null;
+    }
+
     private get_tracks_for_session_playlist(): HLS_Bundle[] {
         const tracks: HLS_Bundle[] = [];
         for (const song_key of this.song_queue) {
             const parsed_song_key = this.media.parse_song_key(song_key);
-            if(!parsed_song_key || !parsed_song_key?.video_id) break;
+            if(!parsed_song_key || !parsed_song_key?.video_id) {
+                tracks.push(null);
+                continue;
+            }
 
             const bundle = this.hls_bundles.get(parsed_song_key.video_id);
             if(bundle) tracks.push(bundle);

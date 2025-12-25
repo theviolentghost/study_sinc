@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
-import { MusicMediaService, Song_Data, Song_Identifier, Song_Search_Result, Song_Source} from '../../music.media.service';
+import { MusicMediaService, Song_Data, Song_Identifier, Song_Playlist, Song_Search_Result, Song_Source} from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
 import { HotActionService } from '../../hot.action.service';
 import { GlobalInfoService } from '../../global.info.service';
@@ -274,7 +274,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
 
     async spotify_play(video: any): Promise<void> {
         this.player.song_changed.emit(); 
-        this.player.update_media_session({
+        const partial_song_data: Song_Data = {
             original_song_name: video.name || '',
             original_artists: video.artists.map((artist: any) => ({ name: artist.name, id: artist.id, source: 'spotify' })) || [],
             song_name: video.name || '',
@@ -285,7 +285,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
             download_options: null,
             id: {
                 video_id: '', // null, faster loading
-                source_id: '', // Use video.id or video.uri for Spotify
+                source_id: video?.id || video?.uri || '', // Use video.id or video.uri for Spotify
                 source: 'spotify',
             },
             url: {
@@ -302,45 +302,59 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
             video_duration: video.duration_ms,
             liked: false,
             explicit: video.explicit || false,
-        });
+        };
+        // this.player.update_media_session(partial_song_data);
+        const single_song_playlist: Song_Playlist = {
+            name: partial_song_data.song_name,
+            songs: new Map<string, Song_Identifier>(),
+            song_added_timestamps: new Map<string, number>(),
+            sorting_method: 'recent_to_old',
+            default: false,
+        };
+        console.log('loading single song playlist:', single_song_playlist);
+        await this.player.load_playlist(null, single_song_playlist, false);
 
         this.player.pause();
         this.player.open_player.emit();
 
-        const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'spotify', source_id: video.id || video.uri || '', video_id: ''}));
-        let track_data: Song_Data | null = cache || await this.hot_action.spotify_track_data(video);
-        if(!track_data) return;
+        // const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'spotify', source_id: video.id || video.uri || '', video_id: ''}));
+        // let track_data: Song_Data | null = cache || await this.hot_action.spotify_track_data(video);
+        // let track_data: Song_Data | null = cache;
+        // if(!track_data) return;
 
-        this.player.add_song_to_cache(track_data);
+        // this.player.add_song_to_cache(track_data);
 
-        this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
+        const complete_song_data: Song_Data = await this.player.load_and_play_track(partial_song_data);
+        if(!complete_song_data) return;
+
+        const media_controller = this.player.media_controller;
+        this.media.get_watch_playlist(complete_song_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
                 // convert the array of songs to a map of song_key to song_identifier
-                const song_map = new Map<string, Song_Identifier>();
+                // const song_map = new Map<string, Song_Identifier>();
                 playlist.song_data.forEach((song) => {
-                    song_map.set(this.media.bare_song_key(song.id), song.id);
+                    // song_map.set(this.media.bare_song_key(song.id), song.id);
+                    media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
                 });
-                playlist.songs = song_map;
+                // playlist.songs = song_map;
 
                 playlist.song_data.map((song) => {
                     this.player.add_song_to_cache(song);
                 });
 
-                await this.player.load_playlist(null, playlist, false);
+                // await this.player.load_playlist(null, playlist, false);
             } else {
-                console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
+                console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
             }
         }).catch((error) => {
             console.error('Error fetching watch playlist:', error);
         });
-
-        await this.player.load_and_play_track(track_data);
-        if(!cache) {
-            track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
-            if(!track_data) return;
-            this.player.set_current_song(track_data);
-            this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
-        }
+        // if(!cache) {
+        //     track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
+        //     if(!track_data) return;
+        //     this.player.set_current_song(track_data);
+        //     this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
+        // }
     }
 
     async open_hot_action(video: any, source: Song_Source): Promise<void> {

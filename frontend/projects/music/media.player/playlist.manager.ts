@@ -65,13 +65,15 @@ class MusicPlaylistManager {
         data: Song_Playlist | null, 
         preserve_history: boolean = false // whether to preserve the current song history
     ): Promise<void> {
+        // if(identifier && identifier?.id !== this.identifier?.id) this.manager.buffer_controller.destroy(); // refresh state
+
         this.identifier = identifier;
         this.data = data;
         this.queue = Array.from(data?.songs.values()).map(song_identifier => this.media.song_key(song_identifier)) || [];
         if (!preserve_history) {
             this.history_stack = [];
         }
-        // this.current_song = null;
+        this.current_song_key = null;
 
         await Promise.all(this.queue.map(song_key => {
             if(this.manager.song_cache.has(song_key)) return Promise.resolve();
@@ -96,8 +98,8 @@ class MusicPlaylistManager {
             return parsed_identifier ? parsed_identifier.video_id : null;
         }).filter(video_id => video_id !== null) as string[];
         if(video_ids_queue.length === 0) {
-            console.warn('No valid video IDs found in playlist for streaming playlist URL generation.');
-            return;
+            console.warn('No valid video IDs found in playlist for streaming playlist URL generation...may have slow startup');
+            // return;
         }
 
         this.manager.set_streaming_playlist_queue(this.full_queue);
@@ -183,10 +185,12 @@ class MusicPlaylistManager {
         // if(this.manager.buffer_controller.current_track_timestamp) {
         //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
         // }
-        const silent_audio_position = this.manager.get_silent_audio_position();
-        if(silent_audio_position !== -1) {
-            this.manager.buffer_controller.using_silent_source = true;
-            this.manager.seek_to(silent_audio_position);
+        if(event !== Skip_Event.OMIT_SKIP) {
+            const silent_audio_position = this.manager.get_silent_audio_position();
+            if(silent_audio_position !== -1) {
+                this.manager.buffer_controller.using_silent_source = true;
+                this.manager.seek_to(silent_audio_position);
+            }
         }
 
         this.manager.buffer_controller.update_current_track_timestamp();
@@ -410,11 +414,20 @@ class MusicPlaylistManager {
     public add_song_to_play_next(song_key: string): void {
         console.log('Adding song to play next:', song_key);
         this.playnext.push(song_key);
-        this.manager.set_streaming_playlist_queue(this.full_queue);
+        this.manager.queue_updated();
         // preload the song
         this.manager.load_track(song_key, false).catch(error => {
             console.error('Error preloading song for play next:', song_key, error);
         });
+    }
+
+    public add_song_to_end_of_queue(song_key: string): void {
+        this.queue.push(song_key);
+        this.manager.queue_updated();
+        // preload the song
+        // this.manager.load_track(song_key, false).catch(error => {
+        //     console.error('Error preloading song for end of queue:', song_key, error);
+        // });
     }
 }
 
