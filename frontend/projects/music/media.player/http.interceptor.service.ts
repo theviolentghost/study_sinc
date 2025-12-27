@@ -1,8 +1,9 @@
-import { Injectable, Output, EventEmitter } from '@angular/core';
+import { Injectable, Injector, Output, EventEmitter } from '@angular/core';
 import { Observable, of } from 'rxjs';
 
 import { ServiceWorkerMessageDistributorService } from '../src/service.worker.message.distributor';
 import { MusicMediaService } from '../music.media.service';
+import { MusicPlayerService } from '../music.player.service';
 
 export interface Mix_Bundle {
     'mix_id': string,
@@ -195,13 +196,20 @@ export class SessionPlaylistInterceptorService {
     public codecs = [/*'opus'*/'aac']; // Supported codecs
     public profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
 
-    private hls_bundles = new Map<string, HLS_Bundle>();
+    public hls_bundles = new Map<string, HLS_Bundle>();
     private segment_blob_urls = new Map<string, string>(); // Map of segment URL -> blob URL
     private silent_audio_url: string = '/music/audio/silent/audio/master.m3u8';
     private silent_audio_segment_url: string = '/music/audio/silent/audio/aac/ultra-low/32k_60.ts';
     private silent_audio_duration: number = 60.0523; // duration in seconds
+    private _player: MusicPlayerService;
+    private get player(): MusicPlayerService {
+        if (!this._player) {
+            this._player = this.injector.get(MusicPlayerService);
+        }
+        return this._player;
+    }
 
-    constructor(private service_worker_message_distributor: ServiceWorkerMessageDistributorService, private media: MusicMediaService) { 
+    constructor(private service_worker_message_distributor: ServiceWorkerMessageDistributorService, private media: MusicMediaService, private injector: Injector) { 
         this.initialize();
     }
 
@@ -366,6 +374,7 @@ export class SessionPlaylistInterceptorService {
 
         // let program_date_time = base_date.getTime();
         let is_first_source = true;
+        let prevent_future_scoping = false; // prevent loading segments ahead of buffer_controller current_index if there is a null track
 
         // add the silent audio at the start
         // lines.push('#EXT-X-DISCONTINUITY');
@@ -382,9 +391,9 @@ export class SessionPlaylistInterceptorService {
 
         for (let index = 0; index < tracks.length; index++) {
             const track = tracks[index];
-            // console.log('Processing track at index', index, ':', track);
-            if(track == null) {
+            if(track == null || prevent_future_scoping) {
                 updated_timestamps.push(null);
+                if(index >= this.player.media_controller.buffer_controller.current_track_index) prevent_future_scoping = true;
                 continue;
                 // break;
             }
@@ -477,11 +486,8 @@ export class SessionPlaylistInterceptorService {
     public add_bundle(bundle: HLS_Bundle): void {
         if(!bundle || !bundle.video_id) return;
         if(this.hls_bundles.has(bundle.video_id)) {
-            // check to see if the existing bundle is different, if so replace it
-            const existing_bundle = this.hls_bundles.get(bundle.video_id);
-            if(existing_bundle && existing_bundle === bundle) {
-                return;
-            }
+            return;
+            
         }
         this.hls_bundles.set(bundle.video_id, bundle);
         // now look through song queue and see if any missing, if so emit event to update playlists with the indexes of the missing tracks now available
@@ -515,10 +521,12 @@ export class SessionPlaylistInterceptorService {
         const song_key = this.song_queue[index];
         if(!song_key) return false;
 
-        const tracks = this.get_tracks_for_session_playlist();
-        return tracks[index] != null;
+        this.get_tracks_for_session_playlist(); // This will ensure the timestamps cache is updated
+        const tracks = this.tracks_for_session_playlist_cache;
+        return tracks[index] !== null;
     }
 
+    public tracks_for_session_playlist_cache: HLS_Bundle[] = [];
     private get_tracks_for_session_playlist(): HLS_Bundle[] {
         const tracks: HLS_Bundle[] = [];
         for (const song_key of this.song_queue) {
@@ -532,6 +540,7 @@ export class SessionPlaylistInterceptorService {
             if(bundle) tracks.push(bundle);
             else tracks.push(null);
         }
+        this.tracks_for_session_playlist_cache = tracks;
         this.create_session_playlist(undefined, undefined, tracks, null);
         return tracks;
     }

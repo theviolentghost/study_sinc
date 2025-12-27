@@ -428,19 +428,19 @@ class BufferController {
                         }
                         if(this.current_track_index === 0) {
                             // just seek
-                            setTimeout(() => {
+                            // setTimeout(() => {
                                 this.current_time = this.current_track_timestamp.start_timestamp;
-                            }, 100);
+                            // }, 100);
                         } else {
-                            this.update_playlist(() => {
-                                setTimeout(() => {
+                            // this.update_playlist(() => {
+                                // setTimeout(() => {
                                     this.current_time = this.current_track_timestamp.start_timestamp;
                                     if(this.is_safari) {
                                         this.safari_play();
                                     }
                                     console.log('Current track index', this.current_track_index, 'was missing but is now loaded and seeking to', this.current_track_timestamp.start_timestamp);
-                                }, 100);
-                            });
+                                // }, 100);
+                            // });
                         }
                     }
                 }

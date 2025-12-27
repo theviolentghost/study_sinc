@@ -179,25 +179,29 @@ class MusicPlaylistManager {
         }
         this.current_song_key = next_song_key;
         this.manager.buffer_controller.current_track_index++;
+        this.manager.queue_updated(true);
         this.manager.load_track(next_song_key, true);
-        this.manager.set_streaming_playlist_queue(this.full_queue);
         // move to end of current song
         // if(this.manager.buffer_controller.current_track_timestamp) {
         //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
         // }
-        if(event !== Skip_Event.OMIT_SKIP) {
-            const silent_audio_position = this.manager.get_silent_audio_position();
-            if(silent_audio_position !== -1) {
-                this.manager.buffer_controller.using_silent_source = true;
-                this.manager.seek_to(silent_audio_position);
-            }
-        }
-
         this.manager.buffer_controller.update_current_track_timestamp();
-        if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
-            setTimeout(() => {
-                if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
-            }, 100);
+        if(this.manager.http_interceptor_service.is_index_loaded(this.manager.buffer_controller.current_track_index)) {
+            if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
+                // setTimeout(() => {
+                    if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
+                // }, 100);
+            }
+        } else {
+            // if(event !== Skip_Event.OMIT_SKIP) {
+            console.log('this index is not loaded,', this.manager.http_interceptor_service.tracks_for_session_playlist_cache[this.manager.buffer_controller.current_track_index])
+            console.log('index not loaded, using silent', this.manager.buffer_controller.current_track_index, [...this.manager.http_interceptor_service.tracks_for_session_playlist_cache])
+                const silent_audio_position = this.manager.get_silent_audio_position();
+                if(silent_audio_position !== -1) {
+                    this.manager.buffer_controller.using_silent_source = true;
+                    this.manager.seek_to(silent_audio_position);
+                }
+            // }
         }
 
         // start preloading next song in queue
@@ -259,10 +263,20 @@ class MusicPlaylistManager {
 
         this.manager.buffer_controller.current_track_index--;
         this.manager.load_track(previous_song_key, true);
-        this.manager.set_streaming_playlist_queue(this.full_queue);
+        // this.manager.set_streaming_playlist_queue(this.full_queue);
+        this.manager.queue_updated(true);
         this.manager.buffer_controller.update_current_track_timestamp();
-        if(this.manager.buffer_controller.current_track_timestamp) {
-            this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp + 0.01);
+        // check if song exists in cache
+        if(this.manager.http_interceptor_service.is_index_loaded(this.manager.buffer_controller.current_track_index)) {
+            if(this.manager.buffer_controller.current_track_timestamp) {
+                this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp + 0.01);
+            }
+        } else {
+            const silent_audio_position = this.manager.get_silent_audio_position();
+            if(silent_audio_position !== -1) {
+                this.manager.buffer_controller.using_silent_source = true;
+                this.manager.seek_to(silent_audio_position);
+            }
         }
         return Skip_Result.SKIPPED;
     }
