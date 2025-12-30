@@ -58,7 +58,7 @@
             [style.border-bottom]="isLast ? 'solid 1px transparent' : null"
         >
             <div class="thumbnail" [ngClass]="{'single': playlist.images.length < 4}">
-                <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
+                <img *ngFor="let image of get_playlist_images(playlist)" [src]="image" alt="" />
             </div>
             <div class="info">
                 <div class="name">{{ playlist.name }}</div>
@@ -66,7 +66,7 @@
                     <div class="type">{{ playlist.playlist_type === 'album' ? 'Album' : 'Playlist' }}</div>
                     <div class="dot" *ngIf="playlist.created_by"></div>
                     <!-- if created by default say track count -->
-                    <div class="created-by">{{ playlist.created_by === 'user' ? 'You' : (playlist.created_by === 'system' ? `${ playlist.track_count || 0 } songs` : playlist.created_by) }}</div>
+                    <div class="created-by">{{ playlist.created_by === 'user' ? 'You' : (playlist.created_by === 'system' ? `${ playlist.track_count || 0 } song${ playlist.track_count === 1 ? '' : 's'}` : playlist.created_by) }}</div>
                 </div>
             </div>
         </button>
@@ -82,7 +82,7 @@
             [style.border-bottom]="isLast ? 'solid 1px transparent' : null"
         >
             <div class="thumbnail" [ngClass]="{'single': playlist.images.length < 4}">
-                <img *ngFor="let image of playlist?.images" [src]="image" alt="" />
+                <img *ngFor="let image of get_playlist_images(playlist)" [src]="image" alt="" />
             </div>
             <!-- <div class="name">{{ playlist.name }}</div> -->
             <div class="info">

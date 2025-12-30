@@ -27,7 +27,8 @@
 .search-filter {
     position: relative;
     top: 0;
-    width: 80%;
+    width: calc(90% - 8px);
+    left: calc(5% - 4px);
     margin: var(--space-3) 0;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
@@ -152,7 +153,7 @@
 .result-videos {
     position: sticky;
     width: 100%;
-    padding: 0 10%;
+    padding: 0 20px;
     /* max-width: 550px; */
     display: flex;
     flex-direction: column;
@@ -192,7 +193,8 @@
     /* aspect-ratio: 16 / 9; */
     height: var(--space-8);
     align-items: center;
-    background-color: var(--color-background);
+    /* background-color: var(--color-background); */
+    background: transparent;
     /* gap: var(--space-2); */
     overflow: visible;
     /* box-shadow: 0 0 10px 2px var(--color-background); */
@@ -513,16 +515,17 @@
     overflow: hidden;
     margin: var(--space-2) 0;
     box-shadow: 0 0 16px 8px rgba(0, 0, 0, .35);
-    transition: box-shadow 0.3s ease-in-out, width 0.3s ease-in-out, opacity 0.3s ease-in-out;
+    transition: box-shadow 0.3s ease-in-out;
 
     &.searching {
-        width: 0;
-        opacity: 0;
-        box-shadow: none;
+        transition: width 0.3s ease-in-out, box-shadow 0.3s ease-in-out, opacity 0.3s ease-in-out !important;
+        width: 0 !important;
+        opacity: 0 !important;
+        box-shadow: none !important;
     }
 }
 .cover.zero {
-    height: 0;
+    height: 0 !important;
     box-shadow: none;
 }
 .cover.single {
@@ -611,9 +614,6 @@
     mask-repeat: no-repeat;
     background-color: white;
     transition: transform 0.3s ease-in-out;
-}
-.close.to-top::after{
-    transform: rotate(90deg);
 }
 @keyframes spin {
     0% {
@@ -813,7 +813,7 @@
 .header {
     position: relative;
     top: 0;
-    width: 80%;
+    width: calc(100% - 40px);
     /* overflow: hidden; */
     transition: opacity 0.3s ease-in-out, height 0.3s ease-in-out;
     height: var(--space-8);
@@ -849,14 +849,15 @@
     justify-content: flex-start;
     align-items: center;
     height: var(--space-7);
-    padding: 42px 10%;
+    padding: 42px 20px;
     top: 0;
     gap: var(--space-1);
     position: sticky;
+    mask-size: 80%;
     background-color: transparent;
     /* background: linear-gradient(to bottom, var(--color-background) 60%, rgba(255, 255, 255, 0) 100%); */
     z-index: 10;
-    transition: background-color 0.2s ease-in-out, height 0.3s ease-in-out, opacity 0.3s ease-in-out, padding 0.3s ease-in-out;
+    transition: background-color 0.2s ease-in-out, height 0.3s ease-in-out, opacity 0.3s ease-in-out, padding 0.3s ease-in-out, margin 0.3s ease-in-out;
     margin-bottom: var(--space-2);
     --color: var(--color-primary);
 
@@ -867,9 +868,9 @@
         border: none;
         box-shadow: none;
 
-        &::after {
+        /* &::after {
             background-color: var(--color-neutral);
-        }
+        } */
     }
 
     &.searching {
@@ -894,6 +895,7 @@
 
     &.sticky {
         background-color: var(--color-background);
+        padding-left: 36px;
         &::after {
             content: '';
             position: absolute;
@@ -911,7 +913,7 @@
         width: 26px;
         height: 26px;
         margin: 0 var(--space-2);
-        background-color: var(--color-neutral);
+        background-color: var(--color-universal-white);
         border-radius: 9999px;
         cursor: pointer;
         transition: background-color 0.15s ease-in-out;
@@ -956,6 +958,7 @@
                 mask-size: cover;
                 mask-repeat: no-repeat;
                 mask-position: center;
+                mask-size: 80%;
                 mask-image: var(--mask);
                 background-color: var(--color-neutral);
             }
@@ -986,7 +989,7 @@
                 mask-repeat: no-repeat;
                 mask-position: center;
                 mask-image: var(--mask);
-                background-color: var(--color-neutral);
+                background-color: var(--color-universal-white);
             }
         }
 
@@ -1039,7 +1042,11 @@
     right: 0;
     width: 40px;
     height: 40px;
-    background-color: var(--color-text);
+    /* background-color: var(--color-text); */
+    background: rgba(255, 255, 255, 0.7);  
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
     border-radius: 9999px;
     opacity: 0;
     visibility: hidden;
@@ -1088,7 +1095,11 @@
         height: 32px;
         transform: translateY(-50%);
         border-radius: 9999px;
-        background-color: var(--color-text);
+        /* background-color: var(--color-text); */
+        background: rgba(255, 255, 255, 0.8);  
+        backdrop-filter: blur(20px) saturate(120%);
+        -webkit-backdrop-filter: blur(20px) saturate(120%);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
         color: var(--color-background);
         display: flex;
         align-items: center;

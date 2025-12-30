@@ -9,6 +9,7 @@ import { SettingsService } from './settings.service';
 import { NotificationService } from './notification.service';
 // import { DJMixingService, MixStyle } from './dj.mixing.service';
 import { SessionPlaylistInterceptorService } from './media.player/http.interceptor.service';
+import { ProgressiveImageLoaderService } from './progressive.image.loader.service';
 
 @Injectable({
   providedIn: 'root'
@@ -124,7 +125,7 @@ export class MusicPlayerService {
         return this.buffer_controller.buffered_percent;
     }
     get is_duration_accurate(): boolean {
-        return this.media_controller?.current_song?.video_duration || (this.buffer_controller.fully_buffered && this.media_controller.is_current_song_loading() === false);
+        return this.media_controller?.current_song?.video_duration || (this.media_controller.song_duration !== 0) || (this.buffer_controller.fully_buffered && this.media_controller.is_current_song_loading() === false);
     }
     get is_progress_accurate(): boolean {
         return this.is_duration_accurate || this.buffer_controller.using_silent_source === false;
@@ -149,11 +150,12 @@ export class MusicPlayerService {
         private media: MusicMediaService, 
         private settings: SettingsService,
         private notification_service: NotificationService, 
-        private session_playlist_interceptor: SessionPlaylistInterceptorService
+        private session_playlist_interceptor: SessionPlaylistInterceptorService,
+        private image_loader_service: ProgressiveImageLoaderService
     ) {
         this.buffer_controller = new BufferController(this.settings, null);
         // Pass the buffer_controller to media_controller so they share the same instance
-        this.media_controller = new MusicMediaManager(this.media, this.settings, this, this.session_playlist_interceptor, this.buffer_controller, this.notification_service);
+        this.media_controller = new MusicMediaManager(this.media, this.settings, this, this.session_playlist_interceptor, this.image_loader_service, this.buffer_controller, this.notification_service);
         // Now set the controller reference in buffer_controller
         this.buffer_controller.set_controller(this.media_controller);
         
@@ -257,6 +259,10 @@ export class MusicPlayerService {
 
     public set_thumbnail_element(element: HTMLImageElement): void {
         this.media_controller?.set_thumbnail_element(element);
+    }
+
+    public set_visualization_element(element: HTMLCanvasElement): void {
+        this.media_controller?.set_visualization_element(element);
     }
 
     public skip_to_next(event: Skip_Event = Skip_Event.DEFAULT, event_data: any = {}): Skip_Result {

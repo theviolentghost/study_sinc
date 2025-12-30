@@ -29,11 +29,11 @@ import { LoadingService } from '../../loading.service';
 })
 export class AppComponent implements OnInit, OnDestroy {
     navigation_links = [
-        {
-            url: 'home',
-            label: 'Home',
-            icon: 'home.svg'
-        },
+        // {
+        //     url: 'home',
+        //     label: 'Home',
+        //     icon: 'home.svg'
+        // },
         {
             url: 'playlists',
             label: 'Library',

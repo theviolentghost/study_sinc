@@ -56,9 +56,7 @@ class BufferController {
     //     return false;
     // }
 
-    constructor(private settings: SettingsService, private controller: MusicMediaManager | null = null) {
-        console.log('🌐 Browser:', this.is_safari ? 'Safari' : 'Chrome/Other');
-    }
+    constructor(private settings: SettingsService, private controller: MusicMediaManager | null = null) { }
 
     public set_controller(controller: MusicMediaManager): void {
         this.controller = controller;
@@ -67,6 +65,7 @@ class BufferController {
     public set_audio_element(audio: HTMLMediaElement | HTMLAudioElement) {
         this.audio_element = audio;
         this.configure_audio_element();
+        this.controller?.visualizer?.initialize_audio(this.audio_element);
     }
 
     private async configure_audio_element() {
@@ -123,8 +122,6 @@ class BufferController {
                     });
 
                     this.is_media_source_attached = true;
-                    console.log('✅ MediaSource initialized');
-                    console.log('   SourceBuffer mode:', this.source_buffer.mode);
                     resolve();
                 } catch (error) {
                     clearTimeout(timeout);
@@ -195,25 +192,37 @@ class BufferController {
         // });
 
         hls.on(Events.BUFFER_APPENDING, (event, data) => {
-            if(!this.has_audio) {
-                this.has_audio = data.type === 'audio';
-                this.controller?.on_has_audio();
-                // Force position to 0 on first audio data
-                if (this.audio_element && this.audio_element.currentTime > 0.5) {
-                    this.audio_element.currentTime = 0;
+            const parsed_fragment_title = this.parse_fragment_title(data.frag.title);
+
+            if(this.controller.use_streaming_playlist) {
+                if(!this.has_audio) {
+                    this.has_audio = data.type === 'audio';
+                    this.controller?.on_has_audio();
                 }
-            }
-            if(!this.using_silent_source) {
-                this.has_audio = data.type === 'audio' || this.has_audio;
-            } else if(this.current_url.indexOf('silent') === -1) {
-                if (!this.controller.use_streaming_playlist) {
-                    // non-silent source loaded, disable silent mode
-                    this.using_silent_source = false;
+            } else {
+                if(!this.has_audio) {
+                    this.has_audio = data.type === 'audio';
+                    this.controller?.on_has_audio();
+                    // Force position to 0 on first audio data
+                    if (this.audio_element && this.audio_element.currentTime > 0.5) {
+                        this.audio_element.currentTime = 0;
+                    }
+                }
+                if(!this.using_silent_source) {
+                    this.has_audio = data.type === 'audio' || this.has_audio;
+                } else if(this.current_url.indexOf('silent') === -1) {
+                    if (!this.controller.use_streaming_playlist) {
+                        // non-silent source loaded, disable silent mode
+                        this.using_silent_source = false;
+                    }
                 }
             }
 
             // check if startPTS or endPTS are within current_track_timestamp, if so, update has_audio accordingly
             if (this.current_track_timestamp && data.type === 'audio' && data.frag) {
+                if(parsed_fragment_title && parsed_fragment_title.index === -1) {
+                    return; // skip silent audio fragment
+                }
                 // check to see which timestamp this fragment belongs to
                 // first check if current_track_timestamp matches, if greater than seacrh next index, if less than search previous index
                 const fragment_start = data.frag.startPTS;
@@ -242,10 +251,11 @@ class BufferController {
                     relevant_timestamp.has_audio_segments = true;
                     if(current_index === this.current_track_index) {
                         // song that is trying to play
-                        if(this.using_silent_source) {
+                        if(this.using_silent_source || this.current_time < 60) {
                             this.using_silent_source = false;
                             this.controller.seek_to(this.current_track_timestamp.start_timestamp);
                         }
+                        this.controller?.on_has_audio();
                     }
                 }
             }
@@ -294,10 +304,8 @@ class BufferController {
                     data.details === 'manifestParsingError'
                 ) {
                     if(data.details === 'bufferStalledError' && !data.fatal) {
-                        console.log('--- Checking for end of song on bufferStalledError ---');
                         // end of song check
                         if(this.did_song_end()) {
-                            console.log('✅ Song finished (detected by bufferStalledError), emitting end event');
                             this.controller?.on_song_ended();
                         }
                     }
@@ -309,18 +317,9 @@ class BufferController {
             } else {
                 if (data.details === 'bufferStalledError' && !data.fatal) {
                     // Check if we're near the end of the track
-                    // const current_time = this.audio_element?.currentTime || 0;
-                    // const duration = this.audio_element?.duration || 0;
-                    
-                    // // 3 second threshold
-                    // if (duration > 0 && duration - current_time < 3) {
-
-                    //     if(this.using_silent_source) {
-                    //         this.current_time = 0; // Reset to start
-                    //     }
-                    //     console.log('✅ Song finished, emitting end event');
-                    //     // this.controller?.on_song_ended();
-                    // }
+                    if(this.did_song_end()) {
+                        this.controller?.on_song_ended();
+                    }
                 }
             }
             
@@ -382,10 +381,8 @@ class BufferController {
         this.controller.queue_updated(true);
 
         this.using_silent_source = true;
-        console.log('Loading playlist:', url);
         this.update_tracks_cache();
         if(!this.current_master_playlist_url) {
-            console.log('--- Initial playlist load ---');
             this.current_master_playlist_url = url;
             this.hls = this.create_hls_instance(true);
             this.hls.attachMedia({
@@ -400,14 +397,28 @@ class BufferController {
                 // console.log('FRAG_CHANGED event:', data);
                 if(this.using_silent_source) {
                     // was using silent source then switched to real source
-                    console.log('🔊 Switched from silent source to real audio source');
                     this.using_silent_source = false;
                     return;
                 }
                 this.controller.update_media_session_position();
-                if (this.did_song_end()) {
-                    console.log('✅ Song finished (detected by FRAG_CHANGED), emitting end event');
-                    this.controller?.on_song_ended();
+                const fragment_info = this.parse_fragment_title(data.frag.title);
+                // console.log('FRAG_CHANGED to index:', fragment_info?.index, 'sn:', fragment_info?.sn);
+                // console.log('Current track index:', this.current_track_index);
+                // dont skip if end fragment
+                if(fragment_info && fragment_info.index !== this.current_track_index && !fragment_info.end){
+                    const fragment_difference = fragment_info.index - this.current_track_index;
+                    const fragment_distance = Math.abs(fragment_difference);
+                    if(fragment_distance <= 1) {
+                        console.log('✅ Song finished (playlist), emitting end event');
+                        this.controller?.on_song_ended();
+                    } else {
+                        // check for out of sync error
+                        console.warn('⚠️ Detected out-of-sync fragment change, difference:', fragment_difference);
+                        if(fragment_difference < 0) {
+                            console.error('💥 Out-of-sync error detected');
+                            this.current_time = this.current_track_timestamp ? this.current_track_timestamp.start_timestamp : 0;
+                        }
+                    }
                 }
 
                 // console.log(this.buffered_percent)
@@ -419,34 +430,19 @@ class BufferController {
                 // console.log('Updated tracks cache:', this.timestamps_of_tracks_cache, missing_tracks, this.current_track_index);
                 for (let index of missing_tracks) {
                     if(index === this.current_track_index) {
-                        console.log('Current track index', this.current_track_index, 'was missing but is now loaded');
                         // Current track missing, but now loaded
                         this.update_current_track_timestamp();
                         if(!this.current_track_timestamp) {
-                            console.warn('Current track index', this.current_track_index, 'is still missing after playlist update.');
                             return;
                         }
-                        if(this.current_track_index === 0) {
-                            // just seek
-                            // setTimeout(() => {
-                                this.current_time = this.current_track_timestamp.start_timestamp;
-                            // }, 100);
-                        } else {
-                            // this.update_playlist(() => {
-                                // setTimeout(() => {
-                                    this.current_time = this.current_track_timestamp.start_timestamp;
-                                    if(this.is_safari) {
-                                        this.safari_play();
-                                    }
-                                    console.log('Current track index', this.current_track_index, 'was missing but is now loaded and seeking to', this.current_track_timestamp.start_timestamp);
-                                // }, 100);
-                            // });
+                        this.current_time = this.current_track_timestamp.start_timestamp + 0.01;
+                        if(this.is_safari) {
+                            this.safari_play();
                         }
                     }
                 }
             });
         } else {
-            console.log('--- Subsequent playlist load ---');
             this.update_playlist(() => {
                 this.current_time = 0;
                 this.play();
@@ -456,11 +452,17 @@ class BufferController {
         this.update_current_track_timestamp();
     }
 
+    private parse_fragment_title(title: string): { index: number; sn: number, end: boolean } | null {
+        const match = title.match(/(-?\d+):(\d+)/);
+        if (match) {
+            return { index: parseInt(match[1], 10), sn: parseInt(match[2], 10), end: title.endsWith(':end') };
+        }
+        return null;
+    }
+
     public async update_playlist(on_update?: () => void, type: 'current' | 'to_end' = 'to_end'): Promise<void> {
         this.reload_manifest();
-        console.log('Updating playlist, type:', type);
         this.hls.once(Events.LEVEL_LOADED, () => {
-            console.log('✅ Playlist updated');
             this.flush_buffer(() => on_update?.(), type);
         });
     }
@@ -468,16 +470,17 @@ class BufferController {
     public current_track_timestamp: Track_Timestamp | null = null;
     public current_track_index: number = -1;
     private did_song_end(): boolean {
-        const current_time = this.controller.current_time;
-        const duration = this.controller.song_duration;
+        const current_time = this.controller?.current_time || 0;
+        const duration = this.controller?.song_duration || 0;
 
-        // 2 second threshold
-        if (duration > 0 && duration - current_time < 2) {
+        if (duration > 0 && duration - current_time < 0.5) {
             if(this.using_silent_source) {
                 this.current_time = 0; // Reset to start
             }
             return true;
         }
+
+        return false;
 
         // fall through to more precise check
         // figure out which timestamp range we are in
@@ -487,7 +490,7 @@ class BufferController {
             if(i === silent_audio_index) continue; // skip silent audio
             const timestamp = this.timestamps_of_tracks_cache[i];
             if(!timestamp) continue;
-            if (timestamp.start_timestamp <= this.current_time + 0.1 && timestamp.end_timestamp >= this.current_time + 0.1) {
+            if (timestamp.start_timestamp <= (this.current_time + 0.1) && timestamp.end_timestamp >= (this.current_time + 0.1)) {
                 timestamp_in_range = timestamp;
             }
         }
@@ -740,18 +743,15 @@ class BufferController {
         switch(type) {
             case 'current':
                 const current_time = this.current_time;
-                console.log(`🧹 Flushing buffer around current time: ${current_time.toFixed(2)}s`);
                 this.hls.audioStreamController.flushMainBuffer(0, Infinity);
                 break;
             case 'to_end':
                 const start_offset = this.controller.song_duration - this.controller.current_time;
-                console.log(`🧹 Flushing buffer to end at: ${start_offset.toFixed(2)}s`);
                 this.hls.audioStreamController.flushMainBuffer(this.current_time + start_offset - 0.1, Infinity);
                 break;
         }
         // this.hls.audioStreamController.flushMainBuffer(0, Infinity);
         this.hls.once(Hls.Events.BUFFER_FLUSHED, () => {
-            console.log('✅ Buffer flushed');
             on_flush?.();
         });
     }
@@ -760,7 +760,6 @@ class BufferController {
         if (!this.audio_element) throw new Error('Audio element not set.');
         try {
             await this.audio_element.play();
-            console.log('✅ Playback started successfully');
         } catch (error) {
             console.error('Playback failed:', error);
             

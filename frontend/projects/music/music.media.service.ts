@@ -19,7 +19,6 @@ export enum DownloadQuality {
     "Q7" = '7',
     "Q8" = '8',
     "Q9" = '9', //low
-
 }
 
 export interface Song_Data {
@@ -75,13 +74,23 @@ export interface Song_Playlist_Identifier {
     track_count?: number;
     duration?: number; // total duration of the playlist in ms
     default?: boolean;
-    images?: string[]; // array of image URLs for the playlist (max 4)
+    images?: Song_Playlist_Image_Key[]; // array of image URLs for the playlist (max 4)
     colors?: {
         primary?: string | null; 
     },
     playlist_type: 'album' | 'playlist' | 'artist';
     created_by: 'user' | 'system' | 'imported' | string;
     created_at: number;
+}
+
+export interface Song_Playlist_Image_Key {
+    song_key: string; // the song key which this image represents
+}
+
+export interface Song_Playlist_Image {
+    blob?: Blob; // the image blob 
+    low?: string; // low quality image URL
+    high?: string; // high quality image URL
 }
 
 export interface Song_Playlist {
@@ -1895,8 +1904,7 @@ export class MusicMediaService {
             );
             return response;
         } catch (error) {
-            console.error('Error requesting song to streaming playlist:', error);
-            return null;
+            throw error;
         }
     }
 }

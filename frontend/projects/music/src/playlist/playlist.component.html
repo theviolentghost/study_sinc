@@ -23,8 +23,16 @@
     }
 ">
     <!-- <img *ngFor="let image of ['https://lh3.googleusercontent.com/pYeknGiiTlUbrAReZHrElq5xQd5995bN2S7Kx8NFFGOVVdDTGXkSQXCxxfTFPsfA3WYdkkVENDn8t107=w180-h180-l90-rj']" [src]="image" alt="" /> -->
-    <ng-container *ngFor="let image of playlist_identifier?.images; let i = index">
-        <img [src]="image" alt="" *ngIf="(i === 0 && playlist_identifier?.images.length < 4) || playlist_identifier?.images.length >= 4">
+    <ng-container *ngFor="let image of song_images; let i = index">
+        <img 
+            [src]="image" 
+            alt="" 
+            *ngIf="(i === 0 && song_images.length < 4) || song_images.length >= 4"
+            progressive-load
+            [low]="image.low"
+            [high]="image.high"
+            [blob]="image.blob"
+        />
     </ng-container>
 </div>
 <div class="header" [ngClass]="{'searching': search_query.length > 0}">
@@ -76,7 +84,13 @@
             [style.border-bottom]="is_downloading(video?.id?.video_id || '') ? 'solid 1px transparent' : null"
     >
         <div class="thumbnail" [style.background-color]="video?.colors?.primary || '#1a1c1b'" *ngIf="playlist_identifier.playlist_type !== 'album'">
-            <img [src]="get_artwork_src(video)" alt="" />
+            <img 
+                progressive-load
+                [low]="video?.url?.artwork?.low"
+                [high]="video?.url?.artwork?.high"
+                [prefer_low]="true"
+                [blob]="video?.download_artwork_blob"
+            />
             <!-- <img [src]="video?.url?.artwork?.low" alt="" /> -->
             <!-- <div class="duration">{{ ms_to_time( video?.video_duration || 0) }}</div> -->
         </div>
@@ -129,11 +143,7 @@
     <h2>No Results</h2>
     <p>No songs found for your search</p>
     <div class="search" (click)="redirect_to_search()" class="search" [style.background-color]="get_playlist_primary_color()" [style.color]="get_text_contrast_color(get_playlist_primary_color())">
-        <span>Search For Something!</span>
+        <span>Search For It!</span>
         <div class="icon" [style.--mask]="'url(\'search.svg\')'" [style.--color]="get_text_contrast_color(get_playlist_primary_color())"></div>
     </div>
-</div>
-
-<div class="notification" [ngClass]="{'push': notification_visible}">
-    {{ notification_message }}
 </div>

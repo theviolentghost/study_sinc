@@ -17,10 +17,11 @@ import { QuickActionComponent } from '../quick.action/quick.action.component';
 import { QuickActionService } from '../../quick.action.service';
 import { SettingsService } from '../../settings.service';
 import { Skip_Event, Skip_Result } from '../../media.player/playlist.manager';
+import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
 
 @Component({
   selector: 'media-player',
-  imports: [CommonModule, HotActionComponent, QuickActionComponent],
+  imports: [CommonModule, HotActionComponent, QuickActionComponent, ProgressiveLoadDirective],
   templateUrl: './media.player.component.html',
   styleUrl: './media.player.component.css',
   animations: [
@@ -367,9 +368,11 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     ngAfterViewInit() {
         const audio = document.getElementById('audio') as HTMLAudioElement;
         const thumbnail = document.getElementById('thumbnail') as HTMLImageElement;
+        const canvas = document.getElementById('visualization-canvas') as HTMLCanvasElement;
 
         this.player.set_audio_element(audio);
         this.player.set_thumbnail_element(thumbnail);
+        this.player.set_visualization_element(canvas);
 
         this.setupTouchListeners();
     }

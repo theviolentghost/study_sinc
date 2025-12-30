@@ -47,7 +47,7 @@ export class PlaylistsService {
 
     // checks to see if a playlist is stored (in playlist_identifiers or default_playlist_identifiers)
     public is_playlist_stored(playlist_identifier: Song_Playlist_Identifier): boolean {
-        return this.all_playlist_identifiers.some(p => p.id === playlist_identifier.id);
+        return this.all_playlist_identifiers.some(p => p?.id === playlist_identifier?.id);
     }
 
     get favorite_playlist_identifier(): Song_Playlist_Identifier | null {
@@ -364,15 +364,10 @@ export class PlaylistsService {
         playlist_identifier.duration = (playlist_identifier.duration || 0) + (song_data.video_duration || 0);
         if(!playlist_identifier.images || playlist_identifier.images.length < 4) {
             playlist_identifier.images = playlist_identifier.images || [];
-            if(song_data?.url?.artwork.high) {
-                playlist_identifier.images.push(song_data?.url?.artwork?.high);
-            } else if(song_data?.url?.artwork.low) {
-                playlist_identifier.images.push(song_data?.url?.artwork?.low);
-            }
+            playlist_identifier.images.push({ song_key: this.media.song_key(song_data.id) });
         }
         this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
         this.player?.media_controller?.song_cache?.set(this.media.song_key(song_data.id), song_data);
-
         this.save_playlist(playlist_identifier, playlist);
     }
     async update_song_in_playlist(song_data: Song_Data, playlist_identifier: Song_Playlist_Identifier | null = this.selected_playlist_identifier, playlist: Song_Playlist | null = this.selected_playlist): Promise<void> {
@@ -436,10 +431,10 @@ export class PlaylistsService {
         playlist.song_added_timestamps.delete(this.media.song_key(song_data.id));
         playlist_identifier.track_count = (playlist_identifier.track_count || 1) - 1;
         playlist_identifier.duration = (playlist_identifier.duration || 0) - (song_data.video_duration || 0);
-        if(playlist_identifier.track_count < 4) {
+        // if(playlist_identifier.track_count < 4) {
             // remove the corresponding image
-            playlist_identifier.images = playlist_identifier.images?.filter(image => image !== song_data.url?.artwork?.high && image !== song_data.url?.artwork.low ) || [];
-        } 
+            playlist_identifier.images = playlist_identifier.images?.filter(image_object => image_object.song_key !== this.media.song_key(song_data.id)) || [];
+        // }
 
         this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
         this.save_playlist(playlist_identifier, playlist);

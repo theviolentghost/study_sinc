@@ -73,49 +73,21 @@ async function call_dj_api(endpoint, data) {
 class Adaptive_Stream {
     static profiles = {
         'opus': {
-            'ultra-low': {
-                bitrate: '24k',
-                sample_rate: 48000,
-                channels: 1,
-                bandwidth: 24 * 1024,
-                codec: 'libopus', // FFmpeg codec name
-                hls_codec: 'opus', // HLS CODECS attribute
-                audio_profile: 'audio', // Opus application mode
-                compression_level: 10,
-                frame_duration: 60, // ms
-                vbr: 'on',
-                hls_time: '1.0',
-                hls_preset: 'ultrafast',
-            },
             'low': {
-                bitrate: '48k',
-                sample_rate: 48000,
-                channels: 1,
-                bandwidth: 48 * 1024,
-                codec: 'libopus',
-                hls_codec: 'opus',
-                audio_profile: 'audio',
-                compression_level: 10,
-                frame_duration: 40,
-                vbr: 'on',
-                hls_time: '2.0',
-                hls_preset: 'ultrafast',
-            },
-            'medium': {
                 bitrate: '96k',
                 sample_rate: 48000,
                 channels: 2,
                 bandwidth: 96 * 1024,
-                codec: 'libopus',
-                hls_codec: 'opus',
-                audio_profile: 'audio',
+                codec: 'libopus', // FFmpeg codec name
+                hls_codec: 'opus', // HLS CODECS attribute
+                audio_profile: 'audio', // Opus application mode
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '4.0',
+                hls_time: '8.0',
                 hls_preset: 'fast',
             },
-            'high': {
+            'medium': {
                 bitrate: '128k',
                 sample_rate: 48000,
                 channels: 2,
@@ -127,13 +99,27 @@ class Adaptive_Stream {
                 frame_duration: 20,
                 vbr: 'on',
                 hls_time: '8.0',
-                hls_preset: 'medium',
+                hls_preset: 'fast',
             },
-            'ultra-high': {
+            'high': {
                 bitrate: '192k',
                 sample_rate: 48000,
                 channels: 2,
                 bandwidth: 192 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'on',
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
+            'ultra-high': {
+                bitrate: '256k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 256 * 1024,
                 codec: 'libopus',
                 hls_codec: 'opus',
                 audio_profile: 'audio',
@@ -145,25 +131,11 @@ class Adaptive_Stream {
             },
         },
         'aac': {
-            'ultra-low': {
-                bitrate: '32k',
-                sample_rate: 22050,
-                channels: 1,
-                bandwidth: 32 * 1024,
-                codec: 'aac', // FFmpeg codec name
-                hls_codec: 'mp4a.40.29', // HLS CODECS attribute - HE-AAC v2
-                audio_profile: 'aac_he_v2',
-                compression_level: null,
-                frame_duration: null,
-                vbr: null,
-                hls_time: '8.0',
-                hls_preset: 'ultrafast',
-            },
             'low': {
-                bitrate: '64k',
+                bitrate: '96k',
                 sample_rate: 44100,
-                channels: 1,
-                bandwidth: 64 * 1024,
+                channels: 2,
+                bandwidth: 96 * 1024,
                 codec: 'aac',
                 hls_codec: 'mp4a.40.5', // HLS CODECS attribute - HE-AAC
                 audio_profile: 'aac_he',
@@ -171,7 +143,7 @@ class Adaptive_Stream {
                 frame_duration: null,
                 vbr: null,
                 hls_time: '8.0',
-                hls_preset: 'ultrafast',
+                hls_preset: 'fast',
             },
             'medium': {
                 bitrate: '128k',
@@ -188,20 +160,6 @@ class Adaptive_Stream {
                 hls_preset: 'fast',
             },
             'high': {
-                bitrate: '192k',
-                sample_rate: 44100,
-                channels: 2,
-                bandwidth: 192 * 1024,
-                codec: 'aac',
-                hls_codec: 'mp4a.40.2',
-                audio_profile: 'aac_low',
-                compression_level: null,
-                frame_duration: null,
-                vbr: null,
-                hls_time: '8.0',
-                hls_preset: 'medium',
-            },
-            'ultra-high': {
                 bitrate: '256k',
                 sample_rate: 48000,
                 channels: 2,
@@ -215,11 +173,25 @@ class Adaptive_Stream {
                 hls_time: '8.0',
                 hls_preset: 'medium',
             },
+            'ultra-high': {
+                bitrate: '320k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 320 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.2',
+                audio_profile: 'aac_low',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
         },
     };
 
-    codecs = [/*'opus'*/'aac']; // Supported codecs
-    profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
+    codecs = ['opus','aac']; // Supported codecs
+    profile_progression = ['low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
     hls_root = path.join(__dirname, 'storage', 'musik', 'hls'); 
     hls_raw_audio_directory = path.join(this.hls_root, 'raw');
     hls_mix_audio_directory = path.join(this.hls_root, 'mixes');

@@ -1,7 +1,7 @@
 const CACHE_NAME_PREFIX = 'sinc_music';
 const VERSION_URL = 'app/version.txt';
 const LOGGING = false;
-const SW_VERSION = '1.0.5'; 
+const SW_VERSION = '1.0.6'; 
 
 const CACHE_NAME = `${CACHE_NAME_PREFIX}_cache_v${SW_VERSION}`;
 
@@ -493,6 +493,24 @@ class Network_Manager {
     constructor(file_manager, service_worker) {
         this.service_worker = service_worker;
         this.file_manager = file_manager;
+        
+        // Request prioritization queue
+        this.request_queue = {
+            high: [], // HLS requests (.m3u8, .ts, session)
+            medium: [], // Scripts, styles
+            low: [] // Images, fonts
+        };
+        this.processing_queue = false;
+        this.max_concurrent_requests = {
+            high: 6,    // Allow 6 concurrent HLS requests
+            medium: 2,  // 2 concurrent medium priority
+            low: 2      // 2 concurrent low priority
+        };
+        this.active_requests = {
+            high: 0,
+            medium: 0,
+            low: 0
+        };
     }
 
     handle_error(error) {
@@ -510,6 +528,60 @@ class Network_Manager {
             this.handle_error(error);
             return false;
         }
+    }
+
+    is_hls_request(url) {
+        try {
+            const parsed_url = new URL(url, self.location.href);
+            // Check for HLS-related paths
+            return parsed_url.pathname.includes('/hls/') || 
+                   parsed_url.pathname.endsWith('.m3u8') || 
+                   parsed_url.pathname.endsWith('.ts') ||
+                   parsed_url.pathname.includes('session');
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
+    is_image_request(url) {
+        try {
+            const parsed_url = new URL(url, self.location.href);
+            const image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.ico'];
+            return image_extensions.some(ext => parsed_url.pathname.toLowerCase().endsWith(ext));
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
+    get_request_priority(url) {
+        // HLS requests get highest priority
+        if (this.is_hls_request(url)) {
+            return 'high';
+        }
+        
+        // Images get lowest priority
+        if (this.is_image_request(url)) {
+            return 'low';
+        }
+        
+        // Check for critical resources
+        const parsed_url = new URL(url, self.location.href);
+        const path = parsed_url.pathname.toLowerCase();
+        
+        // Scripts and styles are medium priority
+        if (path.endsWith('.js') || path.endsWith('.css')) {
+            return 'medium';
+        }
+        
+        // Fonts are low priority
+        if (path.endsWith('.woff') || path.endsWith('.woff2') || path.endsWith('.ttf')) {
+            return 'low';
+        }
+        
+        // Default to medium
+        return 'medium';
     }
 
     async fetch(request, cache = false) {
@@ -535,21 +607,47 @@ class Network_Manager {
             });
         }
 
-        const response = await fetch(request);
-        if(!response || !response.ok) {
-            this.handle_error(new Error(`Network request failed for ${request.url} with status ${response.status}`));
-            return response;
+        // Get priority for this request
+        const priority = this.get_request_priority(request.url);
+        
+        // For high priority (HLS) requests, use fetch with priority hint if supported
+        const fetch_options = {};
+        if (priority === 'high') {
+            // Use high priority for HLS requests
+            fetch_options.priority = 'high';
+        } else if (priority === 'low') {
+            // Use low priority for images
+            fetch_options.priority = 'low';
         }
 
-        if(cache) {
-            try {
-                this.file_manager.cache_file(request, response.clone());
-            } catch (error) {
-                this.handle_error(error);
+        // Add a small delay for low priority requests if high priority requests are active
+        if (priority === 'low' && this.active_requests.high > 0) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Track active requests
+        this.active_requests[priority]++;
+        
+        try {
+            const response = await fetch(request, fetch_options);
+            
+            if(!response || !response.ok) {
+                this.handle_error(new Error(`Network request failed for ${request.url} with status ${response.status}`));
+                return response;
             }
-        }
 
-        return response;
+            if(cache) {
+                try {
+                    this.file_manager.cache_file(request, response.clone());
+                } catch (error) {
+                    this.handle_error(error);
+                }
+            }
+
+            return response;
+        } finally {
+            this.active_requests[priority]--;
+        }
     }
 
     async cache_first_fetch(request, cache_override = null) {
@@ -599,8 +697,8 @@ class Network_Manager {
 
     is_local_url(url) {
         try {
-            const parsedUrl = new URL(url, self.location.href);
-            return parsedUrl.origin === self.location.origin;
+            const parsed_url = new URL(url, self.location.href);
+            return parsed_url.origin === self.location.origin;
         } catch (error) {
             this.handle_error(error);
             return false;

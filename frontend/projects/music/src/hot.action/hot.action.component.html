@@ -71,7 +71,13 @@
                         [ngClass]="{'null': !action_is_selectable(playlist.is_selectable)}"
                     >
                         <div class="thumbnail" [ngClass]="{'single': playlist.identifier.images.length < 4}">
-                            <img *ngFor="let image of playlist.identifier?.images" [src]="image" alt="" />
+                            <img 
+                                *ngFor="let image of playlist.images; let i = index" 
+                                progressive-load
+                                [low]="image.low"
+                                [high]="image.high"
+                                [blob]="image.blob"
+                            />
                         </div>
                         <div style="display: flex; flex-direction: column; gap: var(--space-1);">
                             <div class="name">{{ playlist.identifier.name }}</div>

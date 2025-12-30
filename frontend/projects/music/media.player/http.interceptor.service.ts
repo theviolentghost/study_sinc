@@ -48,49 +48,21 @@ export class SessionPlaylistInterceptorService {
 
     public profiles = {
         'opus': {
-            'ultra-low': {
-                bitrate: '24k',
-                sample_rate: 48000,
-                channels: 1,
-                bandwidth: 24 * 1024,
-                codec: 'libopus', // FFmpeg codec name
-                hls_codec: 'opus', // HLS CODECS attribute
-                audio_profile: 'audio', // Opus application mode
-                compression_level: 10,
-                frame_duration: 60, // ms
-                vbr: 'on',
-                hls_time: '1.0',
-                hls_preset: 'ultrafast',
-            },
             'low': {
-                bitrate: '48k',
-                sample_rate: 48000,
-                channels: 1,
-                bandwidth: 48 * 1024,
-                codec: 'libopus',
-                hls_codec: 'opus',
-                audio_profile: 'audio',
-                compression_level: 10,
-                frame_duration: 40,
-                vbr: 'on',
-                hls_time: '2.0',
-                hls_preset: 'ultrafast',
-            },
-            'medium': {
                 bitrate: '96k',
                 sample_rate: 48000,
                 channels: 2,
                 bandwidth: 96 * 1024,
-                codec: 'libopus',
-                hls_codec: 'opus',
-                audio_profile: 'audio',
+                codec: 'libopus', // FFmpeg codec name
+                hls_codec: 'opus', // HLS CODECS attribute
+                audio_profile: 'audio', // Opus application mode
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '4.0',
+                hls_time: '8.0',
                 hls_preset: 'fast',
             },
-            'high': {
+            'medium': {
                 bitrate: '128k',
                 sample_rate: 48000,
                 channels: 2,
@@ -102,13 +74,27 @@ export class SessionPlaylistInterceptorService {
                 frame_duration: 20,
                 vbr: 'on',
                 hls_time: '8.0',
-                hls_preset: 'medium',
+                hls_preset: 'fast',
             },
-            'ultra-high': {
+            'high': {
                 bitrate: '192k',
                 sample_rate: 48000,
                 channels: 2,
                 bandwidth: 192 * 1024,
+                codec: 'libopus',
+                hls_codec: 'opus',
+                audio_profile: 'audio',
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'on',
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
+            'ultra-high': {
+                bitrate: '256k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 256 * 1024,
                 codec: 'libopus',
                 hls_codec: 'opus',
                 audio_profile: 'audio',
@@ -120,33 +106,19 @@ export class SessionPlaylistInterceptorService {
             },
         },
         'aac': {
-            'ultra-low': {
-                bitrate: '32k',
-                sample_rate: 22050,
-                channels: 1,
-                bandwidth: 32 * 1024,
-                codec: 'aac', // FFmpeg codec name
-                hls_codec: 'mp4a.40.29', // HLS CODECS attribute - HE-AAC v2
-                audio_profile: 'aac_he_v2',
-                compression_level: null,
-                frame_duration: null,
-                vbr: null,
-                hls_time: '1.0',
-                hls_preset: 'ultrafast',
-            },
             'low': {
-                bitrate: '64k',
+                bitrate: '96k',
                 sample_rate: 44100,
-                channels: 1,
-                bandwidth: 64 * 1024,
+                channels: 2,
+                bandwidth: 96 * 1024,
                 codec: 'aac',
                 hls_codec: 'mp4a.40.5', // HLS CODECS attribute - HE-AAC
                 audio_profile: 'aac_he',
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '4.0',
-                hls_preset: 'ultrafast',
+                hls_time: '8.0',
+                hls_preset: 'fast',
             },
             'medium': {
                 bitrate: '128k',
@@ -163,20 +135,6 @@ export class SessionPlaylistInterceptorService {
                 hls_preset: 'fast',
             },
             'high': {
-                bitrate: '192k',
-                sample_rate: 44100,
-                channels: 2,
-                bandwidth: 192 * 1024,
-                codec: 'aac',
-                hls_codec: 'mp4a.40.2',
-                audio_profile: 'aac_low',
-                compression_level: null,
-                frame_duration: null,
-                vbr: null,
-                hls_time: '8.0',
-                hls_preset: 'medium',
-            },
-            'ultra-high': {
                 bitrate: '256k',
                 sample_rate: 48000,
                 channels: 2,
@@ -190,11 +148,25 @@ export class SessionPlaylistInterceptorService {
                 hls_time: '8.0',
                 hls_preset: 'medium',
             },
+            'ultra-high': {
+                bitrate: '320k',
+                sample_rate: 48000,
+                channels: 2,
+                bandwidth: 320 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.2',
+                audio_profile: 'aac_low',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'medium',
+            },
         },
     };
 
-    public codecs = [/*'opus'*/'aac']; // Supported codecs
-    public profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
+    public codecs = [/*'opus',*/ 'aac']; // Supported codecs
+    public profile_progression = ['low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
 
     public hls_bundles = new Map<string, HLS_Bundle>();
     private segment_blob_urls = new Map<string, string>(); // Map of segment URL -> blob URL
@@ -378,7 +350,7 @@ export class SessionPlaylistInterceptorService {
 
         // add the silent audio at the start
         // lines.push('#EXT-X-DISCONTINUITY');
-        lines.push(`#EXTINF:${this.silent_audio_duration.toFixed(6)},`);
+        lines.push(`#EXTINF:${this.silent_audio_duration.toFixed(6)},-1:0`);
         lines.push(this.silent_audio_segment_url);
         updated_timestamps.push({
             video_id: '#silent_audio',
@@ -424,8 +396,10 @@ export class SessionPlaylistInterceptorService {
                 const segment: HLS_Segment = track_segments[segment_index];
                 
                 const segment_url = `/hls/raw/${track.video_id}/audio/${codec}/${profile}/${segment.filename}`;
+                const is_last_segment = (segment_index === (track_profile_data?.segment_count || track_segments.length) - 1);
                 
                 // If segment has data (downloaded), create blob URL
+                const title = is_last_segment ? `${index}:${segment_index}:end` : `${index}:${segment_index}`;
                 if (segment?.data) {
                     // Check if we already have a blob URL for this segment
                     if (!this.segment_blob_urls.has(segment_url)) {
@@ -437,11 +411,11 @@ export class SessionPlaylistInterceptorService {
                     
                     // Use blob URL if available, otherwise fall back to network URL
                     const url_to_use = this.segment_blob_urls.get(segment_url) || segment_url;
-                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},`);
+                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},${title}`);
                     lines.push(url_to_use);
                 } else {
                     // No cached data, use network URL
-                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},`);
+                    lines.push(`#EXTINF:${segment.duration?.toFixed(6)},${title}`);
                     lines.push(segment_url);
                 }
                 

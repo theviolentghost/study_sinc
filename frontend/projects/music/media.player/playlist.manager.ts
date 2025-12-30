@@ -25,6 +25,7 @@ class MusicPlaylistManager {
     public history_stack: string[] = [];
     public identifier: Song_Playlist_Identifier | null = null;
     public data: Song_Playlist | null = null;
+    private song_preload_count: number = 3; // number of songs to preload ahead of time
 
     private minimum_queue_size_before_queue_refresh: number = 5;
 
@@ -181,32 +182,22 @@ class MusicPlaylistManager {
         this.manager.buffer_controller.current_track_index++;
         this.manager.queue_updated(true);
         this.manager.load_track(next_song_key, true);
-        // move to end of current song
-        // if(this.manager.buffer_controller.current_track_timestamp) {
-        //     this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.end_timestamp);
-        // }
         this.manager.buffer_controller.update_current_track_timestamp();
         if(this.manager.http_interceptor_service.is_index_loaded(this.manager.buffer_controller.current_track_index)) {
             if(this.manager.buffer_controller.current_track_timestamp && Number.isFinite(this.manager.buffer_controller.current_track_timestamp.start_timestamp)) {
-                // setTimeout(() => {
-                    if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp);
-                // }, 100);
+                if(event !== Skip_Event.OMIT_SKIP) this.manager.seek_to(this.manager.buffer_controller.current_track_timestamp.start_timestamp + 0.01);
             }
         } else {
-            // if(event !== Skip_Event.OMIT_SKIP) {
-            console.log('this index is not loaded,', this.manager.http_interceptor_service.tracks_for_session_playlist_cache[this.manager.buffer_controller.current_track_index])
-            console.log('index not loaded, using silent', this.manager.buffer_controller.current_track_index, [...this.manager.http_interceptor_service.tracks_for_session_playlist_cache])
-                const silent_audio_position = this.manager.get_silent_audio_position();
-                if(silent_audio_position !== -1) {
-                    this.manager.buffer_controller.using_silent_source = true;
-                    this.manager.seek_to(silent_audio_position);
-                }
-            // }
+            const silent_audio_position = this.manager.get_silent_audio_position();
+            if(silent_audio_position !== -1) {
+                this.manager.buffer_controller.using_silent_source = true;
+                this.manager.seek_to(silent_audio_position);
+            }
         }
 
         // start preloading next song in queue
-        const following_song_key = this.next_song_key;
-        this.manager.load_track(following_song_key, false);
+        // const following_song_key = this.next_song_key;
+        // this.manager.load_track(following_song_key, false);
 
         return Skip_Result.SKIPPED;
     }
@@ -281,6 +272,30 @@ class MusicPlaylistManager {
         return Skip_Result.SKIPPED;
     }
 
+    private preload_queue: string[] = [];
+    public preload_upcoming_songs(): void {
+        this.preload_queue.splice(0, this.preload_queue.length); // clear existing preload queue
+        for (let i = 0; i < this.song_preload_count; i++) {
+            const song_key = this.queue[i];
+            if (!song_key) break; // No more songs to preload
+
+            this.preload_queue.push(song_key);
+            this.handle_preload_queue();
+        }
+    }
+
+    private handle_preload_queue(): void {
+        if (this.preload_queue.length === 0) return;
+
+        const song_key = this.preload_queue.shift()!;
+        this.manager.load_track(song_key, false).then(() => {
+            this.handle_preload_queue();
+        }).catch(error => {
+            console.error('Error preloading song:', song_key, error);
+            this.handle_preload_queue();
+        });
+    }
+
     public refresh_queue(): void {
         // dont make any changes to the playnext or the current queue
         // also dont add any songs that are already in playnext or queue
@@ -323,7 +338,6 @@ class MusicPlaylistManager {
 
     public unshuffle(): void {
         const original_songs = Array.from(this.data.songs.values());
-        console.log('Unshuffling playlist to original order:', original_songs);
 
         if(!this.data?.song_added_timestamps || this.data?.song_added_timestamps?.size === 0) {
             // using third party playlist without timestamps, cannot unshuffle
@@ -409,7 +423,6 @@ class MusicPlaylistManager {
         const playnext_index = this.playnext.indexOf(song_key);
         if(playnext_index !== -1) {
             this.playnext.splice(playnext_index, 1);
-            console.log('Removed song from playnext:', song_key);
             return;
         }
 
@@ -417,7 +430,6 @@ class MusicPlaylistManager {
         const queue_index = this.queue.indexOf(song_key);
         if(queue_index !== -1) {
             this.queue.splice(queue_index, 1);
-            console.log('Removed song from queue:', song_key);
             this.manager.set_streaming_playlist_queue(this.full_queue);
             return;
         }
@@ -426,7 +438,6 @@ class MusicPlaylistManager {
     }
 
     public add_song_to_play_next(song_key: string): void {
-        console.log('Adding song to play next:', song_key);
         this.playnext.push(song_key);
         this.manager.queue_updated();
         // preload the song

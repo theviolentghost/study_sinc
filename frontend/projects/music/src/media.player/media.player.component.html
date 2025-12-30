@@ -35,7 +35,13 @@
         </div>
         <!-- <div class="player-status" (click)="toggle_play(); $event.stopPropagation();" [style.display]="visibility_status === 'reduced' ? 'block' : 'none'" [style.--mask]="'url(' + (player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg') + ')'"></div> -->
         <!-- <div class="player-status like" [style.transform]="'translateX(-145%)'" [style.scale]="1.25" [style.display]="visibility_status === 'reduced' ? 'block' : 'none'" [ngClass]="{active: player_status !== 'stopped'}" [style.--color]="player_status !== 'stopped' ? 'var(--color-primary)' : 'var(--color-neutral)'" (click)="debug_like_click($event)" [style.--mask]="'url(' + ((current_song_data?.liked === true || buffer_like === true) ? 'heart-fill.svg' : 'heart.svg') + ')'"></div> -->
-        <div class="player-status inverse" [style.display]="visibility_status === 'reduced' ? 'block' : 'none'" [ngClass]="{active: player_status !== 'stopped', spinner: player_status === 'stopped'}" (click)="debug_play_click($event)" [style.--mask]="'url(' + (player_status !== 'stopped' ? (player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg') : 'loader.svg') + ')'"></div>
+        <div 
+            class="player-status inverse" 
+            [style.display]="visibility_status === 'reduced' ? 'block' : 'none'" 
+            [ngClass]="{active: player_status !== 'stopped', spinner: player_status === 'stopped'}" 
+            (click)="debug_play_click($event)" 
+            [style.--mask]="'url(' + (player_status !== 'stopped' ? (player_status === 'paused' ? 'player-play.svg' : 'player-pause.svg') : 'loader.svg') + ')'"
+        ></div>
         <!-- <div class="queue-container" [style.display]="visibility_status === 'visible' ? 'flex' : 'none'" (click)="open_queue_management(); $event.stopPropagation();">
             <div class="queue" [style.mask-image]="'url(\'playlist.svg\')'"></div>
         </div> -->
@@ -53,36 +59,33 @@
         ></div>
         <div class="thumbnail">
             <!-- https://i.scdn.co/image/ab67616d0000b2736d6b5c0e21a25b0e9ea18ca5 -->
-            <img id="thumbnail" src="" style="pointer-events: none;" [ngClass]="{disco: disco_mode }"/>
+            <img 
+                id="thumbnail"
+                progressive-load
+                [low]="current_media_data?.url?.artwork?.low"
+                [high]="current_media_data?.url?.artwork?.high"
+                [blob]="current_media_data?.download_artwork_blob"
+            />
+            <!-- <div 
+                id="thumbnail"
+                progressive-load
+                [low]="current_media_data?.url?.artwork?.low"
+                [high]="current_media_data?.url?.artwork?.high"
+            ></div> -->
         </div>
         <audio id="audio" preload="auto" playsinline controls>
             <source id="audio-src" src="" type="audio/mpeg">
             Your browser does not support the audio element.
         </audio>
         <div class="dashboard">
-            <!-- <div class="glass"></div> -->
-             <!-- <div class="audio-info hide-scrollbar">
-                <div 
-                    class="quality" 
-                    (click)="quality_selection_open = !quality_selection_open"
-                    [style.--mask]="'url(\'' + get_quality_icon + '\')'"
-                    [style.--primary]="(player_quality_update === 'up' ? 'var(--color-success)' : (player_quality_update === 'down' ? 'var(--color-deny)' : 'var(--color-primary)'))"
-                ></div>
-                <div 
-                    *ngIf="player_quality_update !== 'none'" 
-                    class="quality-update" 
-                    [style.--mask]="'url(\'' + get_quality_update_icon + '\')'"
-                    [style.--primary]="player_quality_update === 'up' ? 'var(--color-success)' : 'var(--color-deny)'"
-                ></div>
-                <div class="quality-selection hide-scrollbar" [ngClass]="{open: quality_selection_open}" (click)="$event.stopPropagation();">
-                    <div class="quality-option" *ngFor="let quality of available_qualities; let i = index; let isLast = last" (click)="set_quality(quality)" [style.--mask]="(i + 1 + minimum_hls_level) <= 5 && quality != 'auto' ? 'url(\'antenna-bars-' + (i + 1 + minimum_hls_level) + '.svg\')' : ''" [ngClass]="{active: quality === current_quality, 'no-mask': (i + 1 + minimum_hls_level) > 5 || quality === 'auto'}">
-                        {{ isLast ? 'Auto' : '' }}
-                    </div>
-                </div>
-            </div> -->
             <div class="metadata" style="margin-bottom: var(--space-3);">
                 <!-- <button class="quick-playlist-action like" [style.--color]="player_status === 'stopped' ? 'var(--color-neutral)' : ((current_song_data?.liked === true || buffer_like === true) ? 'var(--color-primary)' : 'var(--color-neutral)')" [style.--mask]="'url(' + ((current_song_data?.liked === true || buffer_like === true) ? 'heart-fill.svg' : 'heart.svg') + ')'" (click)="toggle_like()"></button> -->
-                <button class="quick-playlist-action add" (click)="add_song_to_playlist()" [ngClass]="{added: is_song_in_playlist(current_song_data || current_media_data)}" [style.--mask]="'url(' + (is_song_in_playlist(current_song_data || current_media_data) ? 'check.svg' : 'plus.svg') + ')'"></button>
+                <button 
+                    class="quick-playlist-action add" 
+                    (click)="add_song_to_playlist()" 
+                    [ngClass]="{added: is_song_in_playlist(current_song_data || current_media_data)}" 
+                    [style.--mask]="'url(' + (is_song_in_playlist(current_song_data || current_media_data) ? (current_media_data?.liked ? 'heart-fill.svg' : 'check.svg') : 'plus.svg') + ')'"
+                ></button>
                 <div class="info">
                     <div class="title">{{current_media_data?.original_song_name || current_media_data?.song_name || "#no name"}}</div>
                     <!-- <div class="artist">{{current_media_data?.original_artists?.[0]?.name || "#no artist"}}</div> -->

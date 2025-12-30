@@ -107,14 +107,14 @@
     flex-shrink: 0;
     color: var(--color-text);
     flex-direction: row;
-    padding: var(--space-2) 0;
+    padding: 0;
     border-bottom: solid 1px var(--color-background-200);
     width: 100%;
-    aspect-ratio: 16 / 16;
+    aspect-ratio: 1 / 1;
     max-height: 90px;
     align-items: center;
-    gap: var(--space-4);
-    border-radius: var(--space-2);
+    gap: var(--space-1);
+    border-radius: var(--space-4);
     overflow: hidden;
 }
 .playlist.last {
@@ -131,6 +131,9 @@
     opacity: 0.3;
     transition: opacity 0.15s ease-in-out;
     z-index: -1;
+}
+.playlist.playing::before {
+    height: 220%;
 }
 .playlist.no-background::before {
     display: none;

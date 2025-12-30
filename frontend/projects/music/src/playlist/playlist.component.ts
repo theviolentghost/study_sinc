@@ -4,7 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
 import { MusicPlayerService } from '../../music.player.service';
-import { DownloadQuality, MusicMediaService, Song_Source } from '../../music.media.service';
+import { DownloadQuality, MusicMediaService, Song_Playlist_Image, Song_Source } from '../../music.media.service';
 import { PlaylistsService } from '../../playlists.service';
 import { Song_Data, Song_Identifier } from '../../music.media.service';
 import { QuickActionService } from '../../quick.action.service';
@@ -12,10 +12,12 @@ import { HotActionService } from '../../hot.action.service';
 import { SettingsService } from '../../settings.service';
 import { NotificationService } from '../../notification.service';
 import { LoadingService } from '../../loading.service';
+import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
+import { cover } from 'three/src/extras/TextureUtils.js';
 
 @Component({
     selector: 'app-playlist',
-    imports: [CommonModule],
+    imports: [CommonModule, ProgressiveLoadDirective],
     templateUrl: './playlist.component.html',
     styleUrl: './playlist.component.css',
     standalone: true
@@ -27,6 +29,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     loaded: boolean = true;
     search_query: string = '';
     filtered_videos: (Song_Data | null)[] = [];
+    song_images: Song_Playlist_Image[] = [];
     use_playlist_color_for_main: boolean = true;
     is_actions_sticky: boolean = false;
 
@@ -84,6 +87,17 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         //     this.notification_message = notification.message;
         //     this.notification_visible = notification.visible;
         // });
+        Promise.resolve().then(async () => {
+            for(let image_key of this.playlist_identifier?.images || []) {
+                const song_key = image_key.song_key;
+                const song_data = await this.media.get_song_from_indexDB(song_key);
+                this.song_images.push({
+                    low: song_data.url?.artwork?.low,
+                    high: song_data.url?.artwork?.high,
+                    blob: song_data.download_artwork_blob
+                });
+            }
+        });
     }
 
     ngAfterViewInit(): void {
@@ -176,10 +190,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     private last_cache_timestamp: number = 0;
     
     // Virtual scrolling properties
-    significant_change_size = 5; // how many elements you have to scroll past before loading new ones
+    significant_change_size = 3; // how many elements you have to scroll past before loading new ones
     visible_start_index = 0;
-    visible_end_index = 75; // Show 75 items initially
-    buffer_size = 25; // Load 100 extra items after visible area
+    visible_end_index = 20; // Show 20 items initially
+    buffer_size = 15; // Load extra items after visible area
     item_height = 60; // Height of each playlist item in pixels
     container_height = 1000; // Height of scrollable container
 
@@ -471,18 +485,6 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     get_source_color(source: Song_Source | undefined): string {
         if( !source ) return 'var(--color-primary)'; // gray color for undefined sources
         return this.source_options.get(source) || 'var(--color-primary)'; // default to gray if source not found
-    }
-
-    get_artwork_src(video: Song_Data | null): string {
-        if (!video) return '';
-        
-        // If we have a downloaded blob, create a blob URL
-        if (video.download_artwork_blob) {
-            return URL.createObjectURL(video.download_artwork_blob);
-        }
-        
-        // Otherwise use the regular URL
-        return video.url?.artwork?.low || video.url?.artwork?.high || '';
     }
 
     get_playlist_primary_color(): string {
@@ -831,18 +833,24 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         // Check if .actions is sticky (overlapping with .result-videos)
         this.check_actions_sticky();
-        
+
+        const cover_element = document.querySelector('.cover') as HTMLElement;
+        if (cover_element) {
+            cover_element.style.width = `calc(80% - ${target.scrollTop}px)`;
+            cover_element.style.opacity = `${Math.min(1, Math.max(0, 1.2 - target.scrollTop / 160))}`;
+            cover_element.style.transform = `translateY(${target.scrollTop / 6}px)`;
+        }
         // Check header visibility - header has height: 50vh + padding + margins
         // Approximate total height considering 50vh + space-7 padding + space-6 margin
         const viewport_height = window.innerHeight;
-        const header_height = Math.max(400, viewport_height * 0.5 + 120); // 50vh + ~120px for padding/margins
+        const header_height = Math.max(500, viewport_height * 0.5 + 120); // 50vh + ~120px for padding/margins
         const was_header_visible = this.is_header_visible;
         this.is_header_visible = scrollTop < header_height;
         
         // Calculate visible range based on scroll position
-        const new_start = Math.floor(scrollTop / this.item_height);
+        const new_start = Math.floor((scrollTop - header_height) / this.item_height);
         const new_end = Math.min(
-            new_start + Math.ceil(this.container_height / this.item_height),
+            new_start + Math.ceil((this.container_height + header_height) / this.item_height),
             this.videos.length
         );
 
@@ -1029,10 +1037,12 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         
         this.scrollbar_hide_timeout = window.setTimeout(() => {
             this.scrollbar_visible = false;
-            this.scrollbar_text = '';
-        }, 1500);
+            setTimeout(() => {
+                this.scrollbar_text = '';
+            }, 300); // Clear text after fade-out
+        }, 850);
     }
-    
+
     scrollbar_on_drag_start(event: MouseEvent | TouchEvent): void {
         event.preventDefault();
         event.stopPropagation();

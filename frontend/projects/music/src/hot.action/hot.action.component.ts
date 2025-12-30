@@ -9,11 +9,12 @@ import { PlaylistsService } from '../../playlists.service';
 import { HotActionService } from '../../hot.action.service';
 import { MusicMediaService, DownloadQuality, Song_Playlist_Identifier, Song_Source } from '../../music.media.service';
 import { MusicPlayerService } from '../../music.player.service';
+import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
 
 @Component({
   selector: 'hot-action',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ProgressiveLoadDirective],
   templateUrl: './hot.action.component.html',
   styleUrl: './hot.action.component.css'
 })
@@ -64,17 +65,30 @@ export class HotActionComponent {
     //     return this.playlists.playlist_identifiers;
     // }
     playlist_identifiers: Song_Playlist_Identifier[] = [];
-    playlist_selectors: { identifier: Song_Playlist_Identifier, selected: boolean, select: () => void, is_selectable: () => boolean, action: () => void }[] = [];
+    playlist_selectors: { 
+        identifier: Song_Playlist_Identifier, 
+        selected: boolean, 
+        select: () => void, 
+        is_selectable: () => boolean, 
+        action: () => void,
+        images: ({ blob?: Blob; low?: string; high?: string; })[]
+    }[] = [];
     private selected_playlists: Set<string> = new Set();
 
-    private update_playlist_selectors(): void {
+    private async update_playlist_selectors(): Promise<void> {
         this.playlist_identifiers = this.playlists.playlist_identifiers;
         this.selected_playlists.clear();
-        this.playlist_selectors = this.playlist_identifiers.map(playlist => {
+        
+        // Create selectors with images loaded
+        const selectors = await Promise.all(this.playlist_identifiers.map(async (playlist) => {
             let is_selected = this.selected_playlists.has(playlist.id);
+            
+            // Load images for this playlist
+            const images = await this.get_images_for_playlist({ identifier: playlist });
         
             return {
                 identifier: playlist,
+                images: images,
                 get selected() {
                     return is_selected;
                 },
@@ -98,7 +112,9 @@ export class HotActionComponent {
                     console.log(`Added song to playlist: ${playlist.id}`, this.song_data);
                 },
             };
-        });
+        }));
+        
+        this.playlist_selectors = selectors;
     }
 
     constructor(private playlists: PlaylistsService, public hot_action: HotActionService, private media: MusicMediaService, private player: MusicPlayerService, private router: Router) {
@@ -689,5 +705,21 @@ export class HotActionComponent {
                 this.hot_action.action = 'remove_from_playlist_confirm';
                 break;
         }
+    }
+
+    public async get_images_for_playlist(playlist: { identifier: Song_Playlist_Identifier }): Promise<({ blob?: Blob; low?: string; high?: string; })[]> {
+        const images: ({ blob?: Blob; low?: string; high?: string; })[] = [];
+        
+        for(let image_key of playlist.identifier?.images || []) {
+            const song_key = image_key.song_key;
+            const song_data = await this.media.get_song_from_indexDB(song_key);
+            images.push({
+                low: song_data?.url?.artwork?.low,
+                high: song_data?.url?.artwork?.high,
+                blob: song_data?.download_artwork_blob
+            });
+        }
+        
+        return images;
     }
 }
