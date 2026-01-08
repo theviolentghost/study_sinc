@@ -9,10 +9,8 @@ import { CommonModule } from '@angular/common';
   templateUrl: './login.component.html',
   styleUrl: './login.component.css'
 })
-export class YoutubeLoginComponent {
+export class YoutubeLoginComponent implements OnDestroy {
   constructor(private youtubeService: YoutubeService,
-    private route: ActivatedRoute,
-    private router: Router
   ){}
 
   sessionSub;
@@ -22,7 +20,6 @@ export class YoutubeLoginComponent {
   imageUrl: string;
 
   loginTypeFunction = (event) => {
-    console.log(`Key pressed: ${event.key}`);
     if(!this.imageUrl) return;
     if(event.key == 'shift') return;
 
@@ -38,20 +35,20 @@ export class YoutubeLoginComponent {
     this.imageUrlSub = this.youtubeService.loginImage$.subscribe(url => {
       if(!url) url = '';
       this.imageUrl = url;
-      console.log(url);
     });
 
     document.addEventListener('keydown', this.loginTypeFunction);
   }
 
   ngOnDestroy(){
+    this.youtubeService.endLoginAttempt();
+
     this.sessionSub.unsubscribe();
     this.imageUrlSub.unsubscribe();
     document.removeEventListener('keydown', this.loginTypeFunction);
   }
 
   loginClick(event: MouseEvent, element: HTMLElement){
-    console.log(event);
     let x = event.offsetX;
     let y = event.offsetY;
 

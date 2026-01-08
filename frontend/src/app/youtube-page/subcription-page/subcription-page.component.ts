@@ -61,8 +61,6 @@ export class SubcriptionPageComponent {
       } 
       this.sortedUploads.sort((a, b) => this.youtubeTimeAgoToSeconds(a.uploadDate) - this.youtubeTimeAgoToSeconds(b.uploadDate));
     });
-
-    this.youtubeSubsciptionService.updateAccountSubscriptions(this.youtubeService.loginSessionId);
   }
 
   @ViewChildren('videoItem', { read: ElementRef })

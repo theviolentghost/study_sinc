@@ -27,39 +27,15 @@ export class WatchHistoryService {
         this.initializeWatchHistory();
     }
 
-    mongoAddHistory(sessionId: string, videoId: string, videoData: VideoHistory): Observable<any> {
-        const body = { sessionId, videoId, videoData };
-        return this.http.post<any>('/mongodb/addhistory', body);
-    }
 
-    mongoGetHistory(sessionId: string, nextPageToken?: string): Observable<any> {
-        const body = { sessionId, nextPageToken };
-        return this.http.post<any>('/mongodb/get-history', body);
-    }
-
-    async getAllWatchedVideos(loginId?: string): Promise<HistoryVideo[]>{
+    async getAllWatchedVideos(): Promise<HistoryVideo[]>{
         let videos: HistoryVideo[] = [];
 
-        if(loginId){
-            let nextPageToken = '';
-            let data: MongoHistoryResults;
-            data = await firstValueFrom(
-                this.mongoGetHistory(loginId, nextPageToken)
-            );
-            for(let video = 0; video < data.items.length; video++){
-                let videoData: HistoryVideo = { videoData:data.items[video].video_data, id: data.items[video].video_id};
-                videos.push(videoData);
-            }
+        this.allWatchHistory.forEach((videoHistory, videoId) => {
+            let video: HistoryVideo = {id: videoId, videoData: videoHistory};
+            videos.push(video);
+        });
 
-            this.videoHistoryListSubject.next(videos);
-            nextPageToken = data.nextPageToken;
-            if(nextPageToken) this.getAllWatchedVideos();
-        } else {
-            this.allWatchHistory.forEach((videoHistory, videoId) => {
-                let video: HistoryVideo = {id: videoId, videoData: videoHistory};
-                videos.push(video);
-            });
-        }
         return videos;
     }
 
@@ -91,8 +67,6 @@ export class WatchHistoryService {
         await this.watchHistoryDB.put(this.watchHistoryTableName, data, id);
 
         if(!loginId) return;
-        console.log("sending");
-        this.mongoAddHistory(loginId, id, data).pipe(take(1)).subscribe(data => {console.log(data)});
     }
 
     saveCurrentVideo(video: PlaylistVideo): void{

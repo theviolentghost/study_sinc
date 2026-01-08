@@ -7,9 +7,10 @@ export interface SearchResultItem {
   channelTitle: string;
   viewCount: string;
   channelThumbnailUrl: string;
-  videoThumbnailUrl: string
-  description: string
+  videoThumbnailUrl: string;
+  description: string;
   uploadDate: string;
+  subscribers: string;
 }
 
 export interface YouTubeSearchResponse {

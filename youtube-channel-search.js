@@ -1,7 +1,6 @@
 
 import 'dotenv/config';
 
-import { Innertube } from 'youtubei.js';
 import youtubeAccount from './youtube-account.js';
 
 async function getFullChannelDetails(channelId){
@@ -27,7 +26,7 @@ async function getFullChannel(id){
     try {
         return await getFullChannelDetails(id);
     } catch (error) {
-        console.error('Error searching YouTube:', error);
+        console.error('Error searching YouTube channel:', error);
         return null;
     }
 }

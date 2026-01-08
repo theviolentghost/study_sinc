@@ -1,7 +1,6 @@
 
 import 'dotenv/config';
 
-import { Innertube } from 'youtubei.js';
 import youtubeAccount from './youtube-account.js';
 
 async function getVideoData(videoId){
@@ -13,7 +12,6 @@ async function getVideoData(videoId){
     console.log('error getting youtubi video data');
     return null;
   }
-  //return data;
   
   let basicVideoData;
   try{
@@ -30,7 +28,6 @@ async function getVideoData(videoId){
       uploadDate: data.primary_info?.published?.text || '',
     };
   }catch(err){
-    //console.log(err);
     return;
   }
   let channelSubs = data.secondary_info.owner.subscriber_count.text;
@@ -56,8 +53,7 @@ async function getVideoData(videoId){
       };
       nextVideos.push(videoObject);
     }catch(err){
-      //console.log(err);
-      //console.log(data.watch_next_feed[video]);
+      return;
     }
   }
 

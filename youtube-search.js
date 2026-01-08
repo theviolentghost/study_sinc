@@ -34,16 +34,21 @@ async function youtubeSearch(query, nextPageToken, accountId) {
     searchData = await yt.actions.execute('/search', {
       query: query
     });
-    results = searchData?.data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
+    results = searchData?.data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents[0]?.itemSectionRenderer?.contents;
     if(!results.length) return;
     newNextPageToken = searchData.data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer?.contents[1]?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token || '';
   }else{
-    searchData = await yt.actions.execute('/search', {
-      continuation: nextPageToken
-    });
-    results = searchData?.data.onResponseReceivedCommands?.[0]?.appendContinuationItemsAction.continuationItems[0].itemSectionRenderer.contents;
+    try{
+      searchData = await yt.actions.execute('/search', {
+        continuation: nextPageToken
+      });
+    }catch(err){
+      console.error("failed to youtube search");
+      console.error(err);
+    }
+    results = searchData?.data?.onResponseReceivedCommands?.[0]?.appendContinuationItemsAction?.continuationItems[0]?.itemSectionRenderer?.contents;
     if(!results.length) return;
-    newNextPageToken = searchData.data.onResponseReceivedCommands[0]?.appendContinuationItemsAction.continuationItems[1]?.continuationItemRenderer.continuationEndpoint.continuationCommand.token || '';
+    newNextPageToken = searchData?.data?.onResponseReceivedCommands[0]?.appendContinuationItemsAction?.continuationItems[1]?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token || '';
   }
 
   let returnResults = [];
@@ -59,12 +64,12 @@ async function youtubeSearch(query, nextPageToken, accountId) {
       channelTitle: null,
       channelId: null,
       duration: null,
-      viewCount: null,
       uploadDate: null,
       videoThumbnailUrl: null,
       channelThumbnailUrl: null,
       description: null
     };
+
 
     try{
       if(channelData){
@@ -73,7 +78,7 @@ async function youtubeSearch(query, nextPageToken, accountId) {
         returnObject.channelTitle = channelData.subscriberCountText.simpleText;
         returnObject.channelId = channelData.channelId;
         returnObject.channelThumbnailUrl = channelData.thumbnail.thumbnails[channelData.thumbnail.thumbnails.length - 1].url;
-        returnObject.viewCount = channelData.videoCountText.simpleText;
+        returnObject.subscribers = channelData.videoCountText.simpleText;
       }
       if(videoData){
         returnObject.id = videoData.videoId;

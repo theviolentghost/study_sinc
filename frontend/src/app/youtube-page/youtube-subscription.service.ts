@@ -35,43 +35,6 @@ export class YoutubeSubscriptionService {
         }
     }
 
-    updateAccountSubscriptions(loginId: string ): void {
-        if(!loginId) return;
-
-        this.mongoGetSubscriptions(loginId)
-            .pipe(take(1))
-            .subscribe(data => {
-                console.log(data);
-                if(!data) return;
-                this._channelIdList = data;
-                
-                this._allSubscriptions = [];
-                this._allChannelUploads = [];
-                this.channelDataListSubject.next([]);
-                this.channelUploadsListSubject.next([]);
-
-                if(!this._channelIdList) return;
-                for(let channel = 0; channel < this._channelIdList.length; channel++){
-                    this.addToSubscriptionList(this.channelIdList[channel]);
-                }
-            });
-    }
-
-    mognoAddSubscription(sessionId: string, channelId: string): Observable<any> {
-        const body = { sessionId, channelId };
-        return this.http.post<any>('/mongodb/add-subscription', body);
-    }
-
-    mongoRemoveSubscription(sessionId: string, channelId: string): Observable<any> {
-        const body = { sessionId, channelId };
-        return this.http.post<any>('/mongodb/remove-subscription', body);
-    }
-
-    mongoGetSubscriptions(sessionId: string): Observable<string[]> {
-        const body = { sessionId };
-        return this.http.post<any[]>('/mongodb/get-subscriptions', body);
-    }
-
     get channelIdList(): string[]{
         return this._channelIdList;
     }
@@ -149,13 +112,6 @@ export class YoutubeSubscriptionService {
         }
 
         this.addToSubscriptionList(channelId);
-
-        if(!this.youtubeService.loginSessionId) return;
-        this.mognoAddSubscription(this.youtubeService.loginSessionId, channelId)
-            .pipe(take(1))
-            .subscribe(data => {
-                console.log(data);
-            });
     }
 
     public subscribeToChannel(channelId: string): void{
@@ -187,13 +143,6 @@ export class YoutubeSubscriptionService {
         });
         this.channelDataListSubject.next(this._allSubscriptions);
         this.saveSubscriptionList();
-
-        if(!this.youtubeService.loginSessionId) return;
-        this.mongoRemoveSubscription(this.youtubeService.loginSessionId, channelId)
-            .pipe(take(1))
-            .subscribe(data => {
-                console.log(data);
-            });
     }
 
     saveSubscriptionList(): void{

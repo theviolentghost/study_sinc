@@ -1,20 +1,24 @@
 
-import { Innertube } from 'youtubei.js';
 import youtubeAccount from './youtube-account.js';
 
 async function getHomepage(accountId, nextPageToken){
     let yt = youtubeAccount.getAccountInstance(accountId);
-    console.log(Object.getOwnPropertyNames(Object.getPrototypeOf(yt)));
 
     let homepageData;
-    if(!nextPageToken){
-        homepageData = await yt.actions.execute('/browse', {
-            browseId: 'FEwhat_to_watch'
-        });
-    } else {
-        homepageData = await yt.actions.execute('/browse', {
-            continuation: nextPageToken
-        });
+    try{
+        if(!nextPageToken){
+            homepageData = await yt.actions.execute('/browse', {
+                browseId: 'FEwhat_to_watch'
+            });
+        } else {
+            homepageData = await yt.actions.execute('/browse', {
+                continuation: nextPageToken
+            });
+        }
+    }catch(err){
+        console.error("failed to fetch youtube homepage");
+        console.error(err);
+
     }
     
     let isLoggedOut = homepageData.data.responseContext.mainAppWebResponseContext.loggedOut;

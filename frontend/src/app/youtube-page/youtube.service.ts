@@ -1,10 +1,10 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, Observable, of } from 'rxjs';
 import { Router } from '@angular/router';
 import { YouTubeSearchResponse, SearchResultItem } from './video-search-result.model';
 import { YouTubeChannel } from './youtube-channel-search-results.model';
-import { take } from 'rxjs/operators';
+import { take, catchError } from 'rxjs/operators';
 import { FullVideoData, PlaylistVideo } from './youtube-playlist-results.model';
 import { WatchHistoryService } from './watch-history.service';
 
@@ -14,6 +14,8 @@ import { WatchHistoryService } from './watch-history.service';
 export class YoutubeService {
     isLoggingIn = false;
     LOGIN_STORAGE_KEY = 'login storgae key';
+    loginChecker;
+    sessionChecker;
     private loginSessionIdSubject = new BehaviorSubject<string | null>(null);
     loginSessionId$: Observable<string | null> = this.loginSessionIdSubject.asObservable();
     private loginImageSubject = new BehaviorSubject<string | null>(null);
@@ -104,21 +106,18 @@ export class YoutubeService {
 
     private youtubeInitializeLogin(): Observable<any>{
         let params = new HttpParams();
-        console.log('logging');
 
         return this.http.get<any>(`/start_youtube_login`, { params });
     }
 
     private startLoginStream(id: string): Observable<any>{
         let params = new HttpParams();
-        console.log('streaming');
 
         return this.http.get<Blob>(`/stream_youtube_login/${id}`, { params, responseType: 'blob' as 'json' });
     }
 
     private loginClick(id: string, xPercentage: number, yPercentage: number): Observable<any>{
         let params = new HttpParams();
-        console.log('click ' + xPercentage + ' ' + yPercentage);
 
         return this.http.post<any>(`/login_click/${id}?xPercentage=${xPercentage}&yPercentage=${yPercentage}`, { params });
     }
@@ -141,9 +140,10 @@ export class YoutubeService {
         return this.http.get<any>(`/is_youtube_account_logged_in/${id}`, { params });
     }
 
-    private mongoUpsertUser(email: string, password: string, sessionId: string): Observable<any> {
-        const body = { email, password, sessionId };
-        return this.http.post<any>('/mongodb/upsert-user', body);
+    private endLoginSession(id: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.get<any>(`/end_youtube_login_session/${id}`, { params });
     }
 
     get isDisplayingVideo(): boolean{
@@ -181,7 +181,6 @@ export class YoutubeService {
             .pipe(take(1))
             .subscribe(data => {
                 id = data.id
-                console.log(data);
                 this.loginSessionIdSubject.next(id);
 
                 this.makeLoginStream(id);
@@ -190,7 +189,7 @@ export class YoutubeService {
     }
 
     waitForSuccessfulLogin(id: string): void{
-        let loginChecker = setInterval(() => {
+        this.loginChecker = setInterval(() => {
             this.isAccountLoggedIn(id)
                 .pipe(take(1))
                 .subscribe((data) => {
@@ -198,14 +197,9 @@ export class YoutubeService {
 
                     this.isLoggingIn = false;
                     this.navigateToHome();
-                    clearInterval(loginChecker);
+                    clearInterval(this.loginChecker);
                     this.saveAccountId(id);
 
-                    this.mongoUpsertUser('test', 'test', this.loginSessionIdSubject.value)
-                        .pipe(take(1))
-                        .subscribe((data) => {
-                            console.log(data);
-                        });
             });
             this.getLoginFrame(id);
         } , 500);
@@ -214,19 +208,18 @@ export class YoutubeService {
     makeLoginStream(id: string): void{
         
         try{
-            let sessionChecker = setInterval(() => {
+            this.sessionChecker = setInterval(() => {
                 this.isLoginSessionActive(id)
                     .pipe(take(1))
                     .subscribe(isReady => {
                         if(!isReady) return;
 
-                        clearInterval(sessionChecker);
+                        clearInterval(this.sessionChecker);
                         this.getLoginFrame(id);
                         this.waitForSuccessfulLogin(id);
                 });
             }, 500);
         }catch{
-            console.log('timeout');
             return;
         }
     }
@@ -237,6 +230,7 @@ export class YoutubeService {
     loginToSavedAccount(): void{
         let loginId = localStorage.getItem(this.LOGIN_STORAGE_KEY);
         if(!loginId) return;
+
         this.isAccountLoggedIn(loginId)
             .pipe(take(1))
             .subscribe(isLoggedIn => {
@@ -248,7 +242,13 @@ export class YoutubeService {
 
     getLoginFrame(id: string): void{
         this.startLoginStream(id)
-            .pipe(take(1))
+            .pipe(take(1),
+                catchError(err => {
+                    if (err.status === 404) {
+                        this.endLoginAttempt();
+                        return of(null);
+                    }
+                }))
             .subscribe(data => {
                 const objectUrl = URL.createObjectURL(data);
                 this.loginImageSubject.next(objectUrl);
@@ -257,22 +257,47 @@ export class YoutubeService {
 
     attemptLoginClick(xPercentage, yPercentage){
         let id = this.loginSessionIdSubject.value;
+        if(!id) return;
+
         this.loginClick(id, xPercentage, yPercentage)
-            .pipe(take(1))
-            .subscribe(data => {
-                console.log(data);
-        });
+            .pipe(take(1),
+                catchError(err => {
+                    if (err.status === 404) {
+                        this.endLoginAttempt();
+                        return of(null);
+                    }
+                }))
+            .subscribe();
         this.getLoginFrame(id);
     }
 
     attemptLoginType(input: string){
         let id = this.loginSessionIdSubject.value;
+        if(!id) return;
+
         this.loginType(id, input)
-            .pipe(take(1))
-            .subscribe(data => {
-                console.log(data);
-        });
+            .pipe(take(1),
+                catchError(err => {
+                    if (err.status === 404) {
+                        this.endLoginAttempt();
+                        return of(null);
+                    }
+                }))
+            .subscribe();
         this.getLoginFrame(id);
+    }
+
+    endLoginAttempt(): void{
+        if(!this.isLoggingIn) return;
+        this.endLoginSession(this.loginSessionId).pipe(take(1)).subscribe();
+
+        clearInterval(this.sessionChecker);
+        clearInterval(this.loginChecker);
+
+        this.loginImageSubject.next(null);
+        this.loginSessionIdSubject.next(null);
+
+        this.isLoggingIn = false;
     }
 
     public minimizePlayer(){

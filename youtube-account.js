@@ -2,6 +2,8 @@
 import { Innertube } from 'youtubei.js';
 import puppeteer from 'puppeteer';
 
+const youtubeLoginSessions = {};
+
 let singedInInstances = {};
 let guestInstance = await Innertube.create();;
 
@@ -28,12 +30,11 @@ function getCookieString(cookies){
 }
 
 async function awaitLogin(page, id){
-    console.log('waiting');
-    
     try{
         await page.waitForSelector('button#avatar-btn', { timeout: 300000 });
     } catch(err){
-        console.log('timeout');
+        console.log('login timeout id:' + id);
+        endLoginSession(id);
         return;
     }
     const cookies = await page.cookies('https://www.youtube.com');
@@ -42,7 +43,6 @@ async function awaitLogin(page, id){
 }
 
 async function initializeLogin(){
-    console.log('starting login');
     const browser = await puppeteer.launch({
         headless: false,
         args: [
@@ -82,18 +82,46 @@ async function login_click(page, xPercentage, yPercentage){
         devicePixelRatio: window.devicePixelRatio
     }));
 
-    console.log('clcking');
-    await page.mouse.click(dimensions.width * xPercentage, dimensions.height * yPercentage);
+    try{
+        await page.mouse.click(dimensions.width * xPercentage, dimensions.height * yPercentage);
+    } catch(err){
+        console.error("failed to login click");
+        console.error(err);
+    }
 }
 
 async function login_type(page, input){
     if(!page) return;
-    console.log(input);
     if(!input) {
         page.keyboard.type(' ');
         return;
     }
-    await await page.keyboard.press(input);
+    try{
+        await await page.keyboard.press(input);
+    } catch(err){
+        console.error("failed to login type");
+        console.error(err);
+    }
+}
+
+async function endLoginSession(id){
+    try{
+        await youtubeLoginSessions[id].browser.close();
+        delete youtubeLoginSessions[id];
+        return "ended login session " + id;
+    } catch (err){
+        return "failed to end session";
+    }
+}
+
+function getLoginSession(id){
+    return youtubeLoginSessions[id];
+}
+
+function setLoginSession(id, browser, page){
+    let object = { browser: browser, page: page, interval: null };
+    if(!object) return;
+    youtubeLoginSessions[id] = object;
 }
 
 export default{
@@ -103,5 +131,8 @@ export default{
     login_click: login_click,
     awaitLogin: awaitLogin,
     initializeLogin: initializeLogin,
+    getLoginSession: getLoginSession,
+    endLoginSession: endLoginSession,
+    setLoginSession: setLoginSession,
 };
 
