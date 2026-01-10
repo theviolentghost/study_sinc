@@ -1,12 +1,12 @@
 <div>
-    <div class="sync_navigation">
+    <!-- <div class="sync_navigation">
         <div class="icon"></div>
 
-        <a class="sync_navigation_button" routerLink="/">Home</a> <!--chnage the sub router: 'youtbe'-->
+        <a class="sync_navigation_button" routerLink="/">Home</a>
         <a class="sync_navigation_button" routerLink="/youtubeHome">YouTube</a>
         <a class="sync_navigation_button" routerLink="/contactUs">Contact</a>
         <a class="sync_navigation_button" routerLink="/about">About Us</a>
-    </div>
+    </div> -->
 
     <div class="youtube_navigation">
         <button class="icon">
@@ -20,9 +20,14 @@
             </svg>  
         </button>
 
-        <input id="search_bar" class="search_bar" [(ngModel)]="seachInput" (keydown.enter)="submitSearch()" (input)="updateSearchInput()" placeholder="Search">
+        <div class="search_bar_container">
+            <input id="search_bar" class="search_bar" [(ngModel)]="searchInput" (keydown.enter)="submitSearch()" (input)="updateSearchInput()" placeholder="Search" autocomplete="off">
+            <div *ngIf="displaySuggestions" class="search_Suggestions_container">
+                <button class="suggeestion_button" (click)="searchWithSuggestion(suggeestion)" *ngFor="let suggeestion of searchSuggestions">{{suggeestion}}</button>
+            </div>
+        </div>
 
-        <button class="icon user_icon">
+        <button class="icon user_icon" (click)="attempLogin()">
             <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="bi bi-person-circle" viewBox="0 0 16 16">
                 <path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0"/>
                 <path fill-rule="evenodd" d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-7a7 7 0 0 0-5.468 11.37C3.242 11.226 4.805 10 8 10s4.757 1.225 5.468 2.37A7 7 0 0 0 8 1"/>
@@ -33,7 +38,7 @@
     <div class="youtube_results">
 
         <div class="youtube_menu">
-            <button class="icon" routerLink="/youtubeHome"> 
+            <button class="icon" routerLink="/youtube"> 
                 <svg  xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"  fill="none"  stroke="currentColor"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon icon-tabler icons-tabler-outline icon-tabler-home no_margin">
                     <path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M5 12l-2 0l9 -9l9 9l-2 0" />
                     <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7" /><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6" />
@@ -65,8 +70,5 @@
         </div>
 
         <router-outlet name="youtube"></router-outlet>
-        
-
-
     </div>    
 <div>

@@ -14,7 +14,7 @@
 <div
 [style.width.px]="getPlayerWidth()"
 [style.top.px]="getPlayerY()"
-[ngClass]="{'minimized_video_player': isMinimized, 'normal_video_player': !isMinimized, 'show': videoId, 'hidden': !videoId}">
+[ngClass]="{'minimized_video_player': isMinimized, 'normal_video_player': !isMinimized, 'show': videoId, 'hidden': !videoId}">  
 
     <svg *ngIf="videoId && controlsVisible && !isMinimized"m (click)="minimizePlayer()" xmlns="http://www.w3.org/2000/svg"  width="24"  height="24"  viewBox="0 0 24 24"  fill="none"  stroke="currentColor"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon icon-tabler icons-tabler-outline icon-tabler-window-minimize minimize_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 16m0 1a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1z" /><path d="M4 12v-6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-6" /><path d="M15 13h-4v-4" /><path d="M11 13l5 -5" /></svg>
     <svg *ngIf="isMinimized && controlsVisible" (click)="expandPlayer()" xmlns="http://www.w3.org/2000/svg"  width="24"  height="24"  viewBox="0 0 24 24"  fill="none"  stroke="currentColor"  stroke-width="2"  stroke-linecap="round"  stroke-linejoin="round"  class="icon icon-tabler icons-tabler-outline icon-tabler-window-maximize minimize_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 16m0 1a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1z" /><path d="M4 12v-6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-6" /><path d="M12 8h4v4" /><path d="M16 8l-5 5" /></svg>
@@ -28,10 +28,10 @@
     </div>
     <div id="main_click_blocker" class="main_click_blocker">
         <div class="play_pause_display">
-            <svg *ngIf="!isPaused && controlsVisible" (click)="togglePlay()" xmlns="http://www.w3.org/2000/svg"  width="36"  height="36"  viewBox="0 0 24 24"  fill="currentColor"  class="icon icon-tabler icons-tabler-filled icon-tabler-player-pause big_pause_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z" /><path d="M17 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z" /></svg>
-            <svg *ngIf="isPaused && controlsVisible" (click)="togglePlay()" xmlns="http://www.w3.org/2000/svg"  width="36"  height="36"  viewBox="0 0 24 24"  fill="currentColor"  class="icon icon-tabler icons-tabler-filled icon-tabler-player-play big_play_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 4v16a1 1 0 0 0 1.524 .852l13 -8a1 1 0 0 0 0 -1.704l-13 -8a1 1 0 0 0 -1.524 .852z" /></svg>
+            <svg *ngIf="!isPaused && controlsVisible" (click)="togglePlay(); $event.stopPropagation();" xmlns="http://www.w3.org/2000/svg"  width="36"  height="36"  viewBox="0 0 24 24"  fill="currentColor"  class="icon icon-tabler icons-tabler-filled icon-tabler-player-pause big_pause_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z" /><path d="M17 4h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2z" /></svg>
+            <svg *ngIf="isPaused && controlsVisible" (click)="togglePlay(); $event.stopPropagation();" xmlns="http://www.w3.org/2000/svg"  width="36"  height="36"  viewBox="0 0 24 24"  fill="currentColor"  class="icon icon-tabler icons-tabler-filled icon-tabler-player-play big_play_button"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 4v16a1 1 0 0 0 1.524 .852l13 -8a1 1 0 0 0 0 -1.704l-13 -8a1 1 0 0 0 -1.524 .852z" /></svg>
         </div>
-        <div class="fast_forward_area" (click)="jumpForward(10)"></div>
-        <div class="rewind_area" (click)="rewind(10)"></div>
+        <!-- <div class="fast_forward_area" (click)="jumpForward(10)"></div>
+        <div class="rewind_area" (click)="rewind(10)"></div> -->
     </div>
 </div>

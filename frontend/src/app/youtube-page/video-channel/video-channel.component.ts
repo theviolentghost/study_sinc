@@ -36,7 +36,7 @@ export class VideoChannelComponent {
       this.currentChannel = channel;
       if(!this.currentChannel) return;
 
-      this.isSubscribed = this.youtubeSubscriptionService.isSubscribed(channel.id);
+      this.isSubscribed = this.youtubeSubscriptionService.isSubscribed(channel.channelId);
     });
 
     this.uploadsSub = this.youtubeService.channelUploads$.subscribe(videos => {

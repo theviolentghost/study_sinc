@@ -1,29 +1,21 @@
-import { google } from 'googleapis';
+
 import 'dotenv/config';
 
-const youtube = google.youtube({
-  version: 'v3',
-  auth: process.env.YOUTUBE_API_KEY,
-});
+import { Innertube } from 'youtubei.js';
+import youtubeAccount from './youtube-account.js';
 
-async function getFullChannelDetails(channelId) {
-  try {
-    const response = await youtube.channels.list({
-      part: 'snippet,contentDetails,statistics,brandingSettings',
-      id: channelId,
-    });
-
-    if (!response || response.data.items.length === 0) {
-      console.log('Channel not found.');
-      return null;
-    }
-
-    const channel = response.data.items[0];
-
-    return channel;
-  } catch (error) {
-    console.error('Error fetching channel details:', error);
-  }
+async function getFullChannelDetails(channelId){
+    let yt = youtubeAccount.getAccountInstance('');
+    const channelData = await yt.getChannel(channelId);
+    return {
+        channelId: channelId,
+        uploadsId: 'UU' + channelId.substring(2),
+        name: channelData.header.page_title,
+        tag: channelData.current_tab.endpoint.payload.canonicalBaseUrl.substring(1),
+        description: channelData.metadata.description,
+        iconUrl: channelData.header.content.image.avatar.image[0].url,
+        bannerUrl: channelData.header.content.banner.image[0].url,
+    };
 }
 
 async function getFullChannel(id){

@@ -1,14 +1,14 @@
 .results_list{
-    padding: 0px 16px 0px 0px;
+    padding: 0px 24px 12px 72px;
     width: 100%;
-    position: absolute;
     text-overflow: ellipsis;
 }
 
 .video{
+    color: var(--color-text);
     display: flex;
     flex-direction: row;
-    margin: 12px 24px;
+    margin: 12px 24px 12px 0px;
     width: 100%;
     min-height: 150px;
     max-height: 250px;
@@ -25,7 +25,7 @@
 .searched_channel{
     display: flex;
     flex-direction: row;
-    margin: 12px 24px;
+    margin: 12px 24px 12px 0px;
     width: 100%;
     min-height: 120px;
     max-height: 220px;
@@ -65,6 +65,7 @@
 }
 
 .video_info{
+    color: var(--color-text);
     padding: 0px 24px;
     width: 100%;
     display: flex;
@@ -144,6 +145,7 @@
     cursor: pointer;
     align-self: center;
     text-align: center;
+    color: var(--color-text);
 }
 
 .subscribe_button_clicked{
@@ -160,6 +162,7 @@
     cursor: pointer;
     align-self: center;
     text-align: center;
+    color: var(--color-text);
 }
 
 .video_progress_bar{

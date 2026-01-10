@@ -1,27 +1,27 @@
 <div id="page_container" class="page_container" *ngIf="currentChannel">
-    <img class="channel_banner" [ngStyle]="{'background-image': 'url(' + currentChannel.brandingSettings.image.bannerExternalUrl + ')'}">
+    <img class="channel_banner" [ngStyle]="{'background-image': 'url(' + currentChannel.bannerUrl + ')'}">
     <div class="channel_display">
-        <div class="channel_icon" [ngStyle]="{'background-image': 'url(' + currentChannel.snippet.thumbnails.high.url + ')'}"></div>
+        <div class="channel_icon" [ngStyle]="{'background-image': 'url(' + currentChannel.iconUrl + ')'}"></div>
         <div class="channel_info">
-            <p class="channel_name">{{ currentChannel.snippet.title }}</p>
-            <span class="channel_description">{{ currentChannel.snippet.customUrl }}</span>
-            <p class="channel_description">{{ currentChannel.snippet.description }}</p>
-            <div  (click)="toggleIsSubscribed(currentChannel.id)" [ngClass]="{'subscribe_button_unclicked': !isSubscribed, 'subscribe_button_clicked':isSubscribed}">{{isSubscribed ? "Subscribed" : "Subscribe"}}</div>
+            <p class="channel_name">{{ currentChannel.name }}</p>
+            <span class="channel_description">{{ currentChannel.tag }}</span>
+            <p class="channel_description">{{ currentChannel.description }}</p>
+            <div  (click)="toggleIsSubscribed(currentChannel.channelId)" [ngClass]="{'subscribe_button_unclicked': !isSubscribed, 'subscribe_button_clicked':isSubscribed}">{{isSubscribed ? "Subscribed" : "Subscribe"}}</div>
         </div>
     </div>
 
     <div class="channel_video_grid">
         <a class="video" (click)="playNewVideo(video)" *ngFor="let video of channelUploads">
-            <div class="thumbnail" [ngStyle]="{'background-image': 'url(' + video.snippet.thumbnails.high.url + ')'}">
-                <div class="video_time_display"><div class="video_time_text">0:00:00</div></div>
-                <div class="video_progress_bar" *ngIf="wasWatched(video.contentDetails.videoId)" [style.width.%]="getVideoProgressPercent(video.contentDetails.videoId)"></div>
+            <div class="thumbnail" [ngStyle]="{'background-image': 'url(' + video.videoThumbnailUrl + ')'}">
+                <div class="video_time_display"><div class="video_time_text">{{ video.duration }}</div></div>
+                <div class="video_progress_bar" *ngIf="wasWatched('video.videoId')" [style.width.%]="getVideoProgressPercent('video.videoId')"></div>
             </div>
 
             <div class="video_details">
                 <div class="video_text">
-                    <p class="video_title">{{ video.snippet.title }}</p>
-                    <p class="video_caption">{{ video.snippet.description }}</p>
-                    <p class="video_caption"> views and {{ timeAgo(video.snippet.publishedAt)}}</p>
+                    <p class="video_title">{{ video.title }}</p>
+                    <p class="video_caption">{{ video.description }}</p>
+                    <p class="video_caption"> {{ video.viewCount }} - {{ video.uploadDate }}</p>
                 </div>
             </div>
         </a>

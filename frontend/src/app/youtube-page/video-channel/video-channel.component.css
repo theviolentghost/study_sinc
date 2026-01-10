@@ -1,7 +1,6 @@
 .page_container{
-    padding: 0px 16px 0px 0px;
-    width: calc(103% - 24px);
-    position: absolute;
+    padding: 0px 24px 12px 72px;
+    width: 100%;
     text-overflow: ellipsis;
 }
 
@@ -66,6 +65,7 @@
     cursor: pointer;
     align-items: center;
     text-align: center;
+    color: var(--color-text);
 }
 
 .subscribe_button_clicked{
@@ -80,6 +80,7 @@
     outline-offset: -1px;
     cursor: pointer;
     text-align: center;
+    color: var(--color-text);
 }
 
 .channel_video_grid{

@@ -2,10 +2,11 @@ export interface VideoHistory{
     length: number;
     currentPosition: number;
     watchedAt: string;
-    thumbnailUrl: string;
+    videoThumbnailUrl: string;
     title: string;
-    channelName: string;
+    channelTitle: string;
     channelId: string;
+    channelThumbnailUrl: string;
 }
 
 export interface HistoryVideo{

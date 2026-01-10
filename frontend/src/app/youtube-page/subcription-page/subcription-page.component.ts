@@ -59,8 +59,10 @@ export class SubcriptionPageComponent {
           this.sortedUploads.push(allChannelUploads[channel].uploads[video]);
         }
       } 
-      this.sortedUploads.sort((a, b) => new Date(b.contentDetails.videoPublishedAt).getTime() - new Date(a.contentDetails.videoPublishedAt).getTime());
+      this.sortedUploads.sort((a, b) => this.youtubeTimeAgoToSeconds(a.uploadDate) - this.youtubeTimeAgoToSeconds(b.uploadDate));
     });
+
+    this.youtubeSubsciptionService.updateAccountSubscriptions(this.youtubeService.loginSessionId);
   }
 
   @ViewChildren('videoItem', { read: ElementRef })
@@ -90,10 +92,11 @@ export class SubcriptionPageComponent {
       if (entry.isIntersecting) {
         thumbnail.style.backgroundImage = `url(${originalUrl})`;
         let playlistId = videoElement.getAttribute('playlist-id');
+        let videoId = videoElement.getAttribute('video-id');
 
-        if(this.youtubeSubsciptionService.isLastLoadedUpload(playlistId, videoElement.getAttribute('video-id'))){
+        if(this.youtubeSubsciptionService.isLastLoadedUpload(playlistId, videoId)){
           if(!this.canLoadMoreUploads) return;
-          this.youtubeSubsciptionService.loadMoreUploads(videoElement.getAttribute('playlist-id'));
+          this.youtubeSubsciptionService.loadMoreUploads(playlistId);
         }
       } else {
         thumbnail.style.backgroundImage = 'none';
@@ -104,6 +107,15 @@ export class SubcriptionPageComponent {
   ngOnDestroy(){
     this.subscriptionsSub.unsubscribe();
     this.onScreenObserver.disconnect();
+  }
+
+  getPlaylistId(channelId: string): string{
+    for(let channel = 0; channel < this.subscriptions.length; channel++){
+      if(this.subscriptions[channel].channelId !== channelId) continue;
+
+      return this.subscriptions[channel].uploadsId;
+    }
+    return '';
   }
 
   playNewVideo(video: PlaylistVideo){
@@ -130,4 +142,30 @@ export class SubcriptionPageComponent {
     return this.watchHistoryService.wasWatched(videoId);
   }
 
+  youtubeTimeAgoToSeconds(timeAgo: string): number {
+  const parts = timeAgo.split(" ");
+  if (parts.length < 2) return 0;
+
+  const value = parseInt(parts[0], 10);
+  const unit = parts[1].toLowerCase();
+
+  let seconds = 0;
+  if (unit.startsWith("second")) {
+    seconds = value;
+  } else if (unit.startsWith("minute")) {
+    seconds = value * 60;
+  } else if (unit.startsWith("hour")) {
+    seconds = value * 60 * 60;
+  } else if (unit.startsWith("day")) {
+    seconds = value * 24 * 60 * 60;
+  } else if (unit.startsWith("week")) {
+    seconds = value * 7 * 24 * 60 * 60;
+  } else if (unit.startsWith("month")) {
+    seconds = value * 30 * 24 * 60 * 60;
+  } else if (unit.startsWith("year")) {
+    seconds = value * 365 * 24 * 60 * 60;
+  }
+
+  return seconds;
+}
 }

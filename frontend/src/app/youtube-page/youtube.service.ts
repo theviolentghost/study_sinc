@@ -1,23 +1,39 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { BehaviorSubject, Observable, firstValueFrom } from 'rxjs';
-import { RouterModule, Router } from '@angular/router';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { Router } from '@angular/router';
 import { YouTubeSearchResponse, SearchResultItem } from './video-search-result.model';
 import { YouTubeChannel } from './youtube-channel-search-results.model';
-import { max, take } from 'rxjs/operators';
-import { Playlist, PlaylistVideo } from './youtube-playlist-results.model';
+import { take } from 'rxjs/operators';
+import { FullVideoData, PlaylistVideo } from './youtube-playlist-results.model';
 import { WatchHistoryService } from './watch-history.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class YoutubeService {
+    isLoggingIn = false;
+    LOGIN_STORAGE_KEY = 'login storgae key';
+    private loginSessionIdSubject = new BehaviorSubject<string | null>(null);
+    loginSessionId$: Observable<string | null> = this.loginSessionIdSubject.asObservable();
+    private loginImageSubject = new BehaviorSubject<string | null>(null);
+    loginImage$: Observable<string | null> = this.loginImageSubject.asObservable();
+
+    private nextHomePageToken: string = '';
+    private homepageVideosList: PlaylistVideo[] = [];
+    private homepageVideosSubject = new BehaviorSubject<PlaylistVideo[] | null>(null);
+    homepageVideosData$: Observable<PlaylistVideo[] | null> = this.homepageVideosSubject.asObservable();
+
     private _currentSearchQuery: string;
     private nextSearchPageToken: string;
     private searchList: SearchResultItem[];
     private searchResultsSubject = new BehaviorSubject<SearchResultItem[] | null>(null);
     searchResults$: Observable<SearchResultItem[] | null> = this.searchResultsSubject.asObservable();
+    private searchSuggestionsSubject = new BehaviorSubject<string[] | null>(null);
+    searchSuggestions$: Observable<string[] | null> = this.searchSuggestionsSubject.asObservable();
 
+    private fullPlayingVideoDataSubject = new BehaviorSubject<FullVideoData | null>(null);
+    fullPlayingVideoData$: Observable<FullVideoData | null> = this.fullPlayingVideoDataSubject.asObservable();
     private videoIdSubject = new BehaviorSubject<string | null>(null);
     videoId$: Observable<string | null> = this.videoIdSubject.asObservable();
     private minimizedSubject = new BehaviorSubject<boolean | null>(null);
@@ -37,17 +53,21 @@ export class YoutubeService {
     constructor(private http: HttpClient,
         private router: Router,
         private watchHistoryService: WatchHistoryService
-    ) { }
+    ) {}
 
-    searchVideos(query: string, maxResults: number = 10, nextPageToken): Observable<any> {
+    private searchVideos(query: string, nextPageToken: string): Observable<any> {
         let params = new HttpParams()
             .set('q', query)
-            .set('maxResults', maxResults);
+            .set('nextPageToken', nextPageToken);
 
-        if (nextPageToken) {
-            params = new HttpParams().set('nextPageToken', nextPageToken).set('q', query).set('maxResults', maxResults);
-        }
         return this.http.get<YouTubeSearchResponse>(`/youtube_search`, { params });
+    }
+
+    private getFullSearchSuggestions(query: string): Observable<any> {
+        let params = new HttpParams()
+            .set('q', query);
+
+        return this.http.get<string[]>(`/youtube_get_search_suggestions`, { params });
     }
 
     getFullChannel(id: string): Observable<any>{
@@ -57,13 +77,6 @@ export class YoutubeService {
         return this.http.get<YouTubeChannel>(`/youtube_full_channel`, { params });
     }
 
-    // getChannelPlaylists(id: string): Observable<any>{
-    //     let params = new HttpParams()
-    //         .set('id', id);
-
-    //     return this.http.get<YouTubeSearchResponse>(`/youtube_get_channel_playlists`, { params });
-    // }
-
     getPlaylistVideos(id: string, nextPageToken: string): Observable<any>{
         let params = new HttpParams()
             .set('id', id)
@@ -72,12 +85,77 @@ export class YoutubeService {
         return this.http.get<YouTubeSearchResponse>(`/youtube_get_playlist_videos`, { params });
     }
 
+    private getFullVideoData(videoId: string): Observable<any>{
+        let params = new HttpParams()
+            .set('videoId', videoId);
+
+        return this.http.get<FullVideoData>(`/youtube_get_video_data`, { params });
+    }
+
+    private getFullHomepage(accountId, nextPageToken): Observable<any>{
+        if(!accountId) accountId = '';
+        if(!nextPageToken) nextPageToken = '';
+        let params = new HttpParams()
+            .set('accountId', accountId)
+            .set('nextPageToken', nextPageToken);
+
+        return this.http.get<any>(`/youtube_get_homepage`, { params });
+    }
+
+    private youtubeInitializeLogin(): Observable<any>{
+        let params = new HttpParams();
+        console.log('logging');
+
+        return this.http.get<any>(`/start_youtube_login`, { params });
+    }
+
+    private startLoginStream(id: string): Observable<any>{
+        let params = new HttpParams();
+        console.log('streaming');
+
+        return this.http.get<Blob>(`/stream_youtube_login/${id}`, { params, responseType: 'blob' as 'json' });
+    }
+
+    private loginClick(id: string, xPercentage: number, yPercentage: number): Observable<any>{
+        let params = new HttpParams();
+        console.log('click ' + xPercentage + ' ' + yPercentage);
+
+        return this.http.post<any>(`/login_click/${id}?xPercentage=${xPercentage}&yPercentage=${yPercentage}`, { params });
+    }
+
+    private loginType(id: string, input: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.post<any>(`/login_type/${id}?input=${input}`, { params });
+    }
+
+    private isLoginSessionActive(id: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.get<any>(`/is_login_session_active/${id}`, { params });
+    }
+
+    private isAccountLoggedIn(id: string): Observable<any>{
+        let params = new HttpParams();
+
+        return this.http.get<any>(`/is_youtube_account_logged_in/${id}`, { params });
+    }
+
+    private mongoUpsertUser(email: string, password: string, sessionId: string): Observable<any> {
+        const body = { email, password, sessionId };
+        return this.http.post<any>('/mongodb/upsert-user', body);
+    }
+
     get isDisplayingVideo(): boolean{
         return this.videoIdSubject.value ? true : false;
     }
 
     get isMinimized(): boolean{
         return this.minimizedSubject.value;
+    }
+
+    get loginSessionId(): string{
+        return this.loginSessionIdSubject.value;
     }
 
     set currentSearchQuery(search: string){
@@ -96,6 +174,107 @@ export class YoutubeService {
         this.channelSubject.next(channel);
     }
 
+    youtubeFullLogin(): void{
+        if(this.isLoggingIn) return;
+        let id;
+        this.youtubeInitializeLogin()
+            .pipe(take(1))
+            .subscribe(data => {
+                id = data.id
+                console.log(data);
+                this.loginSessionIdSubject.next(id);
+
+                this.makeLoginStream(id);
+        });
+        this.isLoggingIn = true;
+    }
+
+    waitForSuccessfulLogin(id: string): void{
+        let loginChecker = setInterval(() => {
+            this.isAccountLoggedIn(id)
+                .pipe(take(1))
+                .subscribe((data) => {
+                    if(!data.isLoggedIn) return; 
+
+                    this.isLoggingIn = false;
+                    this.navigateToHome();
+                    clearInterval(loginChecker);
+                    this.saveAccountId(id);
+
+                    this.mongoUpsertUser('test', 'test', this.loginSessionIdSubject.value)
+                        .pipe(take(1))
+                        .subscribe((data) => {
+                            console.log(data);
+                        });
+            });
+            this.getLoginFrame(id);
+        } , 500);
+    }
+
+    makeLoginStream(id: string): void{
+        
+        try{
+            let sessionChecker = setInterval(() => {
+                this.isLoginSessionActive(id)
+                    .pipe(take(1))
+                    .subscribe(isReady => {
+                        if(!isReady) return;
+
+                        clearInterval(sessionChecker);
+                        this.getLoginFrame(id);
+                        this.waitForSuccessfulLogin(id);
+                });
+            }, 500);
+        }catch{
+            console.log('timeout');
+            return;
+        }
+    }
+    saveAccountId(id: string){
+        localStorage.setItem(this.LOGIN_STORAGE_KEY, id);
+    }
+
+    loginToSavedAccount(): void{
+        let loginId = localStorage.getItem(this.LOGIN_STORAGE_KEY);
+        if(!loginId) return;
+        this.isAccountLoggedIn(loginId)
+            .pipe(take(1))
+            .subscribe(isLoggedIn => {
+                if(!isLoggedIn) return;
+
+                this.loginSessionIdSubject.next(loginId);
+            });
+    }
+
+    getLoginFrame(id: string): void{
+        this.startLoginStream(id)
+            .pipe(take(1))
+            .subscribe(data => {
+                const objectUrl = URL.createObjectURL(data);
+                this.loginImageSubject.next(objectUrl);
+        });
+    }
+
+    attemptLoginClick(xPercentage, yPercentage){
+        let id = this.loginSessionIdSubject.value;
+        this.loginClick(id, xPercentage, yPercentage)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+        });
+        this.getLoginFrame(id);
+    }
+
+    attemptLoginType(input: string){
+        let id = this.loginSessionIdSubject.value;
+        this.loginType(id, input)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+        });
+        this.getLoginFrame(id);
+    }
+
     public minimizePlayer(){
         this.minimizedSubject.next(true);
     }
@@ -105,7 +284,7 @@ export class YoutubeService {
     }
 
     public playNewVideo(video: PlaylistVideo):void{
-        let videoId = video.contentDetails.videoId;
+        let videoId = video.id;
 
         if(!this.isMinimized) {
             this.navigateToPlayer();
@@ -118,10 +297,27 @@ export class YoutubeService {
         }
         this.videoIdSubject.next(videoId);
         this.watchHistoryService.saveCurrentVideo(video);
+
+        this.getFullVideoData(videoId)
+            .pipe(take(1))
+            .subscribe(data => {
+                this.fullPlayingVideoDataSubject.next(data);
+        });
     }
 
     public removeVideoPlaying(): void{
         this.videoIdSubject.next('');
+    }
+
+    getSearchSuggestions(query: string): void{
+        let results;
+        this.getFullSearchSuggestions(query)
+            .pipe(take(1))
+            .subscribe(data => {
+                results = data;
+                results = results.splice(0,5);
+                this.searchSuggestionsSubject.next(results);
+        });
     }
 
     saveNextSearchToken(token: string): void{
@@ -133,14 +329,46 @@ export class YoutubeService {
         this.searchResultsSubject.next(this.searchList);
     }
 
-    addToSearchList(): void{
-        this.searchVideos(this._currentSearchQuery, 15, this.nextSearchPageToken)
-        .pipe(take(1))
-        .subscribe(results => {
-            this.saveNextSearchToken(results.nextPageToken);
-            this.searchList.push(...results.results);
-            this.searchResultsSubject.next(this.searchList);
+    searchForVideos(query: string): void{
+        this.searchVideos(query, '')
+            .pipe(take(1))
+            .subscribe(data => {
+                this.replaceSearchList(data.results);
+                this.saveNextSearchToken(data.nextPageToken);
         });
+    }
+
+    addToSearchList(): void{
+        this.searchVideos(this.currentSearchQuery, this.nextSearchPageToken)
+            .pipe(take(1))
+            .subscribe(data => {
+                for(let video = 0; video < data.results.length; video++){
+                    this.searchList.push(data.results[video]);
+                }
+                this.searchResultsSubject.next(this.searchList);
+                this.saveNextSearchToken(data.nextPageToken);
+        });
+    }
+
+    addToHomepage(){
+        this.getFullHomepage(this.loginSessionIdSubject.value, this.nextHomePageToken)
+            .pipe(take(1))
+            .subscribe(data => {
+                if(!data) return;
+                this.nextHomePageToken = data.nextPageToken;
+                let videoIdList = data.data;
+                if(!videoIdList) return;
+
+                for(let video = 0; video < videoIdList.length; video++){
+                    this.getFullVideoData(videoIdList[video])
+                        .pipe(take(1))
+                        .subscribe(data => {
+                            if(!data) return;
+                            this.homepageVideosList.push(data.basicVideoData);
+                            this.homepageVideosSubject.next(this.homepageVideosList);
+                        });
+                }
+            });
     }
 
     saveCurrentChannel(channel: YouTubeChannel){
@@ -158,7 +386,7 @@ export class YoutubeService {
 
     addToUploadList(): void{
         if(!this.uploadsPageToken) return;
-        this.getPlaylistVideos(this.channelSubject.value.contentDetails.relatedPlaylists.uploads, this.uploadsPageToken)
+        this.getPlaylistVideos(this.channelSubject.value.uploadsId, this.uploadsPageToken)
             .pipe(take(1))
             .subscribe(uploads => {
                 this.saveUploadsPageToken(uploads.nextPageToken);
@@ -177,7 +405,7 @@ export class YoutubeService {
                 this.saveCurrentChannel(data);
         
                 let nextPageToken = '';
-                this.getPlaylistVideos(data.contentDetails.relatedPlaylists.uploads, nextPageToken)
+                this.getPlaylistVideos(data.uploadsId, nextPageToken)
                 .pipe(take(1))
                 .subscribe(uploads => {
                     this.saveUploadsPageToken(uploads.nextPageToken);
@@ -185,7 +413,7 @@ export class YoutubeService {
                 });
             });
 
-        this.router.navigate(['/youtubeHome', { 
+        this.router.navigate(['/youtube', { 
             outlets: { 
                 youtube: ['channel-view'] 
             } 
@@ -193,12 +421,19 @@ export class YoutubeService {
     }
 
     public navigateToPlayer(): void {
-        this.router.navigate(['/youtubeHome', { 
+        this.router.navigate(['/youtube', { 
             outlets: { 
                 youtube: ['player'] 
             } 
         }], { skipLocationChange: true });
+    }
 
+    public navigateToHome(): void {
+        this.router.navigate(['/youtube', { 
+            outlets: { 
+                youtube: ['select'] 
+            } 
+        }], { skipLocationChange: true });
     }
 
     public timeAgo(isoDate) {
@@ -223,6 +458,13 @@ export class YoutubeService {
         if (seconds > 0) return seconds === 1 ? "1 second ago" : `${seconds} seconds ago`;
 
         return "just now";
+    }
+
+    formatVideoDuration(totalSeconds: number): string {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+        const seconds = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
     }
 }
 

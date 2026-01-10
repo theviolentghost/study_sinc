@@ -21,8 +21,8 @@ export class LibraryPageComponent {
   ){}
 
   
-  ngOnInit(){
-    this.sortedHistory = this.watchHistoryService.getAllWatchedVideos();
+  async ngOnInit(){
+    this.sortedHistory = await this.watchHistoryService.getAllWatchedVideos(this.youtubeService.loginSessionId);
 
     this.sortedHistory.sort((a, b) => new Date(b.videoData.watchedAt).getTime() - new Date(a.videoData.watchedAt).getTime());
 
@@ -68,7 +68,7 @@ export class LibraryPageComponent {
   }
 
   playNewVideo(video: HistoryVideo): void{
-    let newVideo: PlaylistVideo = {contentDetails: {videoId: video.id, videoPublishedAt: null}, snippet: {channelTitle: video.videoData.channelName, title: video.videoData.title, thumbnails: {high: {url:video.videoData.thumbnailUrl}, default: null, medium: null}, channelId: video.videoData.channelId, description: null, liveBroadcastContent: null, playlistId: null, publishedAt: null}};
+    let newVideo: PlaylistVideo = {id:video.id, title: video.videoData.title, duration: this.youtubeService.formatVideoDuration(video.videoData.length), channelId: video.videoData.channelId, channelTitle: video.videoData.channelTitle, viewCount: '', channelThumbnailUrl: video.videoData.channelThumbnailUrl, videoThumbnailUrl: video.videoData.videoThumbnailUrl, description: '', uploadDate: ''};
 
     this.youtubeService.playNewVideo(newVideo);
   }
@@ -82,10 +82,7 @@ export class LibraryPageComponent {
   }
 
   formatVideoDuration(totalSeconds: number): string {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
-    const seconds = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
+     return this.youtubeService.formatVideoDuration(totalSeconds);
   }
 
   getVideoProgressPercent(videoId: string): number{

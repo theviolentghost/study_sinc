@@ -108,9 +108,7 @@ export class VideoSearchResultsComponent {
   }
 
   playNewVideo(video: SearchResultItem){
-    let playlistVideo: PlaylistVideo = {contentDetails: null, snippet: null};
-    playlistVideo.contentDetails = {videoId: video.id.videoId, videoPublishedAt: ''};
-    playlistVideo.snippet = {channelTitle: video.snippet.channelTitle, title: video.snippet.title, thumbnails: {high: {url:video.snippet.thumbnails.high.url}, default: {url:video.snippet.thumbnails.default.url}, medium: {url:video.snippet.thumbnails.medium.url}}, channelId: video.snippet.channelId, description: video.snippet.description, liveBroadcastContent: video.snippet.liveBroadcastContent, playlistId: null, publishedAt: video.snippet.publishTime};
+    let playlistVideo: PlaylistVideo = video;
 
     this.youtubeService.playNewVideo(playlistVideo);
   }
@@ -120,6 +118,7 @@ export class VideoSearchResultsComponent {
   }
 
   public timeAgo(isoDate) {
+    if(!isoDate) return '';
    return this.youtubeService.timeAgo(isoDate);
   }
 
@@ -129,5 +128,13 @@ export class VideoSearchResultsComponent {
 
   wasWatched(videoId: string): boolean{
     return this.watchHistoryService.wasWatched(videoId);
+  }
+
+  isChannel(video: SearchResultItem): boolean{
+    return video.channelId == video.id;
+  }
+
+  formatVideoDuration(totalSeconds: number): string {
+    return this.youtubeService.formatVideoDuration(totalSeconds);
   }
 }

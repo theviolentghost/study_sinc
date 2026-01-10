@@ -1,0 +1,5 @@
+<div class="page_container">
+    <p>login-page</p>
+    <p>{{ sessionId }}</p>
+    <img #loginPage class="login_page" (click)="loginClick($event, loginPage)" *ngIf="imageUrl" [src]="imageUrl">
+</div>

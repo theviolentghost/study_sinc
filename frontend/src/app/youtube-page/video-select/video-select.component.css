@@ -1,9 +1,8 @@
 .youtube_video_grid{
     width: 100%;
-    left: 72px;
+    padding: 0px 24px 12px 72px;
     top: 0;
     display: grid;
-    position: absolute;
     grid-template-columns: repeat(3, 1fr);
     gap: 16px;
     text-overflow: ellipsis;
@@ -33,6 +32,10 @@
     position: relative;
     border-radius: inherit;
     aspect-ratio: 16/9;
+    background-color: transparent;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
 }
 
 .video_time_display{
@@ -63,6 +66,10 @@
     background-color: transparent;
     border-radius: 24px;
     cursor: pointer;
+    background-color: transparent;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
 }
 
 .video_details{
@@ -81,6 +88,7 @@
     height: auto;
     max-height: 2.3em;
     text-wrap: wrap;
+    overflow: hidden;
 }
 
 .video_caption{
@@ -88,4 +96,5 @@
     font-size: 12px;
     color: #bbb;
     text-wrap: wrap;
+    overflow: hidden;
 }

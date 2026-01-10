@@ -1,36 +1,24 @@
-import { SearchResultItem, YouTubeSearchResponse } from "./video-search-result.model";
-
 export interface Playlist{
-    name: string
-    list: SearchResultItem[];
+    name: string;
+    list: PlaylistVideo[];
     nextPageToken: string
 }
 
 export interface PlaylistVideo{
-    contentDetails: ContentDetails;
-    snippet: PlaylistSnippet
-}
-
-export interface ContentDetails{
-    videoId: string;
-    videoPublishedAt: string;
-}
-
-export interface Thumbnail {
-  url: string;
-}
-
-export interface PlaylistSnippet {
-  channelId: string;
+  id: string;
   title: string;
-  description: string;
-  thumbnails: {
-    default: Thumbnail;
-    medium: Thumbnail;
-    high: Thumbnail;
-  };
+  duration: string;
+  channelId: string;
   channelTitle: string;
-  liveBroadcastContent: string;
-  publishedAt: string;
-  playlistId: string;
+  viewCount: string;
+  channelThumbnailUrl: string;
+  videoThumbnailUrl: string
+  description: string
+  uploadDate: string;
+}
+
+export interface FullVideoData{
+  basicVideoData: PlaylistVideo;
+  relatedVideos: PlaylistVideo[];
+  channelSubs: string;
 }

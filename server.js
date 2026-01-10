@@ -15,9 +15,15 @@ import 'dotenv/config';
 import progress_emitter from './progress.emitter.js';
 import playlist_importer from './music/import.js';
 import multer from 'multer';
+import youtubeAccount from './youtube-account.js';
+import fetch from 'node-fetch';
+import crypto from 'crypto';
+import youtubeHomepage from './youtube-homepage.js';
 const upload = multer();
 
 const app = Express();
+
+const youtubeLoginSessions = {};
 
 //
 //
@@ -476,14 +482,15 @@ app.put('/user/file/:fileId',
 
 app.get('/youtube_search', async (req, res) => {
     const query = req.query.q;
-    const maxResults = req.query.maxResults || 5;
-    const nextPageToken = req.query.nextPageToken || '';
+    const nextPageToken = req.query.nextPageToken;
+    let accountId = req.query.accountId;
+    if(!accountId) accountId = '';
 
     if (!query) {
         return res.status(400).json({ error: 'Search query is required' });
     }
     try {
-        const results = await youtubeSearch.search(query,  maxResults, nextPageToken);
+        const results = await youtubeSearch.search(query, nextPageToken, accountId);
 
         res.json(results);
     } catch (error) {
@@ -499,7 +506,7 @@ app.get('/youtube_full_channel', async (req, res) => {
         return res.status(400).json({ error: 'id is required' });
     }
     try {
-        const results = await youtubeChannelSearch.getFullChannel(id);;
+        const results = await youtubeChannelSearch.getFullChannel(id);
 
         res.json(results);
     } catch (error) {
@@ -541,6 +548,400 @@ app.get('/youtube_get_playlist_videos', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+app.get('/youtube_get_search_suggestions', async (req, res) => {
+    const query = req.query.q;
+
+    if(!query) return [];
+
+    try{
+        const results = await youtubeSearch.getSearchSuggestions(query);
+
+        res.json(results);
+    }catch(error){
+        console.error('error getting search suggestions', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/youtube_get_video_data', async (req, res) => {
+    const videoId = req.query.videoId;
+
+    if(!videoId) return;
+
+    try{
+        const results = await youtubePlaylist.getVideoData(videoId);
+
+        res.json(results);
+    }catch(error){
+        console.error('error getting video data', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/youtube_get_homepage', async (req, res) => {
+    let accountId = req.query.accountId;
+    let nextPageToken = req.query.nextPageToken;
+    if(!accountId) accountId = '';
+    if(!nextPageToken) nextPageToken = '';
+
+    try{
+        const results = await youtubeHomepage.getHompage(accountId, nextPageToken);
+
+        res.json(results);
+    }catch(error){
+        console.error('error getting homepage', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/start_youtube_login', async (req, res) => {
+    const id = crypto.randomUUID();
+    res.status(200).json({id: id});
+    console.log(id);
+
+    const browserInfo = await youtubeAccount.initializeLogin();
+
+    youtubeLoginSessions[id] = { browser: browserInfo.browser, page: browserInfo.page, interval: null };
+    youtubeAccount.awaitLogin(browserInfo.page, id);
+});
+
+app.get('/is_login_session_active/:id', async (req, res) => {
+    const { id } = req.params;
+    const session = youtubeLoginSessions[id];
+    res.send(session ? true : false);
+});
+
+app.get('/stream_youtube_login/:id', async (req, res) => {
+    const { id } = req.params;
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    res.status(200);
+    const page = session.page;
+    if(!page) return res.status(410).send('session ended');
+
+    try {
+        const client = await page.target().createCDPSession();
+
+        const { data } = await client.send('Page.captureScreenshot', { fromSurface: true });
+
+        const buffer = Buffer.from(data, 'base64');
+
+        res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Length': buffer.length,
+        'Cache-Control': 'no-cache',
+        });
+        res.end(buffer);
+    } catch (err) {
+        res.status(410);
+    }
+});
+
+app.post('/login_click/:id', async (req, res) => {
+    const { id } = req.params;
+    const xPercentage = req.query.xPercentage;
+    const yPercentage = req.query.yPercentage;
+
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    youtubeAccount.login_click(session.page, xPercentage, yPercentage);
+    res.status(200).send({data:'clicked'});
+});
+
+app.post('/login_type/:id', async (req, res) => {
+    const { id } = req.params;
+    const input = req.query.input;
+
+    const session = youtubeLoginSessions[id];
+    if (!session) return res.status(404).send('Session not found');
+
+    youtubeAccount.login_type(session.page, input);
+    res.status(200).send({data:'typed ' + input});
+});
+
+app.get('/is_youtube_account_logged_in/:id', async (req, res) => {
+    const { id } = req.params;
+
+    let response = youtubeAccount.isLoggedIn(id);
+    res.status(200).json({isLoggedIn: response});
+    if(response && youtubeLoginSessions[id]) {
+        await youtubeLoginSessions[id].browser.close();
+        delete youtubeLoginSessions[id];
+    }
+});
+
+app.get('/end_youtube_login_session/:id', async (req, res) => {
+    const { id } = req.params;
+
+    if(!youtubeLoginSessions[id]) res.status(404).send('Session not found');
+
+    try{
+        await youtubeLoginSessions[id].browser.close();
+        delete youtubeLoginSessions[id];
+    } catch(err){
+        
+    }
+});
+
+
+import { MongoClient } from "mongodb";
+
+let db;
+let client;
+
+async function connectToMongo() {
+    client = new MongoClient("mongodb+srv://adrianzych05_db_user:Z%23aych3482@cluster0.tacdasz.mongodb.net/?appName=Cluster0");
+    await client.connect();
+    db = client.db("youtube");
+    console.log("Connected to Atlas");
+}
+
+connectToMongo();
+
+app.post('/mongodb/addhistory', async (req, res) => {
+  try {  
+    const { sessionId, videoId, videoData } = req.body;
+
+    if (!sessionId || !videoId)
+      return res.status(400).json({ error: "Missing sessionId or videoId" });
+
+    const user = await db.collection("users").findOne({
+      "session_id": sessionId 
+    });
+
+    if (!user)
+      return res.status(401).json({ error: "Invalid session" });
+
+    const result = await db.collection("history-videos").updateOne(
+      {
+        user_id: user._id,
+        video_id: videoId
+      },
+      {
+        $set: {
+          date_time_viewed: new Date(),
+          video_data: videoData
+        }
+      },
+      { upsert: true }
+    );
+
+    res.json({ insertedId: result.insertedId });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to insert history" });
+  }
+});
+
+app.delete("/mongodb/cleanup-history", async (req, res) => {
+  try {
+    const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+
+    const result = await db.collection("history-videos").deleteMany({
+      "date_time_viewed": { $lt: cutoff }
+    });
+
+    res.json({
+      deletedCount: result.deletedCount
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete old history videos" });
+  }
+});
+
+app.post("/mongodb/get-history", async (req, res) => {
+  try {
+    const { sessionId, lastToken } = req.body;
+
+    if (!sessionId)
+      return res.status(400).json({ error: "Missing sessionId" });
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          as: "user"
+        }
+      },
+      { $unwind: "$user" },
+
+      {
+        $match: {
+          "user.session_id": sessionId,
+          ...(lastToken
+            ? { "date_time_viewed": { $lt: new Date(lastToken) } }
+            : {})
+        }
+      },
+      { $sort: { "date_time_viewed": -1 } },
+      { $limit: lastToken ? 11 : 10 },
+      { $project: { user: 0 } }
+    ];
+
+    const results = await db
+      .collection("history-videos")
+      .aggregate(pipeline)
+      .toArray();
+
+    if (!lastToken) {
+      return res.json({
+        items: results,
+        nextPageToken: results.length === 10 
+          ? results[results.length - 1].date_time_viewed 
+          : null
+      });
+    }
+
+    let nextToken = null;
+    if (results.length === 11) {
+      const lastItem = results[10];
+      nextToken = lastItem.date_time_viewed;
+      results.pop();
+    }
+
+    res.json({
+      items: results,
+      nextPageToken: nextToken
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch history" });
+  }
+});
+
+app.post("/mongodb/add-subscription", async (req, res) => {
+  try {
+    const { sessionId, channelId } = req.body;
+    if (!sessionId || !channelId)
+      return res.status(400).json({ error: "Missing sessionId or channelId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    await db.collection("subscriptions").updateOne(
+      { user_id: user._id, channel_id: channelId },
+      { $setOnInsert: { user_id: user._id, channel_id: channelId } },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to add subscription" });
+  }
+});
+
+app.post("/mongodb/remove-subscription", async (req, res) => {
+  try {
+    const { sessionId, channelId } = req.body;
+    if (!sessionId || !channelId) return res.status(400).json({ error: "Missing sessionId or channelId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.json({ deleted: 0 });
+
+    const result = await db.collection("subscriptions").deleteMany({
+      user_id: user._id,
+      channel_id: channelId
+    });
+
+    res.json({ deleted: result.deletedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to remove subscription" });
+  }
+});
+
+
+app.post("/mongodb/get-subscriptions", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+
+    const user = await db.collection("users").findOne({ session_id: sessionId });
+    if (!user) return res.json([]);
+
+    const subscriptions = await db.collection("subscriptions")
+      .find({ user_id: user._id })
+      .project({ _id: 0, channel_id: 1 })
+      .toArray();
+
+    const channelIds = subscriptions.map(s => s.channel_id);
+
+    res.json(channelIds);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch subscriptions" });
+  }
+});
+
+
+app.post("/mongodb/upsert-user", async (req, res) => {
+  try {
+    const { email, password, sessionId } = req.body;
+
+    if (!email || !password || !sessionId) {
+      return res.status(400).json({ error: "Missing email, password, or sessionId" });
+    }
+
+    await db.collection("users").updateOne(
+      { email },
+      { $set: { password, session_id: sessionId } },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to upsert user", error: err });
+  }
+});
+import { ObjectId } from "mongodb";
+
+app.post("/mongodb/delete-user", async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "Missing userId" });
+  }
+
+  const session = client.startSession();
+
+  try {
+    session.startTransaction();
+
+    const usersCollection = db.collection("users");
+    const subsCollection = db.collection("subscriptions");
+    const historyCollection = db.collection("history-videos");
+
+    const uid = new ObjectId(userId);
+
+    await usersCollection.deleteOne({ _id: uid }, { session });
+    await subsCollection.deleteMany({ user_id: uid }, { session });
+    await historyCollection.deleteMany({ user_id: uid }, { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ success: true });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Transaction aborted:", err);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
 
 
 // app.post('/newton/chat',
@@ -952,45 +1353,20 @@ app.get('/.well-known/appspecific/:path', (req, res) => {
 
 // Serve the Angular study app (this should be LAST)
 app.get(/.*/, (req, res) => {
-    try {
-        res.setHeader('Cache-Control', 'no-store');
-        console.log(req.url);
-        if (req.path.startsWith('/music') || req.path.startsWith('music')) {
-            res.sendFile(
-                path.join(__dirname, 'frontend/dist/music/browser/index.html'),
-                (err) => {
-                    if (err) {
-                        console.error('Error sending music index.html:', err);
-                        res.status(500).send('Error loading page');
-                    }
-                }
-            );
-        } else {
-            res.sendFile(
-                path.join(__dirname, 'frontend/dist/study/browser/index.html'),
-                (err) => {
-                    if (err) {
-                        console.error('Error sending study index.html:', err);
-                        res.status(500).send('Error loading page');
-                    }
-                }
-            );
-        }
-    } catch (error) {
-        console.error('Error in catch-all route:', error);
-        res.status(500).send('Internal server error');
+    res.setHeader('Cache-Control', 'no-store');
+    // console.log(req.url);
+    if (req.path.startsWith('/music') || req.path.startsWith('music')) {
+        res.sendFile(
+            path.join(__dirname, 'frontend/dist/music/browser/index.html')
+        );
+    } else {
+        res.sendFile(
+            path.join(__dirname, 'frontend/dist/study/browser/index.html')
+        );
     }
 });
 
-// Global error handler middleware (must be last)
-app.use((err, req, res, next) => {
-    console.error('Express error handler:', err.stack);
-    res.status(err.status || 500).json({
-        error: err.message || 'Internal server error',
-        success: false
-    });
-});
-
-const server = app.listen(port, host, () => {
-    console.log(`Server is running on http://${host}:${port}`);
+app.listen(port, host, () => {
+    // console.log(`Server is running on http://${host}:${port}`);
+    console.log(`Server is running on http://localhost:${port}`);
 });

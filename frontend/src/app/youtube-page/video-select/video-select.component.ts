@@ -1,8 +1,8 @@
-import { Component} from '@angular/core';
+import { Component, OnInit, OnDestroy, ElementRef, QueryList, ViewChildren, HostListener } from '@angular/core';
 import { RouterModule, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { YoutubeService } from '../youtube.service';
-import { PlaylistVideo } from '../youtube-playlist-results.model';
+import { FullVideoData, PlaylistVideo } from '../youtube-playlist-results.model';
 import { WatchHistoryService } from '../watch-history.service';
 
 
@@ -14,14 +14,79 @@ import { WatchHistoryService } from '../watch-history.service';
   styleUrl: './video-select.component.css'
 })
 export class VideoSelectComponent {
-  videos:Number[] = [];
+  private homepageVideosSub;
+  homepageVideos: PlaylistVideo[];
+  private isAddingToHomepage: boolean = false;
 
-  constructor(private router: Router,
+  onScreenObserver: IntersectionObserver;
+
+  constructor(
     private youtubeService: YoutubeService,
     private watchHistoryService: WatchHistoryService
-  ){
-    for(let i = 0; i < 25; i++){
-      this.videos[i] = i;
+  ){}
+
+  ngOnInit(){
+    if(!this.homepageVideos){
+      this.youtubeService.addToHomepage();
+      this.isAddingToHomepage = true;
+    } 
+
+    this.homepageVideosSub = this.youtubeService.homepageVideosData$.subscribe(videos => {
+      if(!videos) return;
+      this.homepageVideos = videos;
+      this.isAddingToHomepage = false;
+    });
+
+    this.onScreenObserver = new IntersectionObserver(this.handleIntersect.bind(this), {
+      threshold: 0.1,
+    });
+  }
+
+  @ViewChildren('videoItem', { read: ElementRef })
+  videoElements!: QueryList<ElementRef>;
+  ngAfterViewInit() {
+    this.observeAll();
+
+    this.videoElements.changes.subscribe(() => {
+      this.observeAll();
+    });
+  }
+
+  observeAll() {
+    this.videoElements.forEach(video => {
+      this.onScreenObserver.observe(video.nativeElement);
+    });
+  }
+
+  handleIntersect(entries: IntersectionObserverEntry[]) {
+    entries.forEach(entry => {
+      const videoElement = entry.target as HTMLElement;
+      const thumbnail = videoElement.querySelector('.thumbnail') as HTMLElement;
+
+      thumbnail.dataset['backgroundImage'] = thumbnail.style.backgroundImage;;
+      const originalUrl = thumbnail.getAttribute('background-url');
+
+      if (entry.isIntersecting) {
+        thumbnail.style.backgroundImage = `url(${originalUrl})`;
+      } else {
+        thumbnail.style.backgroundImage = 'none';
+      }
+    });
+  }
+  
+  ngOnDestroy(){
+    this.homepageVideosSub.unsubscribe();
+    this.onScreenObserver.disconnect();
+  }
+
+  @HostListener('window:scroll', ['$event'])
+  onWindowScroll(event: Event) {
+    const scrollY = window.scrollY || document.documentElement.scrollTop;
+    const pageHeight = document.getElementById('youtube_video_grid').offsetHeight - document.body.offsetHeight;
+    
+    if (!this.isAddingToHomepage && scrollY >= pageHeight){ 
+      this.isAddingToHomepage = true;
+      this.youtubeService.addToHomepage();
     }
   }
 
@@ -33,8 +98,12 @@ export class VideoSelectComponent {
     this.youtubeService.navigateToPlayer();
   }
 
-  public navigateToChannel(): void {
-    this.youtubeService.navigateToChannel('');
+  public navigateToChannel(channelId: string): void {
+    this.youtubeService.navigateToChannel(channelId);
+  }
+
+  formatDuration(duration: any): string{
+    return this.youtubeService.formatVideoDuration(duration);
   }
 
   getVideoProgressPercent(videoId: string): number{

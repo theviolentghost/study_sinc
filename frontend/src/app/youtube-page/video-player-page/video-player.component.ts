@@ -1,8 +1,8 @@
-import { Component, AfterViewInit, HostListener, OnDestroy} from '@angular/core';
+import { Component, HostListener, OnDestroy} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
 import { YoutubeService } from '../youtube.service';
-import { PlaylistVideo } from '../youtube-playlist-results.model';
+import { FullVideoData, PlaylistVideo } from '../youtube-playlist-results.model';
 import { WatchHistoryService } from '../watch-history.service';
 import { YoutubeSubscriptionService } from '../youtube-subscription.service';
 
@@ -14,24 +14,26 @@ import { YoutubeSubscriptionService } from '../youtube-subscription.service';
   styleUrl: './video-player.component.css'
 })
 export class VideoPlayerPageComponent {
-  videos:Number[] = [];
   isSubscribed = false;
 
   playingVideo: PlaylistVideo;
+  fullVideoSub;
+  fullVideoData: FullVideoData;
 
   constructor(private router: Router,
     private youtubeService: YoutubeService,
     private watchHistoryService: WatchHistoryService,
     private youtubeSubscriptionService: YoutubeSubscriptionService
-  ){
-    for(let i = 0; i < 25; i++){
-      this.videos[i] = i;//recomended blank fill
-    }
-  }
+  ){}
 
   ngOnInit() {
     window.scroll(0, 0);
     this.playingVideo = this.watchHistoryService.getSavedVideoData();
+
+    this.fullVideoSub = this.youtubeService.fullPlayingVideoData$.subscribe(data => {
+      if(!data) return;
+      this.fullVideoData = data;
+    });
   }
 
   ngAfterViewInit() {
@@ -44,6 +46,7 @@ export class VideoPlayerPageComponent {
   ngOnDestroy(){
     if(!this.youtubeService.isDisplayingVideo) return;
     this.youtubeService.minimizePlayer();
+    this.fullVideoSub.unsubscribe();
   }
 
   @HostListener('window:resize')
@@ -75,6 +78,10 @@ export class VideoPlayerPageComponent {
     } 
 
     this.youtubeSubscriptionService.unsubscribeToChannel(channelId);
+  }
+
+  public playNewVideo(video: PlaylistVideo): void{
+    this.youtubeService.playNewVideo(video);
   }
 
   public navigateToChannel(channelId: string): void {

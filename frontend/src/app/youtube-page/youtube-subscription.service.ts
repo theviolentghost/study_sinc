@@ -2,11 +2,12 @@ import { Injectable } from '@angular/core';
 import { SubscriptionUploads, SubscriptionData } from './youtube-channel-search-results.model';
 import { BehaviorSubject, Observable, take } from 'rxjs';
 import { YoutubeService } from './youtube.service';
+import { HttpClient } from '@angular/common/http';
 
 @Injectable({
   providedIn: 'root'
 })
-export class YoutubeSubscriptionService{
+export class YoutubeSubscriptionService {
 
     private SUBSCRIPTION_LIST_KEY = 'subscriptionListKey';
 
@@ -14,23 +15,61 @@ export class YoutubeSubscriptionService{
 
     private _allSubscriptions: SubscriptionData[] = [];
     private _allChannelUploads: SubscriptionUploads[] = [];
-    private _channelIdList: string[];
+    private _channelIdList: string[] = [];
 
     private channelDataListSubject = new BehaviorSubject<SubscriptionData[] | null>(null);
     channelDataList$: Observable<SubscriptionData[] | null> = this.channelDataListSubject.asObservable();
     private channelUploadsListSubject = new BehaviorSubject<SubscriptionUploads[] | null>(null);
     channelUploadsList$: Observable<SubscriptionUploads[] | null> = this.channelUploadsListSubject.asObservable();
 
-    constructor(private youtubeService: YoutubeService
+    constructor(private youtubeService: YoutubeService,
+        private http: HttpClient
     ){
         if(this.initialized) return;
         this.initialized = true;
 
         this._channelIdList = this.getSubscriptionList();
 
-        for(let channel = 0; channel < this.channelIdList.length; channel++){
+        for(let channel = 0; channel < this._channelIdList.length; channel++){
             this.addToSubscriptionList(this.channelIdList[channel]);
         }
+    }
+
+    updateAccountSubscriptions(loginId: string ): void {
+        if(!loginId) return;
+
+        this.mongoGetSubscriptions(loginId)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+                if(!data) return;
+                this._channelIdList = data;
+                
+                this._allSubscriptions = [];
+                this._allChannelUploads = [];
+                this.channelDataListSubject.next([]);
+                this.channelUploadsListSubject.next([]);
+
+                if(!this._channelIdList) return;
+                for(let channel = 0; channel < this._channelIdList.length; channel++){
+                    this.addToSubscriptionList(this.channelIdList[channel]);
+                }
+            });
+    }
+
+    mognoAddSubscription(sessionId: string, channelId: string): Observable<any> {
+        const body = { sessionId, channelId };
+        return this.http.post<any>('/mongodb/add-subscription', body);
+    }
+
+    mongoRemoveSubscription(sessionId: string, channelId: string): Observable<any> {
+        const body = { sessionId, channelId };
+        return this.http.post<any>('/mongodb/remove-subscription', body);
+    }
+
+    mongoGetSubscriptions(sessionId: string): Observable<string[]> {
+        const body = { sessionId };
+        return this.http.post<any[]>('/mongodb/get-subscriptions', body);
     }
 
     get channelIdList(): string[]{
@@ -46,8 +85,8 @@ export class YoutubeSubscriptionService{
         this.youtubeService.getFullChannel(channelId)
                     .pipe(take(1))
                     .subscribe(data => {
-                        let uploadsId = data.contentDetails.relatedPlaylists.uploads;
-                        let iconUrl = data.snippet.thumbnails.high.url;
+                        let uploadsId = data.uploadsId;
+                        let iconUrl = data.iconUrl;
 
                         let subcription: SubscriptionData = {channelId: channelId, uploadsId: uploadsId, iconUrl: iconUrl, initialized: false}
                         this._allSubscriptions.push(subcription);
@@ -66,6 +105,9 @@ export class YoutubeSubscriptionService{
         .pipe(take(1))
         .subscribe(uploads => {
             let subcriptionUploads: SubscriptionUploads = {uploadsId: channel.uploadsId, uploads: uploads.results, nextPageToken: uploads.nextPageToken, isLoadingUploads: false};
+            for(let video = 0; video < uploads.results.length; video++){
+                uploads.results[video].channelThumbnailUrl = channel.iconUrl;
+            }
             this._allChannelUploads.push(subcriptionUploads);
             this.channelUploadsListSubject.next(this._allChannelUploads);
         });
@@ -74,7 +116,7 @@ export class YoutubeSubscriptionService{
     public isLastLoadedUpload(playlistId: string, videoId: string): boolean{
         for(let channel = 0; channel < this.allSubscriptions.length; channel++){
             if(this._allChannelUploads[channel].uploadsId === playlistId){
-                return this._allChannelUploads[channel].uploads[this._allChannelUploads[channel].uploads.length - 1].contentDetails.videoId === videoId;
+                return this._allChannelUploads[channel].uploads[this._allChannelUploads[channel].uploads.length - 1].id === videoId;
             }
         }
         return false;
@@ -107,6 +149,13 @@ export class YoutubeSubscriptionService{
         }
 
         this.addToSubscriptionList(channelId);
+
+        if(!this.youtubeService.loginSessionId) return;
+        this.mognoAddSubscription(this.youtubeService.loginSessionId, channelId)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+            });
     }
 
     public subscribeToChannel(channelId: string): void{
@@ -138,6 +187,13 @@ export class YoutubeSubscriptionService{
         });
         this.channelDataListSubject.next(this._allSubscriptions);
         this.saveSubscriptionList();
+
+        if(!this.youtubeService.loginSessionId) return;
+        this.mongoRemoveSubscription(this.youtubeService.loginSessionId, channelId)
+            .pipe(take(1))
+            .subscribe(data => {
+                console.log(data);
+            });
     }
 
     saveSubscriptionList(): void{
@@ -146,10 +202,12 @@ export class YoutubeSubscriptionService{
     }
 
     public getSubscriptionList(): string[]{
+        if(this.youtubeService.loginSessionId) return [];
         let list = JSON.parse(localStorage.getItem(this.SUBSCRIPTION_LIST_KEY));
         if(!list) return [];
         return list;
     }
+
 
     public isSubscribed(channelId: string): boolean{
         if(!this.channelIdList) return false;

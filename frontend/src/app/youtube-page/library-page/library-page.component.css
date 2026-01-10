@@ -1,3 +1,7 @@
+.page_container{
+    padding: 0px 24px 12px 72px;
+}
+
 h2{
     font-size: 36px;
     font-weight: 600;
@@ -21,7 +25,6 @@ h2{
 
 .youtube_video_grid{
     width: 100%;
-    position: absolute;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 16px;
@@ -86,6 +89,10 @@ h2{
     background-color: transparent;
     border-radius: 24px;
     cursor: pointer;
+    background-color: transparent;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
 }
 
 .video_details{
