@@ -159,13 +159,13 @@ class BufferController {
 
         // console.log('⚙️ Configuring HLS.js event handlers');
 
-        // hls.on(Events.MANIFEST_LOADING, (e, data) => {});
+        hls.on(Events.MANIFEST_LOADING, (e, data) => {
+            console.log('🔄 Manifest loading from URL:', data.url);
+        });
 
         hls.on(Events.MANIFEST_LOADED, (e, data) => {
-            // hls?.startLoad(0);
-            // console.log('✅ Manifest loaded, starting load at position 0');
-            // hls.audioStreamController.flushMainBuffer(0, Infinity);
-            // console.log('Flushed main buffer');
+            hls?.startLoad(0);
+            console.log('✅ Manifest loaded:', data.levels?.length, 'levels');
         });
 
         // hls.on(Events.MANIFEST_PARSED, (e, data) => {

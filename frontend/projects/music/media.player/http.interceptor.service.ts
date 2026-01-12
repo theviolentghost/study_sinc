@@ -233,12 +233,27 @@ export class SessionPlaylistInterceptorService {
             for (const profile of this.profile_progression) {
                 const playlist_url = `/music/session/audio/${codec}/${profile}/playlist.m3u8`;
                 const playlist = this.create_session_playlist(codec, profile, tracks, null);
-                console.log('Generated playlist for', playlist_url);
                 await this.store_playlist_in_cache(playlist_url, playlist);
             }
         }
         
         console.log('✅ Session playlists updated in Cache API');
+        
+        // Verify what's actually stored in the cache
+        await this.verify_cache_contents();
+    }
+    
+    private async verify_cache_contents(): Promise<void> {
+        try {
+            const cache = await caches.open(this.PLAYLIST_CACHE_NAME);
+            const requests = await cache.keys();
+            for (const request of requests) {
+                const response = await cache.match(request);
+                const text = await response?.text();
+            }
+        } catch (error) {
+            console.error('❌ Error verifying cache:', error);
+        }
     }
 
     // Create blob URLs from base64 segment data

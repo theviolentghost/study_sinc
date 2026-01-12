@@ -1,6 +1,6 @@
 const CACHE_NAME_PREFIX = 'sinc_music';
 const VERSION_URL = 'app/version.txt';
-const LOGGING = false;
+const LOGGING = false; // Enable logging temporarily to debug
 const SW_VERSION = '1.0.15'; 
 
 const CACHE_NAME = `${CACHE_NAME_PREFIX}_cache_v${SW_VERSION}`;
@@ -648,7 +648,7 @@ class Network_Manager {
     }
 
     async fetch(request, cache = false) {
-        if (LOGGING) console.log('Network_Manager fetch called for:', request.url, 'Cache:', cache);
+        if (LOGGING) console.log('🌐 Network_Manager fetch called for:', request.url);
         
         if (this.is_session_request(request.url)) {
             if (LOGGING) console.log('📱 Session playlist request detected:', request.url);
@@ -658,7 +658,8 @@ class Network_Manager {
                 const playlist_data = await this.get_session_playlist_from_cache(request.url);
                 
                 if (playlist_data) {
-                    if (LOGGING) console.log('✅ Returning playlist from Cache API');
+                    if (LOGGING) console.log('✅ Returning playlist from Cache API, length:', playlist_data.length);
+                    if (LOGGING) console.log('📄 First 200 chars:', playlist_data.substring(0, 200));
                     return new Response(playlist_data, {
                         status: 200,
                         statusText: 'OK',
@@ -669,9 +670,10 @@ class Network_Manager {
                         }
                     });
                 } else {
-                    if (LOGGING) console.warn('⚠️ Playlist not found in cache, returning empty playlist');
+                    if (LOGGING) console.error('❌ Playlist NOT found in cache:', request.url);
+                    if (LOGGING) console.warn('⚠️ Returning empty playlist - HLS.js will see this as valid but empty!');
                     // Return empty playlist rather than failing
-                    return new Response('#EXTM3U\n#EXT-X-VERSION:7', {
+                    return new Response('#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-ENDLIST', {
                         status: 200,
                         statusText: 'OK',
                         headers: {
@@ -683,7 +685,7 @@ class Network_Manager {
             } catch (error) {
                 if (LOGGING) console.error('❌ Error reading from cache:', error);
                 // Return empty playlist on error
-                return new Response('#EXTM3U\n#EXT-X-VERSION:7', {
+                return new Response('#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-ENDLIST', {
                     status: 200,
                     statusText: 'OK',
                     headers: {
