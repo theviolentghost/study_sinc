@@ -24,6 +24,7 @@ export interface Setting {
     // current value for toggle/dropdown
     hidden?: boolean; // for info type
     value?: any;
+    default?: any; // default value
     // for dropdowns
     options?: Setting_Option[];
     // Optional dependency: this setting is enabled only when the referenced setting has this value
@@ -31,7 +32,7 @@ export interface Setting {
     // Optional notes - can be a single note object or array of notes
     notes?: Setting_Note | Setting_Note[];
     // Optional callback function: for toggles receives (value: boolean), for dropdowns receives (index: number, value: any)
-    on_change?: (valueOrIndex: any, value?: any) => void;
+    on_change?: (self: any, valueOrIndex: any, value?: any) => void;
 }
 
 @Injectable({
@@ -48,6 +49,8 @@ export class SettingsService {
     public dj_mode_enabled: boolean = false;
     public dj_mix_style: 'quick' | 'balanced' | 'extended' | 'long' = 'balanced';
     public dj_auto_transition: boolean = true; // Auto-trigger DJ transition when approaching end of song
+
+    public app_theme_dependence: 'app' | 'playlist' | 'song' = 'app';
 
     public genre_settings: Record<string, Setting[]> = {};
 
@@ -71,7 +74,7 @@ export class SettingsService {
                         { text: 'Useful for bypassing Safari web playing restrictions', severity: 'info' },
                         { text: 'Setting is experimental. Avoid changing. \nOn change, reload the app to apply.', severity: 'warning' }
                     ],
-                    on_change: (value: boolean) => {
+                    on_change: (self, value: boolean) => {
                         this.is_safari = value;
                         this.save_settings_to_local_storage();
                     }
@@ -85,7 +88,7 @@ export class SettingsService {
                     notes: [
                         { text: 'When enabled, tracks will be played in random order.', severity: 'info' }
                     ],
-                    on_change: (value: boolean) => {
+                    on_change: (self, value: boolean) => {
                         this.shuffle_playback = value;
                         this.save_settings_to_local_storage();
                     }
@@ -99,7 +102,7 @@ export class SettingsService {
                     notes: [
                         { text: 'When enabled, tracks will be played in a loop.', severity: 'info' }
                     ],
-                    on_change: (value: boolean) => {
+                    on_change: (self, value: boolean) => {
                         this.repeat_playback = value;
                         this.save_settings_to_local_storage();
                     }
@@ -108,11 +111,12 @@ export class SettingsService {
                     id: 'dj_mode_enabled',
                     label: 'Enable DJ Mode',
                     type: 'toggle',
-                    value: false,
+                    value: null,
+                    default: false,
                     notes: [
                         { text: 'When enabled, songs will blend seamlessly into each other using AI-powered DJ mixing.', severity: 'info' }
                     ],
-                    on_change: (value: boolean) => {
+                    on_change: (self, value: boolean) => {
                         this.dj_mode_enabled = value;
                         this.save_settings_to_local_storage();
                     }
@@ -121,7 +125,8 @@ export class SettingsService {
                     id: 'dj_mix_style',
                     label: 'DJ Mix Style',
                     type: 'dropdown',
-                    value: 'balanced',
+                    value: null,
+                    default: 'balanced',
                     options: [
                         { label: 'Quick (3-5s)', value: 'quick' },
                         { label: 'Balanced (6-10s)', value: 'balanced' },
@@ -132,7 +137,7 @@ export class SettingsService {
                     notes: [
                         { text: 'Controls how long the crossfade between songs lasts.', severity: 'info' }
                     ],
-                    on_change: (index: number, value: any) => {
+                    on_change: (self, index: number, value: any) => {
                         this.dj_mix_style = value;
                         this.save_settings_to_local_storage();
                     }
@@ -141,12 +146,13 @@ export class SettingsService {
                     id: 'dj_auto_transition',
                     label: 'Auto DJ Transitions',
                     type: 'toggle',
-                    value: true,
+                    value: null,
+                    default: true,
                     depends_on: { id: 'dj_mode_enabled', value: true },
                     notes: [
                         { text: 'Automatically prepare and play DJ mixes when approaching end of current song.', severity: 'info' }
                     ],
-                    on_change: (value: boolean) => {
+                    on_change: (self, value: boolean) => {
                         this.dj_auto_transition = value;
                         this.save_settings_to_local_storage();
                     }
@@ -156,7 +162,48 @@ export class SettingsService {
                 
             ],
             Appearance: [
-                
+                {
+                    id: 'app_theme_dependence',
+                    label: 'App Theme Dependence',
+                    type: 'dropdown',
+                    options: [
+                        { label: 'App Theme', value: 'app' },
+                        { label: 'Playlist Theme', value: 'playlist' },
+                        { label: 'Song Theme', value: 'song' }
+
+                    ],
+                    value: null,
+                    default: 'app',
+                    notes: [
+                        { text: 'Will set the app\'s theme based on the selected option.', severity: 'info' }
+                    ],
+                    on_change: (self, index: number, value: 'app' | 'playlist' | 'song') => {
+                        this.app_theme_dependence = value;
+                        console.log('App theme dependence set to:', value, self);
+                        self.value = value;
+                        this.save_settings_to_local_storage();
+                    }
+                },
+                {
+                    id: 'app_default_theme',
+                    label: 'App Theme',
+                    type: 'dropdown',
+                    options: [
+                        { label: 'Red', value: 'red' },
+                        { label: 'Orange', value: 'orange' },
+                        { label: 'Yellow', value: 'yellow' },
+                        { label: 'Green', value: 'green' },
+                        { label: 'Blue', value: 'blue' },
+                        { label: 'Purple', value: 'purple' },
+                    ],
+                    value: null,
+                    default: 'orange',
+                    notes: [],
+                    on_change: (self, index: number, value: any) => {
+                        // Implement theme change logic here
+                        this.save_settings_to_local_storage();
+                    }
+                }
             ],
             About: [
                 
@@ -190,11 +237,11 @@ export class SettingsService {
                             // For dropdown: find the index of the stored value
                             const index = setting.options.findIndex(o => o.value === parsedValue);
                             if (index !== -1) {
-                                setting.on_change(index, parsedValue);
+                                setting.on_change(setting, index, parsedValue);
                             }
                         } else if (setting.type === 'toggle') {
                             // For toggle: call with the boolean value
-                            setting.on_change(parsedValue);
+                            setting.on_change(setting, parsedValue);
                         }
                     }
                 }
@@ -213,10 +260,10 @@ export class SettingsService {
                     if (setting.type === 'dropdown' && setting.options) {
                         const index = setting.options.findIndex(o => o.value === value);
                         if (index !== -1) {
-                            setting.on_change(index, value);
+                            setting.on_change(setting, index, value);
                         }
                     } else if (setting.type === 'toggle') {
-                        setting.on_change(value);
+                        setting.on_change(setting, value);
                     }
                 }
                 this.save_settings_to_local_storage();

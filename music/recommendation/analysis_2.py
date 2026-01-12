@@ -35,9 +35,9 @@ class Audio_Analyzer:
             lowlevelHopSize=1024
         )
         self.feature_groups = self.get_discriminative_features()
-        self.embedding_dimensions = 162  # Actual extracted feature dimension
+        self.embedding_dimensions = 162  
         
-        # For incremental normalization - scalable approach
+        # For incremental normalization
         self.running_stats = Running_Stats()
 
     def get_discriminative_features(self): 
@@ -237,7 +237,7 @@ class Audio_Analyzer:
 
     def process(self, song_id: str, max_duration=50, update_running_stats: bool = True, normalize: bool = True):
         try:
-            file_path = os.path.join(self.project_root, 'storage', 'musik', 'hls', song_id, '32k.m3u8')
+            file_path = os.path.join(self.project_root, 'storage', 'musik', 'hls', 'raw', song_id, 'audio', 'aac', 'ultra-low', '32k.m3u8')
             audio_array, sample_rate = self.decode_to_numpy(file_path, duration=max_duration)
             raw_features = self.extract_raw_features_from_array(audio_array, sample_rate=sample_rate)
 

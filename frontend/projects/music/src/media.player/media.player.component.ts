@@ -93,6 +93,7 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             this.animationState = 'visible';
             this.player.playlist_changed.emit(); // Refresh playlist view when expanding
         }
+        this.player.update_theme();
     }
     get visibility_status(): 'visible' | 'reduced' | 'hidden' {
         return this._visibility_status;
@@ -679,11 +680,17 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     get shuffle(): boolean {
         return this.player.shuffle;
     }
-    toggle_repeat(): void {
-        this.player.repeat = !this.player.repeat; // Cycle through 0, 1
-    }
     get repeat(): boolean {
         return this.player.repeat;
+    }
+    get sleep_time(): number | null {
+        return this.player.sleep_time;
+    }
+    get sleep_time_remaining(): number | null {
+        return this.player.sleep_time_remaining;
+    }
+    get sleep_timer_ended(): boolean {
+        return this.player.sleep_timer_ended;
     }
     get disco_mode(): boolean {
         // return this.player.disco_mode;
@@ -694,6 +701,14 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     }
     toggle_play(): void {
         this.player.toggle_play();
+    }
+    toggle_repeat(): void {
+        this.player.repeat = !this.player.repeat; // Cycle through 0, 1
+    }
+    toggle_sleep(): void {
+        // this.player.sleep_time = this.player.sleep_time ? null : 300; // Toggle sleep time
+        // this.player.sleep_time_remaining = this.player.sleep_time ? this.player.sleep_time : null;
+        this.hot_action.open_hot_action(null, null, 'sleep_timer');
     }
     previous(): void {
         const next_exists = this.player.preloaded_next_song;

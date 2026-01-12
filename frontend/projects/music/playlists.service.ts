@@ -362,14 +362,20 @@ export class PlaylistsService {
         playlist.song_added_timestamps.set(this.media.song_key(song_data.id), Date.now());
         playlist_identifier.track_count = (playlist_identifier.track_count || 0) + 1;
         playlist_identifier.duration = (playlist_identifier.duration || 0) + (song_data.video_duration || 0);
-        if(!playlist_identifier.images || playlist_identifier.images.length < 4) {
+        if((!playlist_identifier.images || playlist_identifier.images.length < 4) && !playlist_identifier.lock_images) {
             playlist_identifier.images = playlist_identifier.images || [];
             playlist_identifier.images.push({ song_key: this.media.song_key(song_data.id) });
         }
-        this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
-        this.player?.media_controller?.song_cache?.set(this.media.song_key(song_data.id), song_data);
+        // check if song already is saved in indexDB
+        const existing_song = await this.media.get_song_from_indexDB(this.media.song_key(song_data.id));
+        if (!existing_song) {
+            // save song data to indexDB
+            this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
+            this.player?.media_controller?.song_cache?.set(this.media.song_key(song_data.id), song_data);
+        }
         this.save_playlist(playlist_identifier, playlist);
     }
+
     async update_song_in_playlist(song_data: Song_Data, playlist_identifier: Song_Playlist_Identifier | null = this.selected_playlist_identifier, playlist: Song_Playlist | null = this.selected_playlist): Promise<void> {
         if (!playlist || !playlist_identifier) return;
         if (!playlist.songs.has(this.media.song_key(song_data.id))) {
@@ -431,10 +437,10 @@ export class PlaylistsService {
         playlist.song_added_timestamps.delete(this.media.song_key(song_data.id));
         playlist_identifier.track_count = (playlist_identifier.track_count || 1) - 1;
         playlist_identifier.duration = (playlist_identifier.duration || 0) - (song_data.video_duration || 0);
-        // if(playlist_identifier.track_count < 4) {
+        if(playlist_identifier.lock_images !== true) {
             // remove the corresponding image
             playlist_identifier.images = playlist_identifier.images?.filter(image_object => image_object.song_key !== this.media.song_key(song_data.id)) || [];
-        // }
+        }
 
         this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
         this.save_playlist(playlist_identifier, playlist);
@@ -479,5 +485,19 @@ export class PlaylistsService {
         if (!playlist) return;
         playlist.sorting_method = method;
         this.save_playlist();
+    }
+
+    public async set_current_playlist_artwork(song_data: Song_Data): Promise<void> {
+        if (!this.selected_playlist_identifier || !this.selected_playlist) return;
+        if (!song_data) return;
+
+        const song_key = this.media.song_key(song_data.id);
+        const image_object = { song_key: song_key };
+
+        this.selected_playlist_identifier.images = [image_object];
+        this.selected_playlist_identifier.lock_images = true;
+
+        this.save_playlist(this.selected_playlist_identifier, this.selected_playlist);
+        this.playerService.playlist_changed.emit();
     }
 }

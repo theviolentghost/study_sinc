@@ -7,7 +7,7 @@ import https from 'https';
 import http from 'http';
 import crypto from 'crypto';
 
-// import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
 // import { get_mix_information }
 
 // cmd + shift + p => fold level
@@ -73,6 +73,20 @@ async function call_dj_api(endpoint, data) {
 class Adaptive_Stream {
     static profiles = {
         'opus': {
+            'ultra-low': {
+                bitrate: '32k',
+                sample_rate: 48000,
+                channels: 1,
+                bandwidth: 32 * 1024,
+                codec: 'libopus', // FFmpeg codec name
+                hls_codec: 'opus', // HLS CODECS attribute
+                audio_profile: 'audio', // Opus application mode
+                compression_level: 10,
+                frame_duration: 20,
+                vbr: 'on',
+                hls_time: '8.0',
+                hls_preset: 'fast',
+            },
             'low': {
                 bitrate: '96k',
                 sample_rate: 48000,
@@ -131,6 +145,22 @@ class Adaptive_Stream {
             },
         },
         'aac': {
+            // use for ultra-low latency, data when processing in python for embedding
+            // dont use frontend
+            'ultra-low': {
+                bitrate: '32k',
+                sample_rate: 22050,
+                channels: 1,
+                bandwidth: 32 * 1024,
+                codec: 'aac',
+                hls_codec: 'mp4a.40.5', // HLS CODECS attribute - HE-AAC
+                audio_profile: 'aac_he',
+                compression_level: null,
+                frame_duration: null,
+                vbr: null,
+                hls_time: '8.0',
+                hls_preset: 'fast',
+            },
             'low': {
                 bitrate: '96k',
                 sample_rate: 44100,
@@ -191,7 +221,7 @@ class Adaptive_Stream {
     };
 
     codecs = ['opus','aac']; // Supported codecs
-    profile_progression = ['low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
+    profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
     hls_root = path.join(__dirname, 'storage', 'musik', 'hls'); 
     hls_raw_audio_directory = path.join(this.hls_root, 'raw');
     hls_mix_audio_directory = path.join(this.hls_root, 'mixes');
@@ -591,6 +621,16 @@ class Adaptive_Stream {
             vbr: json_dump_data?.vbr || 0,
             asr: json_dump_data?.asr || 0,
             heatmap: json_dump_data?.heatmap || null,
+            fps: json_dump_data?.fps || 0,
+            width: json_dump_data?.width || 0,
+            height: json_dump_data?.height || 0,
+            filesize_approx: json_dump_data?.filesize_approx || 0,
+            title: json_dump_data?.track || json_dump_data?.fulltitle || '',
+            album: json_dump_data?.album || '',
+            artist: json_dump_data?.artist || json_dump_data?.creator || json_dump_data?.uploader || '',
+            channel_id: json_dump_data?.channel_id || '',
+            like_count: json_dump_data?.like_count || 0,
+            view_count: json_dump_data?.view_count || 0,
         };
 
         return file_system.promises.writeFile(properties_path, JSON.stringify(properties, null, 2));
@@ -821,41 +861,36 @@ class Adaptive_Stream {
             return true;
         }
 
-        const video_audio_path = path.join(this.hls_raw_audio_directory, video_id);
+        const video_audio_path = path.join(this.hls_raw_audio_directory, video_id, 'audio');
         const exists = file_system.existsSync(video_audio_path);
         if(exists) {
-            // // check if session has audio data (.ts files for all qualities), if not delete
-            // const audio_quality_dirs = this.profile_progression.map(profile => ({
-            //     profile,
-            //     dir: path.join(video_audio_path, profile)
-            // }));
-            // const has_audio_data = audio_quality_dirs.some(item => file_system.existsSync(item.dir));
-            // // check if they have any .ts files and their .m3u8 playlists
-            // const has_playlist = audio_quality_dirs.some(item => {
-            //     const m3u8_path = path.join(item.dir, `${Adaptive_Stream.profiles[this.codecs[0]][item.profile].bitrate}.m3u8`);
-            //     console.log('m3u8_path check:', m3u8_path);
-            //     return file_system.existsSync(m3u8_path);
-            // });
+            const audio_codec_directories = this.codecs.map(codec => ({
+                codec,
+                directory: path.join(video_audio_path, codec)
+            }));
 
-            // console.log('Audio playlist existence check:', has_playlist);
+            for(const {codec, directory} of audio_codec_directories) {
+                for(const profile of this.profile_progression) {
+                    const profile_directory = path.join(directory, profile);
+                    const playlist_path = path.join(profile_directory, `${Adaptive_Stream.profiles[codec][profile].bitrate}.m3u8`);
+                    const playlist_exists = file_system.existsSync(playlist_path);
+                    if(!playlist_exists) {
+                        // even if one playlist is missing, delete all audio files
+                        console.warn(`Missing playlist for video ID ${video_id}, codec ${codec}, profile ${profile}. Deleting audio files.`);
+                        // file_system.promises.rm(video_audio_path, { recursive: true, force: true });
+                        await this.delete_raw_audio(video_id);
+                        return false;
+                    }
+                }
+            }
 
-            // if (!has_playlist) {
-            //     console.warn(`No audio data found for video ID: ${video_id}. Deleting audio files.`);
-            //     // file_system.promises.rm(video_audio_path, { recursive: true, force: true });
-            //     await this.delete_raw_audio(video_id);
-            //     return false;
-            // } else {
-                console.warn(`Audio files exist for video ID: ${video_id} but no active session found. Recreating session data.`);
-                this.audio_data.set(video_id, {
-                    process: null,
-                    created_at: Date.now(),
-                    last_accessed: Date.now(),
-                });
-            // }
+            console.warn(`Audio files exist for video ID: ${video_id} but no active session found. Recreating session data.`);
+            this.audio_data.set(video_id, {
+                process: null,
+                created_at: Date.now(),
+                last_accessed: Date.now(),
+            });
         }
-
-        console.log(`Audio files existence check for video ID ${video_id}: ${exists}`);
-
         return exists;
     }
 
@@ -909,6 +944,8 @@ class Adaptive_Stream {
             // Wait for first segment
             const first_profile = available_profiles[0]; // 'ultra-low'
             await this.wait_for_first_readable_segment(video_id, available_codecs[0], first_profile, 15000);
+
+            request_embedding(video_id).catch(error => {}); // catch to avoid unhandled rejection
 
             // success
             this.audio_data.set(video_id, {

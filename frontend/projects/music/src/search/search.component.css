@@ -19,7 +19,7 @@
 
 .search-container {
     position: relative;
-    width: calc(100% - 2 * var(--space-5));
+    width: calc(100% - var(--space-5));
     max-width: 590px;
     padding: var(--space-1);
     display: flex;
@@ -129,14 +129,13 @@
     position: absolute;
     top: 2px;
     left: 1px;
-    transform: translate(calc(-1 * var(--size)), calc(-1 * var(--size) - 3px));
+    transform: translate(calc(-1 * var(--size)), calc(-1 * var(--size) - 2px));
     width: calc(100% + 2 * var(--size));
     height: calc(100% + 2 * var(--size));
-    background-color: var(--color-background);
-    /* border-radius: var(--space-2); */
+    background-color: var(--color-text);
+    border-radius: var(--space-1);
     z-index: -1;
     pointer-events: none;
-    /* box-shadow: 0 0 2px 2px var(--color-background-300); */
 }
 .search-container .drop-down-options.hidden {
     display: none;
@@ -157,7 +156,7 @@
 .search-container .quick-action.hidden {
     display: none;
 }
-.search-recommendations {
+/* .search-recommendations {
     --offset: 82px;
     position: absolute;
     top: 100%;
@@ -173,68 +172,69 @@
     padding: var(--space-2);
     padding-top: 0;
     margin: 0 calc(var(--offset) / 2);
-}
-.search-recommendations .recommendation {
+} */
+.recommendation {
+    width: 100%;
+    align-items: center;
+    display: flex;
     font-size: var(--font-size-base);
     color: var(--color-background-500);
     cursor: pointer;
-    transition: filter 0.15s ease-in-out;
+    transition: filter .15s ease-in-out;
     background-color: inherit;
     border-radius: var(--space-1);
-    padding: var(--space-2) var(--space-1);
+    padding: var(--space-3) var(--space-1);
+
+    .icon {
+        width: var(--space-4);
+        height: var(--space-4);
+        margin-left: var(--space-2);
+        margin-right: 16px;
+        mask-size: contain;
+        mask-repeat: no-repeat;
+        mask-position: center;
+        mask-image: var(--mask);
+        background-color: var(--color-text);
+    }
 }
-.search-recommendations .recommendation:hover {
+.recommendation:hover {
     filter: brightness(0.9);
 }
-.search-recommendations .recommendation .bold {
+.recommendation .bold {
     color: var(--color-text);
 }
 
 
 .search-results {
-    position: relative;
-    height: calc(100% - var(--space-9) + var(--space-1));
+    position: absolute;
+    top: 0;
+    height: 100%;
     width: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* overflow-y: auto; */
     gap: var(--space-4);
-    margin-top: var(--space-3);
-}
-.search-results-artists {
-    position: relative;
-    width: 100%;
-    margin: 20px;
-    height: var(--space-9);
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: row;
-    overflow-x: auto;
-    padding: var(--space-2);
-    align-items: center;
-    gap: var(--space-4);
-    background-color: var(--color-background);
-    box-shadow: 0 0 10px 10px var(--color-background);
 }
 .search-results-main {
+    padding-top: 70px;
     width: 100%;
+    max-width: 590px;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
     align-items: center;
-    padding: 6px;
     position: relative;
-    margin-top: 12px;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 .search-background {
-    width: clamp(0px, 80vw, 550px);
+    width: calc(100% - var(--space-6));
     display: flex;
+    align-items: center;
     flex-direction: column;
     height: fit-content;
     background-color: var(--color-background);
     box-shadow: 0 0 10px 10px var(--color-background);
-    padding: 0 var(--space-2);
 }
 .search-results-videos {
     /* width: 100%; */

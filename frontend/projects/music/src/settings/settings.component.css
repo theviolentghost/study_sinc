@@ -3,6 +3,8 @@
     /* justify-items: center; */
     align-items: center;
     flex-direction: column;
+    width: 100%;
+    height: 100%;
 }   
 
 .profile {
@@ -43,6 +45,8 @@
 .setting-genre-container {
     position: relative;
     width: 80%;
+    height: 100%;
+    overflow: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
@@ -76,9 +80,43 @@
     }
 }
 
+.close {
+    position: fixed;
+    top: var(--space-5);
+    left: var(--space-4);
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.1);  
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    border-radius: var(--space-1);
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+    /* z-index: 5; */
+}
+
+.close::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    scale: .8;
+    mask-image: var(--mask);
+    mask-size: cover;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    background-color: white;
+    transition: transform 0.3s ease-in-out;
+}
+
 /* New styles for settings panel */
 .settings-wrapper {
     width: 100%;
+    height: 100%;
     display: flex;
     justify-content: center;
 }
@@ -89,6 +127,8 @@
 
 .settings-panel {
     width: 80%;
+    height: 100%;
+    overflow: auto;
     padding: var(--space-4);
 }
 
@@ -190,13 +230,37 @@
 .notes-container {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
     margin-top: var(--space-3);
 }
 
 .note {
     display: flex;
     align-items: flex-start;
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    border-radius: 8px;
+    overflow: hidden;
+    padding: var(--space-2);
+
+    &.info {
+        background: rgba(255, 255, 255, 0.1);  
+        box-shadow: 0 4px 4px rgba(0, 0, 0, 0.1);
+
+        .note-text {
+            color: var(--color-neutral-600);
+        }
+    }
+
+    &.warning {
+        background: rgba(255, 209, 58, 0.1);  
+        box-shadow: 0 4px 4px rgba(255, 209, 58, 0.1);
+
+        .note-text {
+            font-weight: 500;
+            color: var(--color-warning);
+        }
+    }
 }
 
 .note-text {
@@ -205,14 +269,6 @@
     line-height: 1.4;
 }
 
-.note-text.info {
-    color: var(--color-neutral-600);
-}
-
-.note-text.warning {
-    color: var(--color-warning);
-    font-weight: 500;
-}
 
 /* Custom dropdown styles */
 .custom-dropdown {

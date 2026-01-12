@@ -16,7 +16,6 @@ async function request_embedding(song_id) {
             body: JSON.stringify({ song_id: song_id }),
         });
         const data = await response.json();
-        console.log('Success:', data);
         if (!response.ok) {
             throw new Error(data.error || 'Unknown error');
         }
@@ -51,8 +50,8 @@ async function process_spotify_track_embedding_queue() {
             await request_embedding(video_id);
             console.log(`Requested embedding for ${item.type} with ID ${video_id}`);
         }
-        // wait 60 seconds before next request
-        await new Promise(resolve => setTimeout(resolve, 60 * 1000));
+        // wait 100 milliseconds before next request
+        await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     processing_queue = false;
@@ -66,7 +65,6 @@ async function is_song_in_process_queue(song_id) {
         },
     });
     const data = await response.json();
-    console.log('Success:', data);
     if (!response.ok) {
         throw new Error(data.error || 'Unknown error');
     }

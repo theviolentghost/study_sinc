@@ -10,14 +10,14 @@ from functools import wraps
 from dotenv import load_dotenv
 
 # Configure logging
-# logging.basicConfig(
-#     level=logging.WARNING,  # Changed from INFO to WARNING to reduce output
-#     format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s',
-#     handlers=[
-#         logging.StreamHandler(sys.stdout),
-#         # logging.FileHandler('server.log', mode='a')
-#     ]
-# )
+logging.basicConfig(
+    level=logging.WARNING,  # Changed from INFO to WARNING to reduce output
+    format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        # logging.FileHandler('server.log', mode='a')
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Conditional import for Audio_Search to prevent startup failures

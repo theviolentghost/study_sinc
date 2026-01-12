@@ -46,6 +46,8 @@ export interface Track_Timestamp {
 export class SessionPlaylistInterceptorService {
     @Output() public playlist_updated: EventEmitter<number[]> = new EventEmitter<number[]>();
 
+    private readonly PLAYLIST_CACHE_NAME = 'sinc_music_playlists_v1';
+
     public profiles = {
         'opus': {
             'low': {
@@ -182,13 +184,61 @@ export class SessionPlaylistInterceptorService {
     }
 
     constructor(private service_worker_message_distributor: ServiceWorkerMessageDistributorService, private media: MusicMediaService, private injector: Injector) { 
+        console.log('🔧 SessionPlaylistInterceptorService constructor called');
         this.initialize();
     }
 
-    public initialize(): void {
-        this.service_worker_message_distributor.session_request.subscribe((url: string) => {
-            this.service_worker_message_distributor.post_message('SESSION_RESPONSE', { data: this.handle_request(url), url });
-        });
+    private async store_playlist_in_cache(url: string, data: string): Promise<void> {
+        try {
+            const cache = await caches.open(this.PLAYLIST_CACHE_NAME);
+            const response = new Response(data, {
+                headers: {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Cache-Control': 'no-cache',
+                    'X-Timestamp': Date.now().toString()
+                }
+            });
+            await cache.put(url, response);
+            console.log('💾 Stored playlist in Cache API (Angular):', url);
+        } catch (error) {
+            console.error('❌ Error storing playlist in Cache API (Angular):', error);
+        }
+    }
+
+    public async initialize(): Promise<void> {
+        console.log('✅ SessionPlaylistInterceptorService initializing...');
+        
+        // Pre-generate and store initial playlists
+        await this.update_session_playlists();
+        
+        console.log('✅ SessionPlaylistInterceptorService initialized');
+    }
+
+    /**
+     * Pre-generate and store session playlists in Cache API
+     * Call this whenever the playlist changes
+     */
+    public async update_session_playlists(): Promise<void> {
+        console.log('🔄 Updating session playlists in Cache API...');
+        
+        const tracks = this.get_tracks_for_session_playlist();
+        
+        // Generate and store master playlist
+        const master_url = '/music/session/master.m3u8';
+        const master_playlist = this.create_master_playlist();
+        await this.store_playlist_in_cache(master_url, master_playlist);
+        
+        // Generate and store all codec/profile combinations
+        for (const codec of this.codecs) {
+            for (const profile of this.profile_progression) {
+                const playlist_url = `/music/session/audio/${codec}/${profile}/playlist.m3u8`;
+                const playlist = this.create_session_playlist(codec, profile, tracks, null);
+                console.log('Generated playlist for', playlist_url);
+                await this.store_playlist_in_cache(playlist_url, playlist);
+            }
+        }
+        
+        console.log('✅ Session playlists updated in Cache API');
     }
 
     // Create blob URLs from base64 segment data
@@ -476,6 +526,7 @@ export class SessionPlaylistInterceptorService {
         }
 
         this.create_session_playlist(undefined, undefined, this.get_tracks_for_session_playlist(), null);
+        this.update_session_playlists();
         if (missing_tracks.length > 0) {
             this.playlist_updated.emit(missing_tracks);
         }
@@ -489,6 +540,11 @@ export class SessionPlaylistInterceptorService {
         this._song_queue = value;
         // Whenever the song queue is updated, we can also update the playlist timestamps cache
         this.get_tracks_for_session_playlist(); // This will ensure the timestamps cache is updated
+        
+        // Update playlists in Cache API
+        this.update_session_playlists().catch(err => {
+            console.error('Failed to update session playlists:', err);
+        });
     }
 
     public is_index_loaded(index: number): boolean {

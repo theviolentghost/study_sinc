@@ -9,10 +9,11 @@ import { HotActionService } from '../../hot.action.service';
 import { GlobalInfoService } from '../../global.info.service';
 import { InViewDirective } from './in-view.directive';
 import { LoadingService } from '../../loading.service';
+import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
 
 @Component({
   selector: 'media-search',
-  imports: [FormsModule, CommonModule, InViewDirective],
+  imports: [FormsModule, CommonModule, InViewDirective, ProgressiveLoadDirective],
   templateUrl: './search.component.html',
   styleUrl: './search.component.css'
 })
@@ -91,15 +92,16 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         const history = localStorage.getItem('search_history');
         if(history) {
             const log = JSON.parse(history);
-            // convert back to Map
             this.search_history = new Map(log);
             // console.log("Search history loaded:", this.search_history);
                 // load most recent search
-            const lastEntry = Array.from(this.search_history.entries()).pop();
-            // console.log("Most recent search entry:", lastEntry);
-            if (lastEntry) {
-                this.search_query = lastEntry[0];
-                this.search_results = lastEntry[1];
+            const last_entry = Array.from(this.search_history.entries()).pop();
+            if (last_entry) {
+                const search_log = last_entry[1];
+                this.search_query = search_log.query;
+                this.search_results = search_log.results;
+                this.search_source = search_log.source;
+                this.search_recommendations = search_log.recommendations || [];
                 this.set_catalog();
                 this.searched = true;
                 // remove most recent entry
@@ -119,30 +121,31 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     debounce_input_timeout: any = null;
-    debounce_input_time: number = 400; 
+    debounce_input_time: number = 300; 
     on_search_input_change(): void {
         if (this.debounce_input_timeout) {
             clearTimeout(this.debounce_input_timeout);
         }
         this.debounce_input_timeout = setTimeout(() => {
-            this.get_search_recommendations(this.search_query);
+            // this.get_search_recommendations(this.search_query);
+            this.blurry_search();
         }, this.debounce_input_time);
     }
 
-    async get_search_recommendations(query: string): Promise<void> {
-        if (query.trim() === '') {
-            this.search_recommendations = [];
-            return;
-        }
-        try {
-            const recommendations = await this.media.get_search_recommendations(query);
-            console.log('Search recommendations:', recommendations);
-            this.search_recommendations = recommendations;
-        } catch (error) {
-            console.error('Error fetching search recommendations:', error);
-            this.search_recommendations = [];
-        }
-    }
+    // async get_search_recommendations(query: string): Promise<void> {
+    //     if (query.trim() === '') {
+    //         this.search_recommendations = [];
+    //         return;
+    //     }
+    //     try {
+    //         const recommendations = await this.media.get_search_recommendations(query);
+    //         console.log('Search recommendations:', recommendations);
+    //         this.search_recommendations = recommendations.splice(0, 4); // Limit to top 4 recommendations
+    //     } catch (error) {
+    //         console.error('Error fetching search recommendations:', error);
+    //         this.search_recommendations = [];
+    //     }
+    // }
                 
 
     ms_to_time(ms: number): string {
@@ -207,69 +210,99 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         }
     }
 
-    searching: boolean = false;
-    async search(query: string = this.search_query): Promise<void> {
-        if (query.trim() === '') return;
+    public searching: boolean = false;
+    public last_query: string = '';
+    private query_abort_controller: AbortController | null = null;
+    public async search(query: string): Promise<Song_Search_Result | null> {
+        this.search_recommendations = this.search_results?.recommendations || [];
+        
+        if (!query) return null;
+        if (query.trim() === '') return null;
+        if (query === this.last_query) return null;
 
-        this.search_query = query.trim();
-        this.search_recommendations = []; // Clear recommendations on new search
+        try {
+            // Abort any ongoing search
+            if (this.query_abort_controller) {
+                this.query_abort_controller.abort();
+            }
+            this.query_abort_controller = new AbortController();
+
+            this.search_query = query.trim();
+            console.log(`Searching for: ${query}:`, this.search_source);
+
+            this.song_data_cache.clear();
+            this.searching = true;
+
+            this.search_results = await this.media.search(query, this.search_source, this.query_abort_controller.signal);
+            if (this.search_results) this.last_query = query;
+            this.searching = false;
+            this.set_catalog();
+        } catch (error) {
+            console.error('Search error:', error);
+        }
+    }
+
+    // when user presses enter or clicks search button
+    public async focus_search(query: string = this.search_query): Promise<void> {
+        const result = await this.search(query);
+        if(!result) return;
+        this.searched = true;
+
+        this.search_history.set(query, {
+            results: this.search_results,
+            query: query,
+            source: this.search_source,
+            recommendations: this.search_recommendations
+        });
+        this.store_search_history();
+    }
+
+    public async blurry_search(query: string = this.search_query): Promise<void> {
+        await this.search(query);
+    }
+
+    blur_search_input(): void {
         // get rid of search focus
         if (this.searchInput) {
             this.searchInput.nativeElement.blur();
         }
-        console.log(`Searching for: ${query}:`, this.search_source);
-
-        this.song_data_cache.clear();
-        this.searching = true;
-        this.search_results = await this.media.search(query, this.search_source);
-        this.searching = false;
-        this.set_catalog();
-        this.searched = true; 
-        console.log('Search results:', this.search_results);
-
-        this.search_history.set(query, this.search_results);
-        this.store_search_history();
     }
 
     async youtube_play(video: any): Promise<void> {
         this.player.song_changed.emit();
-        const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'youtube', video_id: video.snippet?.videoId || video.id?.videoId}));
-        let track_data: Song_Data | null = cache || await this.hot_action.youtube_track_data(video);
-        if(!track_data) return;
+        const cache = this.song_data_cache.get(this.media.song_key({source: 'youtube', video_id: video.id}));
+        let partial_song_data: Song_Data | null = cache || await this.hot_action.youtube_track_data(video);
+        if(!partial_song_data) return; // partial_song_data should be full data here, called partial_song_data for consistency with spotify
 
+        const single_song_playlist: Song_Playlist = {
+            name: partial_song_data.song_name,
+            songs: new Map<string, Song_Identifier>(),
+            song_added_timestamps: new Map<string, number>(),
+            sorting_method: 'recent_to_old',
+            default: false,
+        };
+        await this.player.load_playlist(null, single_song_playlist, false);
+
+        this.player.pause();
         this.player.open_player.emit();
 
-        this.player.add_song_to_cache(track_data);
-        this.player.update_media_session(track_data);
+        const complete_song_data: Song_Data = await this.player.load_and_play_track(partial_song_data);
+        if(!complete_song_data) return;
 
-        this.media.get_watch_playlist(track_data.id.video_id).then(async (playlist) => {
+        const media_controller = this.player.media_controller;
+        this.media.get_watch_playlist(complete_song_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                // convert the array of songs to a map of song_key to song_identifier
-                const song_map = new Map<string, Song_Identifier>();
-                playlist.song_data.forEach((song) => {
-                    song_map.set(this.media.bare_song_key(song.id), song.id);
-                });
-                playlist.songs = song_map;
-
-                playlist.song_data.map((song) => {
+                playlist.song_data.forEach((song: Song_Data) => {
+                    media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
+                    media_controller.playlist_manager.add_song_to_playlist(this.media.song_key(song.id));
                     this.player.add_song_to_cache(song);
                 });
-
-                await this.player.load_playlist(null, playlist, false);
             } else {
-                console.warn('No tracks found in the watch playlist for:', track_data?.id.video_id);
+                console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
             }
         }).catch((error) => {
             console.error('Error fetching watch playlist:', error);
         });
-
-        await this.player.load_and_play_track(track_data);
-        if(!cache) {
-            track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
-            if(!track_data) return;
-            this.player.set_current_song(track_data);
-            this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
-        }
     }
 
     async spotify_play(video: any): Promise<void> {
@@ -311,18 +344,10 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
             sorting_method: 'recent_to_old',
             default: false,
         };
-        console.log('loading single song playlist:', single_song_playlist);
         await this.player.load_playlist(null, single_song_playlist, false);
 
         this.player.pause();
         this.player.open_player.emit();
-
-        // const cache = this.song_data_cache.get(this.media.bare_song_key({source: 'spotify', source_id: video.id || video.uri || '', video_id: ''}));
-        // let track_data: Song_Data | null = cache || await this.hot_action.spotify_track_data(video);
-        // let track_data: Song_Data | null = cache;
-        // if(!track_data) return;
-
-        // this.player.add_song_to_cache(track_data);
 
         const complete_song_data: Song_Data = await this.player.load_and_play_track(partial_song_data);
         if(!complete_song_data) return;
@@ -330,31 +355,17 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         const media_controller = this.player.media_controller;
         this.media.get_watch_playlist(complete_song_data.id.video_id).then(async (playlist) => {
             if (playlist && playlist.songs && playlist.songs.length > 0) {
-                // convert the array of songs to a map of song_key to song_identifier
-                // const song_map = new Map<string, Song_Identifier>();
-                playlist.song_data.forEach((song) => {
-                    // song_map.set(this.media.bare_song_key(song.id), song.id);
+                playlist.song_data.forEach((song: Song_Data) => {
                     media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
-                });
-                // playlist.songs = song_map;
-
-                playlist.song_data.map((song) => {
+                    media_controller.playlist_manager.add_song_to_playlist(this.media.song_key(song.id));
                     this.player.add_song_to_cache(song);
                 });
-
-                // await this.player.load_playlist(null, playlist, false);
             } else {
                 console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
             }
         }).catch((error) => {
             console.error('Error fetching watch playlist:', error);
         });
-        // if(!cache) {
-        //     track_data = await this.media.get_song_from_indexDB(this.media.song_key(track_data.id)); // Ensure player has the latest song data
-        //     if(!track_data) return;
-        //     this.player.set_current_song(track_data);
-        //     this.media.save_song_to_indexDB(this.media.song_key(track_data.id), track_data);
-        // }
     }
 
     async open_hot_action(video: any, source: Song_Source): Promise<void> {
@@ -503,7 +514,7 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         if (!artist_id) return;
 
         // add to media cache
-        this.media.add_artist_to_recents(artist);
+        // this.media.add_artist_to_recents(artist);
         this.router.navigate(['/artist', artist_id], { 
             queryParams: {
                 source: 'spotify'
@@ -512,7 +523,16 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     youtube_open_channel(channel: any): void {
-        // null for now
+        const channel_id = channel.id;
+        if (!channel_id) return;
+
+        // add to media cache
+        // this.media.add_channel_to_recents(channel);
+        this.router.navigate(['/artist', channel_id], { 
+            queryParams: {
+                source: 'youtube'
+            }
+        });
     }
 
     spotify_open_album(album: any): void {
@@ -664,5 +684,10 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
 
     get mood_categories(): {params: string, title: string}[] {
         return this.global.mood_genres;
+    }
+
+    get_spotify_artists_as_string(item: any): string {
+        if (!item) return '';
+        return item?.artists?.map(artist_object => artist_object.name).join(', ');
     }
 }

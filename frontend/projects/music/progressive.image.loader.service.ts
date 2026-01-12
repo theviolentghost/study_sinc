@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Observable, of, from, switchMap, map, tap, concat, catchError } from 'rxjs';
+import { Observable, of, from, switchMap, map, tap, concat, catchError, filter } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
 export class ProgressiveImageLoaderService {
@@ -46,7 +46,10 @@ export class ProgressiveImageLoaderService {
     public load_progressive(...urls: string[]): Observable<string> {
         return concat(
             ...urls.map((url) => this.load(url))
-        )
+        );
+        // .pipe(
+        //     filter(url => url !== null) // Only emit non-null values
+        // );
     }
 
     public get(key: string): string | null {

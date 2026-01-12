@@ -25,14 +25,15 @@
 
     <!-- Settings panel for selected genre -->
     <div class="settings-panel" *ngIf="selectedGenre">
+        <div class="close" (click)="back_to_genres()" [style.--mask]="'url(\'chevron-left.svg\')'"></div>
         <div class="panel-header">
-            <button class="back" (click)="back_to_genres()">← Back</button>
+            <!-- <button class="back" (click)="back_to_genres()">← Back</button> -->
             <h2>{{ selectedGenre }}</h2>
         </div>
 
         <div class="settings-list">
             <ng-container *ngFor="let s of currentSettings">
-                <div class="setting-row" [class.disabled]="isSettingDisabled(s)">
+                <div *ngIf="!s.hidden" class="setting-row" [class.disabled]="isSettingDisabled(s)">
                     <div class="setting-main">
                         <div class="label">{{ s.label }}</div>
                         <div class="control">
@@ -62,15 +63,6 @@
                         </div>
                     </div>
 
-                    <!-- Notes section (supports multiple notes with different severity levels) -->
-                    <div class="notes-container" *ngIf="getSettingNotes(s).length > 0">
-                        <div class="note" *ngFor="let note of getSettingNotes(s)">
-                            <span class="note-text" [class.warning]="note.severity === 'warning'" [class.info]="note.severity === 'info'">
-                                {{ note.text }}
-                            </span>
-                        </div>
-                    </div>
-
                     <!-- Dropdown options list (shown when expanded) -->
                     <div class="dropdown-options" *ngIf="s.type === 'dropdown' && isDropdownExpanded(s.id)">
                         <div 
@@ -81,6 +73,15 @@
                         >
                             <span class="option-label">{{ option.label }}</span>
                             <span class="checkmark" *ngIf="option.value === s.value">✓</span>
+                        </div>
+                    </div>
+
+                    <!-- Notes section (supports multiple notes with different severity levels) -->
+                    <div class="notes-container" *ngIf="getSettingNotes(s).length > 0">
+                        <div class="note" *ngFor="let note of getSettingNotes(s)" [class.warning]="note.severity === 'warning'" [class.info]="note.severity === 'info'">
+                            <span class="note-text">
+                                {{ note.text }}
+                            </span>
                         </div>
                     </div>
                 </div>

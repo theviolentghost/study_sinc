@@ -34,6 +34,7 @@ export class HotActionService {
             case "add_to_playlist": return this.do_add_to_playlist(source, video);
             case "create_playlist": return;
             case "import_playlist": return;
+            case 'sleep_timer': return;
             default: console.error(`Unknown action: ${action}`); return;
         }
     }
@@ -87,38 +88,38 @@ export class HotActionService {
 
     async youtube_track_data(video: any): Promise<Song_Data | null> {
         return {
-            original_song_name: video.snippet?.title || '',
-            original_artists: [{ id: video.snippet?.channelId || '', name: video.snippet?.channelTitle || '', source: 'youtube' }],
-            song_name: video.snippet?.title || '',
-            artists: [{ id: video.snippet?.channelId || '', name: video.snippet?.channelTitle || '', source: 'youtube' }],
+            original_song_name: video?.title || '',
+            original_artists: [{ id: video?.channelId || '', name: video?.channelTitle || '', source: 'youtube' }],
+            song_name: video?.title || '',
+            artists: [{ id: video?.channelId || '', name: video?.channelTitle || '', source: 'youtube' }],
             downloaded: false,
             download_audio_blob: null,
             download_artwork_blob: null,
             download_options: null,
             id: {
-                video_id: video.id?.videoId || video.snippet?.videoId || '',
+                video_id: video?.id || '',
                 source: 'youtube',
             },
             url: {
                 audio: null,
                 artwork: {
-                    low: video.snippet.thumbnails.default?.url || null,
-                    high: video.snippet.thumbnails.high?.url || null,
+                    low: null,
+                    high: video?.videoThumbnailUrl || null,
                 },
             },
             colors: {
-                primary: await this.media.get_primary_color_from_artwork(video.snippet.thumbnails.default?.url || null),
-                common: await this.media.get_top_colors_from_artwork(video.snippet.thumbnails.default?.url || null, 5, 55),
+                primary: await this.media.get_primary_color_from_artwork(video?.videoThumbnailUrl || null),
+                common: await this.media.get_top_colors_from_artwork(video?.videoThumbnailUrl || null, 5, 55),
             },
             liked: false,
-            video_duration: 0,
+            video_duration: video?.duration_ms || 0,
         }
     }
 
     async youtube_track_identifier(video: any): Promise<Song_Identifier | null> {
-        if (!video || !video.id || !video.id.videoId) return null;
+        if (!video || !video.id || !video.id) return null;
         return {
-            video_id: video.id.videoId,
+            video_id: video.id,
             source: 'youtube',
         };
     }

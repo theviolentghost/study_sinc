@@ -113,6 +113,7 @@ class MusicPlaylistManager {
     }
 
     public next(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        this.manager.sleep_timer_to_end_of_track = false;
         if(this.manager.use_streaming_playlist) {
             return this.playlist_next(event);
         } else {
@@ -203,6 +204,7 @@ class MusicPlaylistManager {
     }
 
     public previous(event: Skip_Event = Skip_Event.DEFAULT): Skip_Result {
+        this.manager.sleep_timer_to_end_of_track = false;
         if(this.manager.use_streaming_playlist) {
             return this.playlist_previous(event);
         } else {
@@ -273,6 +275,7 @@ class MusicPlaylistManager {
     }
 
     private preload_queue: string[] = [];
+    private song_preload_in_progress: boolean = false;
     public preload_upcoming_songs(): void {
         this.preload_queue.splice(0, this.preload_queue.length); // clear existing preload queue
         for (let i = 0; i < this.song_preload_count; i++) {
@@ -280,20 +283,23 @@ class MusicPlaylistManager {
             if (!song_key) break; // No more songs to preload
 
             this.preload_queue.push(song_key);
-            this.handle_preload_queue();
         }
+        if (!this.song_preload_in_progress) this.handle_preload_queue();
     }
 
-    private handle_preload_queue(): void {
+    private async handle_preload_queue(): Promise<void> {
         if (this.preload_queue.length === 0) return;
 
+        this.song_preload_in_progress = true;
+
         const song_key = this.preload_queue.shift()!;
-        this.manager.load_track(song_key, false).then(() => {
-            this.handle_preload_queue();
-        }).catch(error => {
+        try {
+            await this.manager.load_track(song_key, false);
+        } catch (error) {
             console.error('Error preloading song:', song_key, error);
             this.handle_preload_queue();
-        });
+        }
+        this.song_preload_in_progress = false;
     }
 
     public refresh_queue(): void {
@@ -449,10 +455,19 @@ class MusicPlaylistManager {
     public add_song_to_end_of_queue(song_key: string): void {
         this.queue.push(song_key);
         this.manager.queue_updated();
-        // preload the song
-        // this.manager.load_track(song_key, false).catch(error => {
-        //     console.error('Error preloading song for end of queue:', song_key, error);
-        // });
+    }
+
+    public add_song_to_playlist(song_key: string): void {
+        if(this.data) {
+            const song_identifier = this.media.parse_song_key(song_key);
+            if(!song_identifier) {
+                console.error('Invalid song key, cannot add to playlist:', song_key);
+                return;
+            }
+            this.data.songs.set(song_key, song_identifier);
+        } else {
+            console.warn('No playlist data loaded, cannot add song to playlist:', song_key);
+        }
     }
 }
 

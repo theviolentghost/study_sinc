@@ -13,7 +13,7 @@
     overflow: hidden;
 }
 .content-container.music-idle {
-    height: calc(100% - var(--space-7) + var(--space-1));
+    height: calc(100% - var(--space-6) - var(--space-1));
 }
 
 router-outlet {

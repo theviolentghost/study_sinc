@@ -43,6 +43,35 @@ class MusicMediaManager {
     private active_image_loads: Map<string, AbortController> = new Map();
     private current_artwork_song_key: string | null = null;
 
+    public sleep_timer_to_end_of_track: boolean = false;
+    public _sleep_time: number | null = null; // dont use settings because it shouldnt persisit between sessions
+    public _sleep_time_remaining: number | null = null;
+
+
+    public get sleep_time(): number | null {
+        if(this.sleep_timer_to_end_of_track) {
+            return this.song_duration;
+        }
+        return this._sleep_time;
+    }
+    public set sleep_time(value: number | null) {
+        this._sleep_time = value;
+        this._sleep_time_remaining = value;
+        this.start_sleep_timer();
+        this.sleep_timer_to_end_of_track = false;
+    }
+    public get sleep_time_remaining(): number | null {
+        if(this.sleep_timer_to_end_of_track) {
+            return this.song_duration - this.current_time;
+        }
+        return this._sleep_time_remaining;
+    }
+    public set sleep_time_remaining(value: number | null) {
+        this.sleep_time = value; // use setter to keep in sync
+    }
+    public get sleep_timer_ended(): boolean {
+        return this._sleep_time_remaining <= 0;
+    }
     get current_song(): any {
         // return this.playlist_manager.current_song;
         const song_key = this.playlist_manager.current_song_key;
@@ -555,7 +584,7 @@ class MusicMediaManager {
                 return song_data;
             }
         } finally {
-            this.playlist_manager.preload_upcoming_songs();
+            if(load_into_source) this.playlist_manager.preload_upcoming_songs();
             // Clean up abort controller after some delay
             setTimeout(() => {
                 this.active_load_requests.delete(song_key);
@@ -579,7 +608,7 @@ class MusicMediaManager {
         await this.buffer_controller.load_and_play(playlist_url);
     }
 
-    public async update_media_session(data: Song_Identifier | Song_Data | string): Promise<void> {
+    public async update_media_session(data: Song_Identifier | Song_Data | string = this.current_song): Promise<void> {
         if (!('mediaSession' in navigator) || !data) return;
         this.configure_media_session();
 
@@ -667,7 +696,8 @@ class MusicMediaManager {
 
         // Update position state when metadata changes
         this.update_media_session_position();
-        this.update_colors_from_artwork(metadata);
+        await this.update_colors_from_artwork(metadata);
+        this.player.update_theme();
     }
 
     private async update_colors_from_artwork(song_data: Song_Data): Promise<void> {
@@ -676,7 +706,7 @@ class MusicMediaManager {
         const artwork_object_url = song_data.download_artwork_blob ? URL.createObjectURL(song_data.download_artwork_blob) : await firstValueFrom(this.image_loader_service.load_progressive(song_data.url.artwork.high, song_data.url.artwork.low));
         if(!song_data.colors?.primary) {
             if(artwork_object_url) {
-                const primary = await this.media.get_primary_color_from_artwork(artwork_object_url);
+                const primary = await this.media.get_primary_color_from_artwork(artwork_object_url, 0.4);
                 song_data.colors.primary = primary;
             }
         }
@@ -690,6 +720,39 @@ class MusicMediaManager {
 
         this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
         this._media_data = song_data;
+    }
+
+    private sleep_timer_interval: any = null;
+    private async start_sleep_timer(): Promise<void> {
+        if(this._sleep_time === null) return;
+        if(this.sleep_timer_interval) {
+            clearInterval(this.sleep_timer_interval);
+        }
+        const interval = 1000; // 1 second
+        this.sleep_timer_interval = setInterval(() => {
+            if(this._sleep_time_remaining !== null) {
+                this._sleep_time_remaining -= interval / 1000;
+                if(this._sleep_time_remaining <= 0) {
+                    this._sleep_time_remaining = null;
+                    this.pause();
+                    clearInterval(this.sleep_timer_interval);
+                }
+            } else {
+                clearInterval(this.sleep_timer_interval);
+            }
+        }, interval);
+    }
+
+    public clear_sleep_timer(): void {
+        this._sleep_time = null;
+        this._sleep_time_remaining = null;
+        if(this.sleep_timer_interval) {
+            clearInterval(this.sleep_timer_interval);
+        }
+    }
+
+    public set_sleep_timer_to_end_of_track(): void {
+        this.sleep_timer_to_end_of_track = true;
     }
 }
 

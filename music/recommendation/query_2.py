@@ -147,7 +147,7 @@ class Audio_Search:
             try:
                 response = requests.get(
                     "http://localhost:3000/stream",
-                    params={"video_id": song_id, "quality": "medium"},
+                    params={"video_ids": [song_id]},
                     timeout=25 # timeout to avoid hanging
                 )
                 if response.status_code == 200:
@@ -170,19 +170,19 @@ class Audio_Search:
                 self.process_queue.remove(song_id)
                 self.save_process_queue()
                 # fetch(localhost:3000/stream/embedding_generated)
-                try:
-                    # notify main server its done
-                    response = requests.post(
-                        "http://localhost:3000/stream/embedding_generated",
-                        json={"song_id": song_id},
-                        timeout=5  # Optional: set a timeout to avoid hanging
-                    )
-                    if response.status_code == 200:
-                        print(f"Successfully notified server for {song_id}.")
-                    else:
-                        print(f"Server notification failed for {song_id}: {response.status_code} - {response.text}")
-                except requests.RequestException as e:
-                    print(f"Error notifying server for {song_id}: {e}")
+                # try:
+                #     # notify main server its done
+                #     response = requests.post(
+                #         "http://localhost:3000/stream/embedding_generated",
+                #         json={"song_id": song_id},
+                #         timeout=5  # Optional: set a timeout to avoid hanging
+                #     )
+                #     if response.status_code == 200:
+                #         print(f"Successfully notified server for {song_id}.")
+                #     else:
+                #         print(f"Server notification failed for {song_id}: {response.status_code} - {response.text}")
+                # except requests.RequestException as e:
+                #     print(f"Error notifying server for {song_id}: {e}")
 
 
             return features
@@ -217,7 +217,7 @@ class Audio_Search:
     #                 print(f"Failed to process {song_id}.")
     
     def get_music_file_path(self, song_id: str) -> str:
-        return os.path.join(self.project_root, 'storage', 'musik', 'hls', song_id, '32k.m3u8') 
+        return os.path.join(self.project_root, 'storage', 'musik', 'hls', 'raw', song_id, 'audio', 'aac', 'ultra-low', '32k.m3u8') 
 
     def get_embedding(self, song_id: str) -> np.ndarray:
         # get embedding from index
@@ -253,7 +253,9 @@ class Audio_Search:
         """
         query_embedding: should already be normalized
         """
-        
+        exclude_set = set(exclude_ids)
+        exclude_labels = {self.label_from_song_id(sid) for sid in exclude_set}
+
         # normalize query embedding
         if normalize_query:
             norm = np.linalg.norm(query_embedding)
@@ -266,15 +268,15 @@ class Audio_Search:
         self.index.set_ef(min(effective_top_k, self.MAX_TOP_K))  # ef must be >= top_k
         
         # Search for similar songs
-        indices, distances = self.index.knn_query(query_embedding, k=effective_top_k)
+        indices, distances = self.index.knn_query(
+            query_embedding,
+            k=effective_top_k,
+            filter=lambda label: self.song_id_from_label(label) not in exclude_labels
+        )
 
         recommendations = []
         for i, (index, distance) in enumerate(zip(indices[0], distances[0])):
             song_id = self.song_id_from_label(index)  # Use the song order from index building
-            # print(self.)
-
-            if song_id in exclude_ids:
-                continue
             recommendations.append({
                 "song_id": song_id,
                 "distance": float(distance),

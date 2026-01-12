@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { BehaviorSubject } from 'rxjs';
 
-import { Song_Data } from '../../music.media.service';
+import { Song_Data, Song_Identifier, Song_Playlist } from '../../music.media.service';
 import { PlaylistsService } from '../../playlists.service';
 import { HotActionService } from '../../hot.action.service';
 import { MusicMediaService, DownloadQuality, Song_Playlist_Identifier, Song_Source } from '../../music.media.service';
@@ -290,6 +290,9 @@ export class HotActionComponent {
 
                 this.router.navigate(['/playlist', playlist_indentifier.id]);
             }
+        }).catch((error) => {
+            console.error('Error importing playlist:', error);
+            this.import_status = 'error';
         });
     }
 
@@ -311,7 +314,7 @@ export class HotActionComponent {
                 if (!playlist_identifier) return;
                 const playlist = await this.playlists.get_playlist(playlist_identifier);
 
-                await this.playlists.add_songs_to_playlist(response.tracks.map((track: any) => this.hot_action.musix_track_data(track)), playlist_identifier, playlist);
+                // await this.playlists.add_songs_to_playlist(response.tracks.map((track: any) => this.hot_action.musix_track_data(track)), playlist_identifier, playlist);
 
                 await Promise.all(response.tracks.map(async (track: any) => {
                     const song_data: Song_Data | null = await this.hot_action.musix_track_data(track);
@@ -472,7 +475,9 @@ export class HotActionComponent {
 
     // Song options properties and methods
     song_options: [string, string, string, string, string][] = [
-        ['Rename', 'edit.svg', 'var(--color-primary)', '', 'not_spotify'],
+        // name, icon, color, song_color, source_restriction
+        ['Rename', 'edit.svg', 'var(--color-primary)', '', ''],
+        ['Use Artwork For Playlist', 'palette.svg', 'var(--color-primary)', '', ''],
         // ['Edit Artists', 'users.svg', 'var(--color-primary)', '', 'not_spotify'],
         // ['Song Color', 'palette.svg', '#song_color', '', ''],
         ['Add to Playlist', 'plus.svg', 'var(--color-primary)', '', ''],
@@ -655,16 +660,37 @@ export class HotActionComponent {
         if (!this.song_data || !this.song_data.id.video_id) return;
         
         try {
-            const watch_playlist = await this.media.get_watch_playlist(this.song_data.id.video_id);
-            
-            if (watch_playlist && watch_playlist.tracks && watch_playlist.tracks.length > 0) {
-                // Clear current queue and add similar songs
-                // You can customize this behavior based on your player implementation
-                console.log('Playing similar songs:', watch_playlist);
-                
-                // Navigate to a similar songs view or start playing
-                // this.router.navigate(['/similar', this.song_data.id.video_id]);
-            }
+            const single_song_playlist: Song_Playlist = {
+                name: `Similar to ${this.song_data.song_name}`,
+                songs: new Map<string, Song_Identifier>(),
+                song_added_timestamps: new Map<string, number>(),
+                sorting_method: 'recent_to_old',
+                default: false,
+            };
+            await this.player.load_playlist(null, single_song_playlist, false);
+    
+            this.player.pause();
+            this.player.open_player.emit();
+
+            const complete_song_data: Song_Data = await this.player.load_and_play_track(this.song_data);
+            if(!complete_song_data) return;
+
+            const media_controller = this.player.media_controller;
+            this.media.get_watch_playlist(complete_song_data.id.video_id).then(async (playlist) => {
+                if (playlist && playlist.songs && playlist.songs.length > 0) {
+                    playlist.song_data.forEach((song: Song_Data) => {
+                        media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
+                    });
+
+                    playlist.song_data.map((song: Song_Data) => {
+                        this.player.add_song_to_cache(song);
+                    });
+                } else {
+                    console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
+                }
+            }).catch((error) => {
+                console.error('Error fetching watch playlist:', error);
+            });
             
             this.hot_action.close_hot_action();
         } catch (error) {
@@ -683,10 +709,10 @@ export class HotActionComponent {
                 this.hot_action.action = 'rename_song';
                 this.new_artists = (this.song_data?.artists ?? this.song_data?.original_artists)?.map(a => a.name) || [''];
                 break;
-            // case 'Edit Artists':
-            //     this.new_artists = this.song_data?.original_artists?.map(a => a.name) || [''];
-            //     this.hot_action.action = 'edit_artists';
-            //     break;
+            case 'Use Artwork For Playlist':
+                // set current artwork as playlist artwork
+                this.playlists.set_current_playlist_artwork(this.song_data);
+                break;
             case 'Song Color':
                 this.song_view_color = this.song_data?.colors?.primary || 'var(--color-primary)';
                 this.hot_action.action = 'pick_song_color';
@@ -721,5 +747,45 @@ export class HotActionComponent {
         }
         
         return images;
+    }
+
+    public get sleep_time_remaining_display(): string {
+        const sleep_time = this.player.sleep_time; // in seconds
+        if(sleep_time <= 0) return 'No Sleep Timer Set';
+
+        const minutes = Math.floor(sleep_time / 60);
+        const seconds = sleep_time % 60;
+
+        if(minutes > 0) {
+            return `${minutes} minute${minutes !== 1 ? 's' : ''}${seconds > 0 ? ` and ${seconds} second${seconds !== 1 ? 's' : ''}` : ''} remaining`;
+        } else {
+            return `${seconds} second${seconds !== 1 ? 's' : ''} remaining`;
+        }
+    }
+    public sleep_timer_options: {value: number, label: string}[] = [
+        {value: 5, label: '5 minutes'},
+        {value: 10, label: '10 minutes'},
+        {value: 15, label: '15 minutes'},
+        {value: 30, label: '30 minutes'},
+        {value: 45, label: '45 minutes'},
+        {value: 60, label: '1 hour'},
+        {value: -1, label: 'Disable'},
+        {value: -2, label: 'End of track'}
+    ]; // in minutes, -1 for disable, -2 for end of track (-1 0nly there if sleep timer is active)
+
+    public selected_sleep_timer_option: number = 0;
+    public set_sleep_timer(minutes: number): void {
+        if(minutes === -1) {
+            this.player.clear_sleep_timer();
+            this.selected_sleep_timer_option = -1;
+        } else if(minutes === -2) {
+            this.player.set_sleep_timer_to_end_of_track();
+            this.selected_sleep_timer_option = -2;
+        }
+        else {
+            this.player.sleep_time = minutes * 60; // convert to seconds 
+            this.selected_sleep_timer_option = minutes;
+        }
+        this.hot_action.close_hot_action();
     }
 }

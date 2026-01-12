@@ -291,7 +291,7 @@ class BufferController {
 
         hls.on(Events.ERROR, (event, data) => {
 
-            // console.error('HLS Error:', data.details, 'fatal:', data.fatal);
+            console.error('HLS Error:', data.details, 'fatal:', data.fatal);
 
             if(this.controller.use_streaming_playlist) {
                 // For streaming playlists, mark as stalled on specific errors

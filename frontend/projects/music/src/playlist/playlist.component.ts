@@ -72,22 +72,29 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         // Component initialization
         // this.loaded = false;
         this.loading_service.loading = true;
-        this.player.playlist_changed.subscribe(() => {
-            this.update_main_color();
-        });
-        this.update_main_color();
         this.player.clear_playlist_color.subscribe(() => {
-            // check to see if the navigation url is the same as this playlist
-            // if(this.router.url.includes('/playlist/') && this.playlist_identifier) return;
             document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
         });
-
-        // Subscribe to notification service
-        // this.notification_service.notification$.subscribe((notification: Notification) => {
-        //     this.notification_message = notification.message;
-        //     this.notification_visible = notification.visible;
-        // });
+        this.player.update_playlist_color.subscribe((color: string) => {
+            if(color === 'var(--color-primary)') color = 'var(--default-primary-color)';
+            document.documentElement.style.setProperty('--color-primary', color || 'var(--default-primary-color)');
+        });
+        this.player.playlist_changed.subscribe(() => {
+            Promise.resolve().then(async () => {
+                this.song_images = [];
+                for(let image_key of this.playlist_identifier?.images || []) {
+                    const song_key = image_key.song_key;
+                    const song_data = await this.media.get_song_from_indexDB(song_key);
+                    this.song_images.push({
+                        low: song_data.url?.artwork?.low,
+                        high: song_data.url?.artwork?.high,
+                        blob: song_data.download_artwork_blob
+                    });
+                }
+            });
+        });
         Promise.resolve().then(async () => {
+            this.song_images = [];
             for(let image_key of this.playlist_identifier?.images || []) {
                 const song_key = image_key.song_key;
                 const song_data = await this.media.get_song_from_indexDB(song_key);
@@ -98,6 +105,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
                 });
             }
         });
+
+        if(this.player.media_controller.playlist_manager?.identifier?.id === this.playlist_identifier?.id) {
+            this.player.update_playlist_color.emit(this.playlist_identifier?.colors?.primary || null);
+        }
     }
 
     ngAfterViewInit(): void {
@@ -105,26 +116,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         // this.auto_scroll_past_search_filter();
         // this.loaded = true;
         this.loading_service.loading = false;
-
-        this.update_main_color();
         this.update_container_height();
     }
 
-    update_main_color(): void {
-        if(this.use_playlist_color_for_main) {
-            // console.log(this.playlist_identifier, this.player.playlist_identifier);
-            // if(this.playlist_identifier?.id !== this.player?.playlist_identifier?.id) return;
-            const color = this.get_playlist_primary_color();
-            if( color.trim() !== 'var(--color-primary)' ) {
-                document.documentElement.style.setProperty('--color-primary', color);
-            }
-        }
-    }
-
     ngOnDestroy(): void {
-        // Reset primary color on destroy
-        document.documentElement.style.setProperty('--color-primary', 'var(--default-primary-color)');
-        
         // Cleanup scrollbar resources
         if (this.scrollbar_hide_timeout) {
             clearTimeout(this.scrollbar_hide_timeout);
@@ -140,7 +135,6 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     private auto_scroll_past_search_filter(smooth: boolean = false): void {
         // Wait for next tick to ensure DOM is fully rendered
         setTimeout(() => {
-            this.update_main_color();
             if (this.result_videos_ref?.nativeElement) {
                 // Find the search-filter element to get its height
                 const host_element = this.result_videos_ref.nativeElement.closest('app-playlist');
@@ -834,12 +828,12 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         // Check if .actions is sticky (overlapping with .result-videos)
         this.check_actions_sticky();
 
-        const cover_element = document.querySelector('.cover') as HTMLElement;
-        if (cover_element) {
-            cover_element.style.width = `calc(80% - ${target.scrollTop}px)`;
-            cover_element.style.opacity = `${Math.min(1, Math.max(0, 1.2 - target.scrollTop / 160))}`;
-            cover_element.style.transform = `translateY(${target.scrollTop / 6}px)`;
-        }
+        // const cover_element = document.querySelector('.cover') as HTMLElement;
+        // if (cover_element) {
+        //     cover_element.style.width = `calc(80% - ${target.scrollTop}px)`;
+        //     cover_element.style.opacity = `${Math.min(1, Math.max(0, 1.2 - target.scrollTop / 160))}`;
+        //     cover_element.style.transform = `translateY(${target.scrollTop / 6}px)`;
+        // }
         // Check header visibility - header has height: 50vh + padding + margins
         // Approximate total height considering 50vh + space-7 padding + space-6 margin
         const viewport_height = window.innerHeight;

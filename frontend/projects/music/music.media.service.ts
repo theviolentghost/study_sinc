@@ -1,4 +1,4 @@
-import { Injectable, Injector, Output, EventEmitter } from '@angular/core';
+import { Injectable, Injector, Output, EventEmitter, signal } from '@angular/core';
 import { set, get, del } from 'idb-keyval';
 import { lastValueFrom } from 'rxjs';
 import { HttpClient, HttpContext, HttpContextToken } from '@angular/common/http';
@@ -75,6 +75,7 @@ export interface Song_Playlist_Identifier {
     duration?: number; // total duration of the playlist in ms
     default?: boolean;
     images?: Song_Playlist_Image_Key[]; // array of image URLs for the playlist (max 4)
+    lock_images?: boolean; // whether to lock the playlist images (don't update automatically)
     colors?: {
         primary?: string | null; 
     },
@@ -103,6 +104,7 @@ export interface Song_Playlist {
 
 export interface Song_Search_Result {
     catalog?: any[], // combined and sorted list of tracks and artists by popularity
+    recommendations?: any[], // list of recommended songs based on search
     artists?: 
         { total: number, results: any[], next_page_token?: string } |
         { href: string, items: any[], limit: number, next: string | null, previous: string | null,  offset: number, total: number } | any,
@@ -873,6 +875,10 @@ export class MusicMediaService {
     }
 
     async get_song_from_indexDB(key: string): Promise<Song_Data | null> {
+        if(!key) {
+            console.warn('get_song_from_indexDB called with empty key');
+            return null;
+        }
         try {
             const song_data = await get<Song_Data>(key);
             if (song_data) {
@@ -1232,16 +1238,21 @@ export class MusicMediaService {
         }
     }
 
-    async search(query: string, source: string = 'spotify'): Promise<Song_Search_Result> {
+    async search(query: string, source: string = 'spotify', abort_signal): Promise<Song_Search_Result> {
         try {
-            const response = await lastValueFrom(
-                this.http.get(`/music/search`, { params: { q: query, source } })
-            );
-            console.log('Search response:', response);
-            return response as Song_Search_Result; 
-        } catch (error) {
-            console.error('Error during search:', error);
-            return {};
+            const params = new URLSearchParams({ q: query, source });
+            const response = await fetch(`/music/search?${params.toString()}`, { signal: abort_signal });
+            if (!response.ok) throw new Error(`search error ${response.status}`);
+            const data = await response.json();
+            console.log('Search response:', data);
+            return data as Song_Search_Result;
+        } catch (error: any) {
+            if (error.name === 'AbortError') {
+                console.warn('Search aborted');
+            } else {
+                console.error('Error during search:', error);
+            }
+            return {} as Song_Search_Result;
         }
     }
 

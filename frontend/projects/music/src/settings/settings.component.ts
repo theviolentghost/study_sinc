@@ -87,10 +87,10 @@ export class SettingsComponent {
         if (s.on_change) {
             if (s.type === 'dropdown' && optionIndex !== undefined) {
                 // For dropdown: pass (index, value)
-                s.on_change(optionIndex, newValue);
+                s.on_change(s, optionIndex, newValue);
             } else if (s.type === 'toggle') {
                 // For toggle: pass (value)
-                s.on_change(newValue);
+                s.on_change(s, newValue);
             }
         }
         

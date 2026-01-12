@@ -2,10 +2,9 @@ import fs_sync from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import 'dotenv/config';
-import { google } from 'googleapis';
+// import { google } from 'googleapis';
 import { YtDlp } from 'ytdlp-nodejs';
 import SpotifyWebApi from 'spotify-web-api-node';
-import SpotifyToYoutube from 'spotify-to-youtube';
 import progress_emitter from '../progress.emitter.js';
 import { spawn, exec } from 'child_process';
 import axios from 'axios';
@@ -15,6 +14,8 @@ stream.initialize();
 
 import { promisify } from 'util';
 import { request_embedding, request_embedding_for_spotify_items } from './recommendation/reuqest.embedding.js';
+import youtube from '../youtube-search.js';
+// { search, getSearchSuggestions }
 
 const exec_async = promisify(exec);
 async function kill_processes_on_port(port) {
@@ -92,11 +93,6 @@ const Downloader = new YtDlp({
     binaryPath: path.join(process.cwd(), 'venv', 'bin', 'yt-dlp')
 });
 
-const youtube = google.youtube({
-  version: 'v3',
-  auth: process.env.YOUTUBE_API_KEY,
-});
-
 const spotify_api = new SpotifyWebApi({
   clientId: process.env.SPOTIFY_CLIENT_ID,
   clientSecret: process.env.SPOTIFY_CLIENT_SECRET
@@ -172,119 +168,100 @@ async function get_audio_file(audio_path = '') {
     }
 }
 
-function ensure_quality_in_query(query) {
-    const lower = query.toLowerCase();
-    const keywords = ['lyrics', 'original', 'official audio'];
-    let enhanced = query;
-
-    keywords.forEach(keyword => {
-        if (!lower.includes(keyword)) {
-            enhanced += ` ${keyword}`;
-        }
-    });
-
-    return enhanced.trim();
-}
-
-async function youtube_search_for_videos(query = 'NoCopyrightSounds', total_results = 50, next_page_token = undefined, enhance_search = true) {
-    if (!query || query.trim() === '') {
-        console.error('Query must be a non-empty string');
-        return {
-            results: [],
-            total: 0,
-            next_page_token: null
-        };
-    }
-
-    if (enhance_search) query = ensure_quality_in_query(query);
-
-    let results = [];
-
-    while (results.length < total_results) {
-        const response = await youtube.search.list({
-            part: ['id', 'snippet'],
-            q: query,
-            type: ['video'],
-            videoCategoryId: '10',
-            maxResults: Math.min(200, total_results - results.length),
-            pageToken: next_page_token,
-        });
-
-        results = results.concat(response.data.items);
-        next_page_token = response.data.nextPageToken;
-
-        if (!next_page_token) break;
-    }
-
-    return {
-        results,
-        total: results.length,
-        next_page_token
-    };
-}
-
-async function youtube_search_for_artists(query = 'NoCopyrightSounds', total_results = 16, next_page_token = undefined) {
-    if (!query || query.trim() === '') {
-        console.error('Query must be a non-empty string');
-        return {
-            results: [],
-            total: 0,
-            next_page_token: null
-        };
-    }
-
-    let results = [];
-
-    while (results.length < total_results) {
-        const response = await youtube.search.list({
-            part: ['id', 'snippet'],
-            q: query,
-            type: ['channel'],
-            maxResults: Math.min(40, total_results - results.length), // YouTube API max is 50 per request
-            pageToken: next_page_token,
-        });
-
-        results = results.concat(response.data.items);
-        next_page_token = response.data.nextPageToken;
-
-        // Break if no more pages available
-        if (!next_page_token) break;
-    }
-
-    return {
-        results,
-        total: results.length,
-        next_page_token
-    };
-}
 
 async function youtube_search(query = 'NoCopyrightSounds', /* add more params in future */) {
     if (!query || query.trim() === '') {
         console.error('Query must be a non-empty string');
         return {
-            videos: {},
-            artists: {},
+            catalog: [],
+            videos: [],
+            artists: [],
+            recommendations: [],
         };
     }
 
     try {
-        return Promise.all([
-            youtube_search_for_videos(query, 50, undefined, false),
-            youtube_search_for_artists(query, 16)
-        ]).then(([videos, artists]) => {
-            return {
-                catalog: [...videos.results, ...artists.results],
-                videos,
-                artists
-            };
-        });
+        const [ result, recommendations ] = await Promise.all([
+            youtube.search(query),
+            get_search_recommendations(query)
+        ]);
+        const { videos, artists } = parse_youtube_search_result(result);
+        return {
+            catalog: [...videos, ...artists],
+            videos: videos,
+            artists: artists,
+            recommendations: recommendations
+        };
     } catch (error) {
         console.error('Error searching YouTube:', error);
         return {
-            videos: {},
-            artists: {}
+            catalog: [],
+            videos: [],
+            artists: [],
+            recommendations: [],
         };
     }
+}
+
+function parse_youtube_search_result(search_result) {
+    function is_video(item) {
+        return (
+            item && // exists
+            item.id && item.id.length === 11 && // valid YouTube video ID
+            item.duration !== null // has duration 
+        );
+    }
+    function is_artist(item) {
+        return (
+            item && // exists
+            item.channelId && item.channelId.length === 24 && // valid YouTube channel ID
+            item.channelTitle !== null // has title
+        );
+    }
+    function string_duration_to_ms(duration_str) {
+        const parts = duration_str.split(':').map(part => parseInt(part, 10));
+        let milliseconds = 0;
+        if (parts.length === 2) {
+            // MM:SS format
+            milliseconds = (parts[0] * 60 + parts[1]) * 1000;
+        } else if (parts.length === 3) {
+            // HH:MM:SS format
+            milliseconds = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+        }
+        return milliseconds || 0;
+    }
+    const videos = [];
+    const artists = [];
+    for (const item of search_result.results) {
+        if(is_video(item)) {
+            videos.push({
+                type: '#video',
+                id: item.id,
+                title: item.title,
+                channelTitle: item.channelTitle,
+                channelId: item.channelId,
+                duration: item.duration,
+                duration_ms: string_duration_to_ms(item.duration),
+                viewCount: item.viewCount,
+                uploadDate: item.uploadDate,
+                videoThumbnailUrl: item.videoThumbnailUrl,
+                channelThumbnailUrl: item.channelThumbnailUrl,
+                description: item.description
+            });
+        }
+        if(is_artist(item)) {
+            artists.push({
+                type: '#artist',
+                id: item.channelId,
+                title: item.channelTitle,
+                channelId: item.channelId,
+                channelThumbnailUrl: item.channelThumbnailUrl,
+                description: item.description
+            });
+        }
+    }
+
+    return { videos, artists };
 }
 
 async function spotify_search_for_videos(query = 'NoCopyrightSounds', total_results = 50) {
@@ -362,9 +339,12 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
     }
 
     try {
-        const data = await spotify_api_with_retry(() => 
-            spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results })
-        );
+        const [ data, recommendations ] = await Promise.all([
+            spotify_api_with_retry(() => 
+                spotify_api.search(query, ['track', 'album', 'playlist', 'artist'], { limit: total_results })
+            ),
+            get_search_recommendations(query)
+        ]);
 
         // Filter out null/undefined items from each array
         const filteredData = {
@@ -391,7 +371,8 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
         // return a sorted combined list of tracks, artists, albums, and playlists sorted by relevance
         return {
             ...filteredData,
-            catalog: spotify_generate_catalog(filteredData, query)
+            catalog: spotify_generate_catalog(filteredData, query),
+            recommendations: recommendations
         }
     } catch (error) {
         console.error('Error searching Spotify:', error);
@@ -1079,6 +1060,7 @@ async function get_search_recommendations(query = '') {
             throw new Error(`Failed to fetch recommendations: ${response.statusText}`);
         }
         return response.data;
+        // return youtube.getSearchSuggestions(query);
     } catch (error) {
         console.error('Error fetching search recommendations:', error);
         return {};
@@ -1391,8 +1373,6 @@ export default {
     new_music,
     youtube: {
         search: youtube_search,
-        search_videos: youtube_search_for_videos,
-        search_artists: youtube_search_for_artists,
         download: download_audio,
         download_stream: download_audio_to_stream,
         stream: stream_audio,

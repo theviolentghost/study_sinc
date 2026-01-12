@@ -157,8 +157,9 @@
                     <div id="bar-main-right" class="indicator-bar right" [ngClass]="{loading: player_status === 'stopped'}"></div>
                     <div id="bar-main-right-merger" class="indicator-bar right merger" [ngClass]="{active: preloaded_next_song, loading: player_status === 'stopped'}"></div>
                 </button> <!-- skip-->
-                <button class="control-button" [ngClass]="{active: repeat}" [style.--mask]="'url(' + 'repeat.svg' + ')'" (click)="toggle_repeat()">
-                    <div class="indicator" *ngIf="repeat"></div>
+                <button class="control-button" [ngClass]="{active: sleep_time && sleep_time_remaining > 0, shake: sleep_timer_ended}" [style.--mask]="'url(' + 'stopwatch.svg' + ')'" (click)="toggle_sleep()">
+                    <div class="timer-hand" [style.--rotation]="sleep_time ? (sleep_time_remaining / sleep_time) * 360 : 0"></div>
+                    <div class="indicator" *ngIf="sleep_time && sleep_time_remaining > 0"></div>
                 </button> <!-- repeat-->
             </div>
             <!-- <div class="volume-control" style="display: none;"> not available on pwa

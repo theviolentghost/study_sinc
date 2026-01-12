@@ -1,7 +1,7 @@
 const CACHE_NAME_PREFIX = 'sinc_music';
 const VERSION_URL = 'app/version.txt';
 const LOGGING = false;
-const SW_VERSION = '1.0.6'; 
+const SW_VERSION = '1.0.15'; 
 
 const CACHE_NAME = `${CACHE_NAME_PREFIX}_cache_v${SW_VERSION}`;
 
@@ -105,6 +105,35 @@ class Service_Worker {
         switch (type) {
             case 'CHECK_FOR_APP_UPDATE':
                 this.check_for_app_update();
+                break;
+            case 'SESSION_RESPONSE':
+                // Handle session response for pending requests
+                if (this.network_manager.pending_session_requests.has(payload.url)) {
+                    const pending_requests = this.network_manager.pending_session_requests.get(payload.url);
+                    
+                    // Create response with proper headers for HLS content
+                    const headers = new Headers({
+                        'Content-Type': 'application/vnd.apple.mpegurl',
+                        'Cache-Control': 'no-cache',
+                        'Access-Control-Allow-Origin': '*'
+                    });
+                    
+                    if (LOGGING) console.log('📄 Playlist content length:', payload.data?.length || 0);
+                    
+                    // Resolve all pending requests
+                    pending_requests.forEach(({ resolve, timeout_id }) => {
+                        clearTimeout(timeout_id);
+                        resolve(new Response(payload.data, { 
+                            status: 200,
+                            statusText: 'OK',
+                            headers: headers
+                        }));
+                    });
+                    
+                    this.network_manager.pending_session_requests.delete(payload.url);
+                } else {
+                    if (LOGGING) console.warn('⚠️ No pending request found for:', payload.url);
+                }
                 break;
             default:
                 if (LOGGING) console.warn('SW received unknown message type:', type);
@@ -361,7 +390,7 @@ class File_Manager {
         };
         if(!file_extension) return 0;
 
-        return classifications[file_extension] || 1; // Default to tiny if not classified (meaning it is a frequently updated file)
+        return classifications[file_extension] || 0; // Default to tiny if not classified (meaning it is a frequently updated file)
     }
 
     // status => 'updated' | 'need_update'
@@ -493,24 +522,45 @@ class Network_Manager {
     constructor(file_manager, service_worker) {
         this.service_worker = service_worker;
         this.file_manager = file_manager;
-        
-        // Request prioritization queue
-        this.request_queue = {
-            high: [], // HLS requests (.m3u8, .ts, session)
-            medium: [], // Scripts, styles
-            low: [] // Images, fonts
-        };
-        this.processing_queue = false;
-        this.max_concurrent_requests = {
-            high: 6,    // Allow 6 concurrent HLS requests
-            medium: 2,  // 2 concurrent medium priority
-            low: 2      // 2 concurrent low priority
-        };
-        this.active_requests = {
-            high: 0,
-            medium: 0,
-            low: 0
-        };
+        this.pending_session_requests = new Map(); // Track pending session requests
+        this.PLAYLIST_CACHE_NAME = 'sinc_music_playlists_v1';
+    }
+
+    async get_session_playlist_from_cache(url) {
+        try {
+            // Cache API is fast enough to not trigger browser cancellation
+            const cache = await caches.open(this.PLAYLIST_CACHE_NAME);
+            const cached_response = await cache.match(url);
+            
+            if (cached_response) {
+                const playlist_data = await cached_response.text();
+                if (LOGGING) console.log('📦 Retrieved playlist from Cache API:', url);
+                return playlist_data;
+            } else {
+                if (LOGGING) console.log('⚠️ Playlist not found in Cache API:', url);
+                return null;
+            }
+        } catch (error) {
+            if (LOGGING) console.error('❌ Cache API error:', error);
+            return null;
+        }
+    }
+
+    async store_session_playlist_in_cache(url, data) {
+        try {
+            const cache = await caches.open(this.PLAYLIST_CACHE_NAME);
+            const response = new Response(data, {
+                headers: {
+                    'Content-Type': 'application/vnd.apple.mpegurl',
+                    'Cache-Control': 'no-cache',
+                    'X-Timestamp': Date.now().toString()
+                }
+            });
+            await cache.put(url, response);
+            if (LOGGING) console.log('💾 Stored playlist in Cache API:', url);
+        } catch (error) {
+            if (LOGGING) console.error('❌ Error storing playlist in Cache API:', error);
+        }
     }
 
     handle_error(error) {
@@ -555,6 +605,16 @@ class Network_Manager {
         }
     }
 
+    is_svg_request(url) {
+        try {
+            const parsed_url = new URL(url, self.location.href);
+            return parsed_url.pathname.toLowerCase().endsWith('.svg');
+        } catch (error) {
+            this.handle_error(error);
+            return false;
+        }
+    }
+
     get_request_priority(url) {
         // HLS requests get highest priority
         if (this.is_hls_request(url)) {
@@ -563,6 +623,9 @@ class Network_Manager {
         
         // Images get lowest priority
         if (this.is_image_request(url)) {
+            if(this.is_svg_request(url)) {
+                return 'medium'; // SVGs are vector and usually small, so medium priority
+            }
             return 'low';
         }
         
@@ -585,26 +648,50 @@ class Network_Manager {
     }
 
     async fetch(request, cache = false) {
+        if (LOGGING) console.log('Network_Manager fetch called for:', request.url, 'Cache:', cache);
+        
         if (this.is_session_request(request.url)) {
-            return await new Promise((resolve, reject) => {
-                this.service_worker.post_message_to_all_clients('SESSION_REQUEST', { url: request.url });
-
-                // wait for response from client
-                const message_handler = (event) => {
-                    const { type, payload } = event.data;
-                    if (type === 'SESSION_RESPONSE' && payload.url === request.url) {
-                        this.service_worker.self.removeEventListener('message', message_handler);
-                        resolve(new Response(payload.data, { status: 200 }));
+            if (LOGGING) console.log('📱 Session playlist request detected:', request.url);
+            
+            try {
+                // Read playlist from Cache API (faster than IndexedDB)
+                const playlist_data = await this.get_session_playlist_from_cache(request.url);
+                
+                if (playlist_data) {
+                    if (LOGGING) console.log('✅ Returning playlist from Cache API');
+                    return new Response(playlist_data, {
+                        status: 200,
+                        statusText: 'OK',
+                        headers: {
+                            'Content-Type': 'application/vnd.apple.mpegurl',
+                            'Cache-Control': 'no-cache',
+                            'Access-Control-Allow-Origin': '*'
+                        }
+                    });
+                } else {
+                    if (LOGGING) console.warn('⚠️ Playlist not found in cache, returning empty playlist');
+                    // Return empty playlist rather than failing
+                    return new Response('#EXTM3U\n#EXT-X-VERSION:7', {
+                        status: 200,
+                        statusText: 'OK',
+                        headers: {
+                            'Content-Type': 'application/vnd.apple.mpegurl',
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
+                }
+            } catch (error) {
+                if (LOGGING) console.error('❌ Error reading from cache:', error);
+                // Return empty playlist on error
+                return new Response('#EXTM3U\n#EXT-X-VERSION:7', {
+                    status: 200,
+                    statusText: 'OK',
+                    headers: {
+                        'Content-Type': 'application/vnd.apple.mpegurl',
+                        'Cache-Control': 'no-cache'
                     }
-                };
-                this.service_worker.self.addEventListener('message', message_handler);
-
-                // timeout after 5 seconds
-                setTimeout(() => {
-                    this.service_worker.self.removeEventListener('message', message_handler);
-                    reject(new Response('Session request timed out', { status: 504 }));
-                }, 5000);
-            });
+                });
+            }
         }
 
         // Get priority for this request
@@ -620,16 +707,8 @@ class Network_Manager {
             fetch_options.priority = 'low';
         }
 
-        // Add a small delay for low priority requests if high priority requests are active
-        if (priority === 'low' && this.active_requests.high > 0) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-        }
-
-        // Track active requests
-        this.active_requests[priority]++;
-        
         try {
-            const response = await fetch(request, fetch_options);
+            const response = fetch(request, fetch_options);
             
             if(!response || !response.ok) {
                 this.handle_error(new Error(`Network request failed for ${request.url} with status ${response.status}`));
@@ -645,8 +724,9 @@ class Network_Manager {
             }
 
             return response;
-        } finally {
-            this.active_requests[priority]--;
+        } catch (error) {
+            this.handle_error(error);
+            throw error;
         }
     }
 
@@ -655,6 +735,8 @@ class Network_Manager {
             const cachedResponse = await this.file_manager.cache_fetch(request);
             if (cachedResponse) return cachedResponse;
 
+            // If no cache hit, fetch from network
+            if(LOGGING) console.log('Cache miss, fetching from network for:', request.url);
             return await this.fetch(request, cache_override ?? await this.file_manager.should_cache_file(request.url));
         } catch (error) {
             this.handle_error(error);
@@ -673,6 +755,7 @@ class Network_Manager {
                 return response;
             }
             // If network fetch failed, try cache
+            if(LOGGING) console.warn('Network fetch failed, trying cache for:', request.url);
             const cachedResponse = await this.file_manager.cache_fetch(request);
             if (cachedResponse) return cachedResponse;
 

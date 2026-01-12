@@ -44,13 +44,13 @@ export class ProgressiveLoadDirective implements OnDestroy, OnChanges {
                 this.subscription = this.loader
                     .load_progressive(this.low)
                     .subscribe(src => {
-                        this.element.src = src;
+                        if(this.element) this.element.src = src;
                         if(!src) {
                             this.clean_up();
                             this.subscription = this.loader
                                 .load_progressive(this.high)
                                 .subscribe(src => {
-                                    this.element.src = src;
+                                    if(this.element)  this.element.src = src;
                                     if(!src) {
                                         this.no_source_error();
                                     }
@@ -61,18 +61,19 @@ export class ProgressiveLoadDirective implements OnDestroy, OnChanges {
                 this.subscription = this.loader
                     .load_progressive(this.low, this.high)
                     .subscribe(src => {
-                        this.element.src = src;
-                        if(!src) {
-                            this.no_source_error();
-                        }
+                        if(!src) return;
+                        if(this.element) this.element.src = src;
+                        // if(!src) {
+                        //     this.no_source_error();
+                        // }
                     });
             }
         }
     }
 
     private no_source_error(): void {
-        this.element.src = '';
-        this.element.classList.add('no-source-error')
+        if(this.element) this.element.src = '';
+        if(this.element) this.element.classList.add('no-source-error');
     }
 
     private clean_up(): void {
