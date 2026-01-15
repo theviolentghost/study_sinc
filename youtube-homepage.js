@@ -18,7 +18,6 @@ async function getHomepage(accountId, nextPageToken){
     }catch(err){
         console.error("failed to fetch youtube homepage");
         console.error(err);
-
     }
     
     let isLoggedOut = homepageData.data.responseContext.mainAppWebResponseContext.loggedOut;

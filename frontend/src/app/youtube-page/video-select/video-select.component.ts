@@ -27,14 +27,13 @@ export class VideoSelectComponent {
 
   ngOnInit(){
     if(!this.homepageVideos){
-      this.youtubeService.addToHomepage();
       this.isAddingToHomepage = true;
     } 
 
     this.homepageVideosSub = this.youtubeService.homepageVideosData$.subscribe(videos => {
       if(!videos) return;
       this.homepageVideos = videos;
-      this.isAddingToHomepage = false;
+      this.isAddingToHomepage = !this.youtubeService.isHomepageFullyLoaded();
     });
 
     this.onScreenObserver = new IntersectionObserver(this.handleIntersect.bind(this), {

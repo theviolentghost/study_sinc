@@ -119,6 +119,8 @@
 .user_icon{
     right: 24px;
     position: absolute;
+    width: 24px;
+    height: 24px;
 }
 
 .youtube_results{
@@ -145,7 +147,7 @@
     background: var(--color-background-200);
     position: relative;
     display: flex;
-    left: -9.5em;
+    left: -6.5em;
     flex-direction: column;
     align-items: end;
     z-index: 1;

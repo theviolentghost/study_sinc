@@ -1,10 +1,8 @@
 import { Component, OnInit, OnDestroy} from '@angular/core';
 import { RouterModule, RouterOutlet, Router } from '@angular/router';
-import { take } from 'rxjs/operators';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { YoutubeService } from './youtube.service';
-import { YouTubeSearchResponse } from './video-search-result.model';
 
 @Component({
   selector: 'app-youtube-page', 
@@ -23,6 +21,8 @@ export class YoutubePageComponent {
   displaySuggestions: boolean = false;
   searchSuggestionsSub;
   searchSuggestions: string[];
+
+  displayLoginMenu: boolean = false;
 
   constructor(private router: Router,
     private youtubeService: YoutubeService
@@ -139,6 +139,7 @@ export class YoutubePageComponent {
 
   public attempLogin(): void{
     this.youtubeService.youtubeFullLogin();
+    this.toggleLoginMenu();
     this.navigateToLoginPage();
   }
 
@@ -148,5 +149,10 @@ export class YoutubePageComponent {
 
   public logOut(): void{
     this.youtubeService.logOut();
+    this.toggleLoginMenu();
+  }
+
+  public toggleLoginMenu(): void{
+    this.displayLoginMenu = !this.displayLoginMenu;
   }
 }

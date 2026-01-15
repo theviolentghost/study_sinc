@@ -12,6 +12,7 @@ import { WatchHistoryService } from './watch-history.service';
   providedIn: 'root'
 })
 export class YoutubeService {
+    onStartLoginInitialization = false;
     isLoggingIn = false;
     LOGIN_STORAGE_KEY = 'login storgae key';
     loginChecker;
@@ -21,6 +22,7 @@ export class YoutubeService {
     private loginImageSubject = new BehaviorSubject<string | null>(null);
     loginImage$: Observable<string | null> = this.loginImageSubject.asObservable();
 
+    private numberOfHomepageVideos = 0;
     private nextHomePageToken: string = '';
     private homepageVideosList: PlaylistVideo[] = [];
     private homepageVideosSubject = new BehaviorSubject<PlaylistVideo[] | null>(null);
@@ -55,7 +57,11 @@ export class YoutubeService {
     constructor(private http: HttpClient,
         private router: Router,
         private watchHistoryService: WatchHistoryService
-    ) {}
+    ) {
+        if(this.onStartLoginInitialization) return;
+        this.onStartLoginInitialization = true;
+        this.loginToSavedAccount();
+    }
 
     private searchVideos(query: string, nextPageToken: string): Observable<any> {
         let params = new HttpParams()
@@ -199,7 +205,7 @@ export class YoutubeService {
                     this.navigateToHome();
                     clearInterval(this.loginChecker);
                     this.saveAccountId(id);
-
+                    this.addToHomepage();
             });
             this.getLoginFrame(id);
         } , 500);
@@ -233,10 +239,14 @@ export class YoutubeService {
 
         this.isAccountLoggedIn(loginId)
             .pipe(take(1))
-            .subscribe(isLoggedIn => {
-                if(!isLoggedIn) return;
+            .subscribe(data => {
+                if(!data.isLoggedIn){
+                    this.saveAccountId('');
+                    return;
+                }
 
                 this.loginSessionIdSubject.next(loginId);
+                this.addToHomepage();
             });
     }
 
@@ -301,6 +311,7 @@ export class YoutubeService {
     }
 
     logOut(): void{
+        this.endLoginAttempt();
         this.nextHomePageToken = '';
         this.homepageVideosSubject.next([]);
         this.loginSessionIdSubject.next('');
@@ -389,6 +400,7 @@ export class YoutubeService {
                 this.nextHomePageToken = data.nextPageToken;
                 let videoIdList = data.data;
                 if(!videoIdList) return;
+                this.numberOfHomepageVideos += videoIdList.length;
 
                 for(let video = 0; video < videoIdList.length; video++){
                     this.getFullVideoData(videoIdList[video])
@@ -400,6 +412,10 @@ export class YoutubeService {
                         });
                 }
             });
+    }
+
+    isHomepageFullyLoaded(): boolean{
+        return this.numberOfHomepageVideos == this.homepageVideosList.length;
     }
 
     saveCurrentChannel(channel: YouTubeChannel){
