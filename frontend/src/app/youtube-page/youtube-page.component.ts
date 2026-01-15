@@ -141,4 +141,12 @@ export class YoutubePageComponent {
     this.youtubeService.youtubeFullLogin();
     this.navigateToLoginPage();
   }
+
+  public isLoggedIn():boolean {
+    return this.youtubeService.loginSessionId ? true : false;
+  }
+
+  public logOut(): void{
+    this.youtubeService.logOut();
+  }
 }

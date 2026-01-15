@@ -300,6 +300,12 @@ export class YoutubeService {
         this.isLoggingIn = false;
     }
 
+    logOut(): void{
+        this.nextHomePageToken = '';
+        this.homepageVideosSubject.next([]);
+        this.loginSessionIdSubject.next('');
+    }
+
     public minimizePlayer(){
         this.minimizedSubject.next(true);
     }
