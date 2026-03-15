@@ -60,18 +60,41 @@
         <div class="thumbnail">
             <!-- https://i.scdn.co/image/ab67616d0000b2736d6b5c0e21a25b0e9ea18ca5 -->
             <img 
+                *ngIf="!closed_captioning_enabled"
                 id="thumbnail"
                 progressive-load
                 [low]="current_media_data?.url?.artwork?.low"
                 [high]="current_media_data?.url?.artwork?.high"
                 [blob]="current_media_data?.download_artwork_blob"
             />
-            <!-- <div 
-                id="thumbnail"
-                progressive-load
-                [low]="current_media_data?.url?.artwork?.low"
-                [high]="current_media_data?.url?.artwork?.high"
-            ></div> -->
+            <div 
+                *ngIf="closed_captioning_enabled"
+                class="lyrics-container"
+            >
+                <div 
+                    class="lyrics-no-content-container" 
+                    *ngIf="lyrics_lines.length === 0"
+                >
+                    <div class="text">No lyrics available</div>
+
+                </div>
+                <div 
+                    #lyricsContent 
+                    class="lyrics-content hide-scrollbar"
+                    *ngIf="lyrics_lines.length !== 0"
+                >
+                    <p 
+                        #lyricsLine
+                        *ngFor="let line of lyrics_lines; let i = index" 
+                        [attr.data-index]="i"
+                        [ngClass]="{
+                            'active': line.start_time < (audio_current_time * 1000)
+                        }"
+                        [style.--duration]="((line.end_time - line.start_time) / 1000) + 's'"
+                    >{{ line.text.trim() === '' ? '♪' : line.text }}</p>
+                </div>
+                <div class="provider" *ngIf="lyrics_lines.length !== 0" [style.--mask]="'url(\'' + (current_media_data?.lyrics?.info?.source || 'brand-music') + '.svg\')'"></div>
+            </div>
         </div>
         <audio id="audio" preload="auto" playsinline controls>
             <source id="audio-src" src="" type="audio/mpeg">
@@ -160,7 +183,7 @@
                 <button class="control-button" [ngClass]="{active: sleep_time && sleep_time_remaining > 0, shake: sleep_timer_ended}" [style.--mask]="'url(' + 'stopwatch.svg' + ')'" (click)="toggle_sleep()">
                     <div class="timer-hand" [style.--rotation]="sleep_time ? (sleep_time_remaining / sleep_time) * 360 : 0"></div>
                     <div class="indicator" *ngIf="sleep_time && sleep_time_remaining > 0"></div>
-                </button> <!-- repeat-->
+                </button> <!-- sleep timer-->
             </div>
             <!-- <div class="volume-control" style="display: none;"> not available on pwa
                 <input type="range" class="slider" min="0" max="100" value="50">
@@ -171,7 +194,7 @@
                 <!-- <button class="modifier-button"></button> equilizer (doesnt work on lockscreen) -->
                 <!-- <button class="modifier-button disabled" (click)="toggle_disco_mode()" [style.--mask]="'url(' + 'disco-ball-fill.svg' + ')'"></button> toggle disco mode -->
                 <!-- [style.--color]="disco_mode ? 'var(--color-primary)' : 'var(--color-neutral)'" -->
-                <!-- <button class="modifier-button disabled right" style="margin-left: auto;" [style.--mask]="'url(' + 'badge-cc.svg' + ')'"></button> toggle lyrics -->
+                <button class="modifier-button right" style="margin-left: auto;" (click)="toggle_closed_captioning()" [style.--mask]="'url(' + (closed_captioning_enabled ? 'badge-cc-fill.svg' : 'badge-cc.svg') + ')'"></button> <!-- toggle lyrics -->
                 <button class="modifier-button right" style="scale: 0.8;" (click)="open_queue_management()" [style.--color]="'var(--color-neutral)'" [style.--mask]="'url(' + 'queue.svg' + ')'"></button> <!-- open queue-->
                 <!-- <button class="modifier-button disabled" [style.--mask]="'url(' + 'edit.svg' + ')'"></button> edit -->
                 <!-- <button class="modifier-button"></button> add to playlist -->

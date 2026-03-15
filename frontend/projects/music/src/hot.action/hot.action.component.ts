@@ -31,6 +31,7 @@ export class HotActionComponent {
     source_options: Map<Song_Source, string> = new Map([
         ['spotify', "#1cd760"],
         ['youtube', "#ff0033"],
+        ['youtubemusic', "#ff0033"],
         ['musi', "#ff8843"],
         ['musix', "#ff8843"],
     ]);
@@ -247,6 +248,7 @@ export class HotActionComponent {
         switch (this.import_type) {
             case 'spotify':
             case 'youtube':
+            case 'youtubemusic':
             case 'musi':
                 this.import_playlist_done();
                 break;
@@ -346,9 +348,9 @@ export class HotActionComponent {
         }
     }
 
-    import_type: 'spotify' | 'youtube' | 'musi' | 'musix' = 'musi';
+    import_type: 'spotify' | 'youtube' | 'youtubemusic' | 'musi' | 'musix' = 'musi';
 
-    set_import_type(type: 'spotify' | 'youtube' | 'musi' | 'musix'): void {
+    set_import_type(type: 'spotify' | 'youtube' | 'youtubemusic' | 'musi' | 'musix'): void {
         this.import_type = type;
         this.import_url = '';
         this.import_file = null;
@@ -667,7 +669,7 @@ export class HotActionComponent {
                 sorting_method: 'recent_to_old',
                 default: false,
             };
-            await this.player.load_playlist(null, single_song_playlist, false);
+            await this.player.load_playlist(null, single_song_playlist, false, false);
     
             this.player.pause();
             this.player.open_player.emit();

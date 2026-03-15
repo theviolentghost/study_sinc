@@ -32,6 +32,8 @@ export class ProgressiveLoadDirective implements OnDestroy, OnChanges {
     private load_image(): void {
         this.element = this.el.nativeElement as HTMLImageElement;
         if(!this.element) return;
+        this.element.src = ''; // reset src
+        this.add_loading_class();
 
         if(this.blob) {
             this.object_url = URL.createObjectURL(this.blob)
@@ -53,8 +55,12 @@ export class ProgressiveLoadDirective implements OnDestroy, OnChanges {
                                     if(this.element)  this.element.src = src;
                                     if(!src) {
                                         this.no_source_error();
+                                    } else {
+                                        this.remove_loading_class();
                                     }
                                 });
+                        } else {
+                            this.remove_loading_class();
                         }
                     });
             } else {
@@ -63,17 +69,29 @@ export class ProgressiveLoadDirective implements OnDestroy, OnChanges {
                     .subscribe(src => {
                         if(!src) return;
                         if(this.element) this.element.src = src;
-                        // if(!src) {
-                        //     this.no_source_error();
-                        // }
+                        if(!src) {
+                            this.no_source_error();
+                        } else {
+                            this.remove_loading_class();
+                        }
                     });
             }
         }
     }
 
     private no_source_error(): void {
-        if(this.element) this.element.src = '';
-        if(this.element) this.element.classList.add('no-source-error');
+        if(this.element) return;
+        this.element.src = '';
+        this.element.classList.add('no-source-error');
+        this.remove_loading_class();
+    }
+
+    private add_loading_class(): void {
+        if(this.element) this.element.classList.add('progressive-image-loading');
+    }
+
+    private remove_loading_class(): void {
+        if(this.element) this.element.classList.remove('progressive-image-loading');
     }
 
     private clean_up(): void {

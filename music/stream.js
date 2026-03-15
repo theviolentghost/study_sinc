@@ -18,7 +18,7 @@ const __dirname = path.resolve();
 async function call_dj_api(endpoint, data) {
     return new Promise((resolve, reject) => {
         const DJ_SERVICE_HOST = process.env.DJ_SERVICE_HOST || 'localhost';
-        const DJ_SERVICE_PORT = process.env.DJ_SERVICE_PORT || 54321;
+        const DJ_SERVICE_PORT = process.env.DJ_SERVICE_PORT || 5002; // Analysis Worker
         
         const postData = JSON.stringify(data);
         
@@ -181,7 +181,7 @@ class Adaptive_Stream {
                 channels: 2,
                 bandwidth: 128 * 1024,
                 codec: 'aac',
-                hls_codec: 'mp4a.40.2', // HLS CODECS attribute - AAC-LC
+                hls_codec: 'mp4a.40.2', // HLS CODECS attribute - AAC-LC mp4a.40.2
                 audio_profile: 'aac_low',
                 compression_level: null,
                 frame_duration: null,
@@ -210,7 +210,7 @@ class Adaptive_Stream {
                 bandwidth: 320 * 1024,
                 codec: 'aac',
                 hls_codec: 'mp4a.40.2',
-                audio_profile: 'aac_low',
+                audio_profile: 'aac_low', // aac_low
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
@@ -632,7 +632,6 @@ class Adaptive_Stream {
             like_count: json_dump_data?.like_count || 0,
             view_count: json_dump_data?.view_count || 0,
         };
-
         return file_system.promises.writeFile(properties_path, JSON.stringify(properties, null, 2));
     }
 

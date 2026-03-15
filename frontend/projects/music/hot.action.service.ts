@@ -124,6 +124,44 @@ export class HotActionService {
         };
     }
 
+    async youtube_music_track_data(video: any): Promise<Song_Data | null> {
+        return {
+            original_song_name: video?.title || '',
+            original_artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'youtubemusic' } }) || [],
+            song_name: video?.title || '',
+            artists: video.artists.map((artist: any) => { return {name: artist.name, id: artist.id, source: 'youtubemusic' } }) || [],
+            downloaded: false,
+            download_audio_blob: null,
+            download_artwork_blob: null,
+            download_options: null,
+            id: {
+                video_id: video?.videoId || '',
+                source: 'youtubemusic',
+            },
+            url: {
+                audio: null,
+                artwork: {
+                    low: null,
+                    high: video?.thumbnails?.[video.thumbnails.length - 1]?.url || null,
+                },
+            },
+            colors: {
+                primary: await this.media.get_primary_color_from_artwork(video?.thumbnails?.[video.thumbnails.length - 1]?.url || null),
+                common: await this.media.get_top_colors_from_artwork(video?.thumbnails?.[video.thumbnails.length - 1]?.url || null, 5, 55),
+            },
+            liked: false,
+            video_duration: video?.duration_seconds ? video.duration_seconds * 1000 : 0,
+        }
+    }
+
+    async youtube_music_track_identifier(video: any): Promise<Song_Identifier | null> {
+        if (!video || !video.id || !video.id) return null;
+        return {
+            video_id: video.id,
+            source: 'youtubemusic',
+        };
+    }
+
     async spotify_track_data(video: any): Promise<Song_Data | null> {
         const video_uri = video.uri;
         if (!video_uri) return null;

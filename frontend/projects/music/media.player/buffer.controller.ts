@@ -157,23 +157,53 @@ class BufferController {
     private configure_hls_events(hls: Hls) {
         if (!hls) return;
 
-        // console.log('⚙️ Configuring HLS.js event handlers');
-
-        hls.on(Events.MANIFEST_LOADING, (e, data) => {
-            console.log('🔄 Manifest loading from URL:', data.url);
-        });
-
-        hls.on(Events.MANIFEST_LOADED, (e, data) => {
-            hls?.startLoad(0);
-            console.log('✅ Manifest loaded:', data.levels?.length, 'levels');
-        });
-
-        // hls.on(Events.MANIFEST_PARSED, (e, data) => {
-        //     console.log('✅ Manifest parsed:', data.levels?.length, 'levels');
+        // hls.on(Events.MANIFEST_LOADING, (e, data) => {
+        //     console.log('🔄 MANIFEST_LOADING:', data.url);
         // });
 
-        // hls.on(Events.MEDIA_DETACHING, () => {
-        //     console.log('⚠️ Media detaching event fired');
+        // hls.on(Events.MANIFEST_LOADED, (e, data) => {
+        //     console.log('✅ MANIFEST_LOADED:', {
+        //         levels: data.levels?.length,
+        //         url: data.url,
+        //         stats: data.stats
+        //     });
+        //     console.log('   Levels:', data.levels);
+        // });
+
+        // hls.on(Events.MANIFEST_PARSED, (e, data) => {
+        //     console.log('✅ MANIFEST_PARSED:', {
+        //         levels: data.levels?.length,
+        //         firstLevel: data.firstLevel,
+        //         stats: data.stats
+        //     });
+        // });
+
+        // hls.on(Events.LEVEL_LOADING, (e, data) => {
+        // });
+
+        // hls.on(Events.LEVEL_LOADED, (e, data) => {
+        //     console.log('✅ LEVEL_LOADED:', {
+        //         level: data.level,
+        //         details: data.details
+        //     });
+        // });
+
+        hls.on(Events.MEDIA_DETACHING, () => {
+            console.log('⚠️ Media detaching event fired');
+        });
+
+        // hls.on(Events.MANIFEST_LOADING, (e, data) => {
+        //     console.log('🔄 MANIFEST_LOADING (detailed):', {
+        //         url: data.url,
+        //     });
+        // });
+
+        // hls.on(Events.MANIFEST_PARSED, (e, data) => {
+        //     console.log('✅ MANIFEST_PARSED (detailed):', {
+        //         levels: data.levels,
+        //         altAudio: data.altAudio,
+        //         firstLevel: data.firstLevel
+        //     });
         // });
 
         // hls.on(Events.MEDIA_ATTACHING, (e, data) => {
@@ -378,6 +408,8 @@ class BufferController {
     private async playlist_load(url: string): Promise<void> {
         if (!this.audio_element) throw new Error('Audio element not set.');
 
+        await this.controller.http_interceptor_service.wait_for_ready();
+
         this.controller.queue_updated(true);
 
         this.using_silent_source = true;
@@ -391,10 +423,11 @@ class BufferController {
                 // overrides: { endOfStream: false }
             });
             this.hls.loadSource(url);
-            this.hls.startLoad(0);
+            this.hls.startLoad();
 
             this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
                 // console.log('FRAG_CHANGED event:', data);
+                this.controller?.on_has_audio();
                 if(this.using_silent_source) {
                     // was using silent source then switched to real source
                     this.using_silent_source = false;
@@ -442,6 +475,16 @@ class BufferController {
                     }
                 }
             });
+            
+            this.controller.http_interceptor_service.time_offset_needed.subscribe((duration_to_add: number) => {
+                // A track was loaded before the currently playing track, we need to adjust playback time
+                // Update the current time to account for the newly loaded track before us
+                // This maintains playback position without reloading segments
+                this.current_time = this.current_time + duration_to_add;
+                
+                // Update the current track timestamp reference
+                this.update_current_track_timestamp();
+            });
         } else {
             this.update_playlist(() => {
                 this.current_time = 0;
@@ -481,22 +524,6 @@ class BufferController {
         }
 
         return false;
-
-        // fall through to more precise check
-        // figure out which timestamp range we are in
-        const silent_audio_index = this.controller.get_silent_audio_position();
-        let timestamp_in_range = null;
-        for (let i = 0; i < this.timestamps_of_tracks_cache.length; i++) {
-            if(i === silent_audio_index) continue; // skip silent audio
-            const timestamp = this.timestamps_of_tracks_cache[i];
-            if(!timestamp) continue;
-            if (timestamp.start_timestamp <= (this.current_time + 0.1) && timestamp.end_timestamp >= (this.current_time + 0.1)) {
-                timestamp_in_range = timestamp;
-            }
-        }
-        if (!timestamp_in_range) return false;
-
-        return timestamp_in_range.video_id !== this.controller?.playlist_manager?.current_song_identifier?.video_id && this.current_track_timestamp.video_id === this.controller?.playlist_manager?.current_song_identifier?.video_id;
     }
 
     public update_current_track_timestamp(): void {
@@ -750,7 +777,7 @@ class BufferController {
                 this.hls.audioStreamController.flushMainBuffer(this.current_time + start_offset - 0.1, Infinity);
                 break;
         }
-        // this.hls.audioStreamController.flushMainBuffer(0, Infinity);
+        this.hls.audioStreamController.flushMainBuffer(0, Infinity);
         this.hls.once(Hls.Events.BUFFER_FLUSHED, () => {
             on_flush?.();
         });

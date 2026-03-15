@@ -64,7 +64,8 @@ class MusicPlaylistManager {
     public async load_playlist(
         identifier: Song_Playlist_Identifier | null, 
         data: Song_Playlist | null, 
-        preserve_history: boolean = false // whether to preserve the current song history
+        preserve_history: boolean = false, // whether to preserve the current song history
+        first_song_key: string | null = null,
     ): Promise<void> {
         // if(identifier && identifier?.id !== this.identifier?.id) this.manager.buffer_controller.destroy(); // refresh state
 
@@ -102,8 +103,12 @@ class MusicPlaylistManager {
             console.warn('No valid video IDs found in playlist for streaming playlist URL generation...may have slow startup');
             // return;
         }
-
-        this.manager.set_streaming_playlist_queue(this.full_queue);
+        let queue = [...this.full_queue];
+        if(first_song_key !== null) {
+            // add to front of queue
+            queue.unshift(first_song_key);
+        }
+        this.manager.set_streaming_playlist_queue(queue);
 
         if(this.manager.use_streaming_playlist) {
             this.media.get_streaming_playlist_url().then(url => {
@@ -297,9 +302,9 @@ class MusicPlaylistManager {
             await this.manager.load_track(song_key, false);
         } catch (error) {
             console.error('Error preloading song:', song_key, error);
-            this.handle_preload_queue();
         }
         this.song_preload_in_progress = false;
+        this.handle_preload_queue();
     }
 
     public refresh_queue(): void {

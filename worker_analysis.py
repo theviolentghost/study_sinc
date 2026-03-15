@@ -1,29 +1,28 @@
-from flask import Flask, request, jsonify, g
+"""
+Analysis Worker - Audio analysis and DJ mixing
+Handles: Audio embeddings, similarity search, DJ mix calculations
+Heavy ML models - slow startup but specialized for analysis tasks
+"""
+
+from flask import Flask, request, jsonify
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'spotify-downloader'))
-from spotdl import Spotdl
 import logging
 import signal
 import traceback
 from functools import wraps
-from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(
-    level=logging.WARNING,  # Changed from INFO to WARNING to reduce output
+    level=logging.WARNING,
     format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        # logging.FileHandler('server.log', mode='a')
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-# Conditional import for Audio_Search to prevent startup failures
+# Initialize audio analysis components (slow startup)
+print("🔄 Loading audio analysis models...")
 try:
-    global Audio_Search, AUDIO_SEARCH_AVAILABLE
-
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'music', 'recommendation'))
     from query_2 import Audio_Search
     from hls_audio_decoder import HLS_Audio_Decoder
@@ -35,38 +34,18 @@ try:
     analyzer = DJ_Audio_Analyzer()
     mix_calculator = DJ_Mix_Calculator()
     mixer = DJ_Audio_Mixer()
+    audio_search = Audio_Search()
 
     AUDIO_SEARCH_AVAILABLE = True
-    print("Audio_Search module imported successfully")
-
-    audio_search = Audio_Search()
+    print("✅ Audio analysis models loaded successfully")
 except ImportError as e:
-    print(f"Audio_Search module not available: {e}")
-    Audio_Search = None
+    print(f"❌ Audio analysis module not available: {e}")
     AUDIO_SEARCH_AVAILABLE = False
-
-# Import lyrics transcriber
-try:
-    from music.lyrics_generator import Lyrics_Transcriber
-    TRANSCRIPTION_AVAILABLE = True
-    lyrics_transcriber = Lyrics_Transcriber()
-    print("Lyrics transcriber initialized successfully")
-except ImportError as e:
-    print(f"Lyrics transcription not available: {e}")
-    TRANSCRIPTION_AVAILABLE = False
-    lyrics_transcriber = None
-
-load_dotenv()
-client_id = os.getenv("SPOTIFY_CLIENT_ID")
-client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-
-# Initialize Spotdl with error handling
-try:
-    spotdl = Spotdl(client_id, client_secret)
-    logger.info("Spotdl initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize Spotdl: {str(e)}")
-    spotdl = None
+    decoder = None
+    analyzer = None
+    mix_calculator = None
+    mixer = None
+    audio_search = None
 
 app = Flask(__name__)
 
@@ -86,25 +65,14 @@ def handle_errors(f):
             }), 500
     return decorated_function
 
-# Middleware to validate request parameters
-@app.before_request
-def validate_request():
-    try:
-        # Check if spotdl is available
-        if spotdl is None and request.endpoint not in ['health', 'static']:
-            return jsonify({"error": "Service temporarily unavailable"}), 503
-        
-    except Exception as e:
-        logger.error(f"Error in before_request: {str(e)}")
-        return jsonify({"error": "Request validation failed"}), 400
-
 # Health check endpoint
 @app.route('/health')
 @handle_errors
 def health():
     return jsonify({
         "status": "healthy",
-        "spotdl_available": spotdl is not None,
+        "worker_type": "analysis",
+        "audio_search_available": AUDIO_SEARCH_AVAILABLE,
         "timestamp": os.popen('date').read().strip()
     })
 
@@ -130,95 +98,9 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
-@app.route('/search_suggestions')
-@handle_errors
-def search_suggestions():
-    query = request.args.get('q')
-    if not query:
-        return jsonify({"error": "Missing required parameter 'q'"}), 400
-    
-    if not query.strip():
-        return jsonify({"error": "Parameter 'q' cannot be empty"}), 400
-    
-    logger.info(f"Search suggestions for query: {query}")
-    result = spotdl.get_search_suggestions(query)
-    return jsonify(result)
-
-@app.route('/related_tracks')
-@handle_errors
-def related_tracks():
-    track_id = request.args.get('track_id')
-    if not track_id:
-        return jsonify({"error": "Missing required parameter 'track_id'"}), 400
-    
-    if not track_id.strip():
-        return jsonify({"error": "Parameter 'track_id' cannot be empty"}), 400
-    
-    logger.info(f"Getting related tracks for ID: {track_id}")
-    result = spotdl.get_related_tracks(track_id)
-    return jsonify(result)
-
-@app.route('/watch_playlist')
-@handle_errors
-def watch_playlist():
-    track_id = request.args.get('track_id')
-    if not track_id:
-        return jsonify({"error": "Missing required parameter 'track_id'"}), 400
-    
-    if not track_id.strip():
-        return jsonify({"error": "Parameter 'track_id' cannot be empty"}), 400
-    
-    logger.info(f"Getting watch playlist for ID: {track_id}")
-    result = spotdl.get_watch_playlist(track_id)
-    return jsonify(result['tracks'])
-
-# explore
-@app.route('/mood_categories')
-@handle_errors
-def mood_categories():
-    logger.info("Getting mood categories")
-    result = spotdl.get_mood_categories()
-    return jsonify(result)
-
-@app.route('/mood_playlists')
-@handle_errors
-def mood_playlists():
-    mood = request.args.get('mood')
-    if not mood:
-        return jsonify({"error": "Missing required parameter 'mood'"}), 400
-    
-    if not mood.strip():
-        return jsonify({"error": "Parameter 'mood' cannot be empty"}), 400
-    
-    logger.info(f"Getting mood playlists for mood: {mood}")
-    result = spotdl.get_mood_playlists(mood)
-    return jsonify(result)
-
-@app.route('/charts')
-@handle_errors
-def charts():
-    logger.info("Getting charts")
-    result = spotdl.get_charts()
-    return jsonify(result)
-
-@app.route('/get_video_id')
-@handle_errors
-def get_video_id():
-    query = request.args.get('q')
-    if not query:
-        return jsonify({"error": "Missing required parameter 'q'"}), 400
-    
-    if not query.strip():
-        return jsonify({"error": "Parameter 'q' cannot be empty"}), 400
-    
-    logger.info(f"Getting video ID for query: {query}")
-    result = spotdl.get_video_id(query)
-    
-    if not result:
-        logger.warning(f"No video ID found for query: {query}")
-        return jsonify({"error": f"No YouTube video found for: {query}", "id": None}), 404
-    
-    return jsonify({"id": result})
+# ============================================================================
+# AUDIO ANALYSIS ENDPOINTS
+# ============================================================================
 
 @app.route('/request_embedding', methods=['POST'])
 @handle_errors
@@ -226,7 +108,6 @@ def request_embedding():
     if not AUDIO_SEARCH_AVAILABLE:
         return jsonify({"error": "Audio search functionality not available"}), 503
     
-    # logger.info("Audio_Search is running")
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON body"}), 400
@@ -277,6 +158,10 @@ def search_similar_songs():
         logger.error(f"Error searching similar songs: {str(e)}")
         return jsonify({"error": "Failed to search similar songs", "message": str(e)}), 500
 
+# ============================================================================
+# DJ MIXING ENDPOINTS
+# ============================================================================
+
 @app.route('/dj_calculate_mix', methods=['POST'])
 def calculate_mix():
     """
@@ -301,6 +186,9 @@ def calculate_mix():
         }
     }
     """
+    if not AUDIO_SEARCH_AVAILABLE:
+        return jsonify({"error": "Audio analysis functionality not available"}), 503
+    
     try:
         data = request.get_json()
         current_song_id = data.get('current_song_id')
@@ -402,6 +290,9 @@ def get_stitched_mix():
         "cached": false
     }
     """
+    if not AUDIO_SEARCH_AVAILABLE:
+        return jsonify({"error": "Audio analysis functionality not available"}), 503
+    
     try:
         data = request.get_json()
         song_id_1 = data.get('song_id_1')
@@ -441,118 +332,12 @@ def get_stitched_mix():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-@app.route('/transcribe_lyrics', methods=['POST'])
-@handle_errors
-def transcribe_lyrics():
-    """
-    Transcribe lyrics from audio with word-level timestamps
-    
-    Request body:
-    {
-        "video_id": "youtube_video_id",
-        "audio_path": "/path/to/audio.mp3" (optional),
-        "silence_threshold": 6.5 (optional, seconds)
-    }
-    
-    Response:
-    {
-        "success": true,
-        "video_id": "...",
-        "info": {
-            "source": "musik",
-            "duration": 180000,
-            "language_probabilities": [...]
-        },
-        "blocks": [
-            {
-                "start_time": 0,
-                "end_time": 2500,
-                "text": "Lyric line",
-                "probability": 0.95
-            }
-        ]
-    }
-    """
-    if not TRANSCRIPTION_AVAILABLE:
-        return jsonify({
-            'success': False,
-            'error': 'Transcription service not available'
-        }), 503
-    
-    try:
-        data = request.get_json()
-        video_id = data.get('video_id')
-        audio_path = data.get('audio_path')
-        silence_threshold = data.get('silence_threshold', 6.5)
-        
-        if not video_id and not audio_path:
-            return jsonify({
-                'success': False,
-                'error': 'Either video_id or audio_path is required'
-            }), 400
-        
-        print(f"Transcribing lyrics for video_id: {video_id}")
-        
-        # Determine audio input
-        sample_rate = 44100  # Default sample rate
-        if audio_path:
-            audio_input = audio_path
-            # For file paths, let Whisper auto-detect sample rate
-            sample_rate = None
-            print(f"Using audio file path: {audio_path}")
-        elif video_id:
-            # Try to decode from HLS
-            try:
-                audio_input, sample_rate = decoder.decode_chunks_to_numpy(video_id, 'high')
-                print(f"Decoded audio from HLS: shape={audio_input.shape}, sample_rate={sample_rate}Hz, silence_threshold={silence_threshold}s")
-            except Exception as e:
-                print(f"Could not decode from HLS: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': f'Could not find audio for video_id: {video_id}'
-                }), 404
-        
-        # Transcribe
-        if sample_rate:
-            lyrics = lyrics_transcriber.transcribe(
-                audio_input, 
-                original_sample_rate=sample_rate, 
-                silence_threshold=silence_threshold
-            )
-        else:
-            # For file paths, don't pass sample_rate
-            lyrics = lyrics_transcriber.transcribe(audio_input, silence_threshold=silence_threshold)
-        lyrics_json = lyrics.to_json()
-        print("Transcription result:")
-        print(lyrics_json)
-        
-        # Convert to JSON-serializable format
-        result = {
-            'success': True,
-            'video_id': video_id,
-            'info': lyrics_json['info'],
-            'blocks': lyrics_json['blocks'],
-            'lyrics': lyrics_json['lyrics']
-        }
-
-        return jsonify(result)
-        
-    except Exception as e:
-        print(f"Error transcribing lyrics: {e}")
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-# Application entry point with proper error handling
+# Application entry point
 if __name__ == '__main__':
     try:
-        # Get port and worker info from environment
-        port = int(os.getenv('FLASK_PORT', 54321))
-        worker_name = os.getenv('WORKER_NAME', 'Main Server')
-        worker_cores = os.getenv('WORKER_CORES', 'auto')
+        port = int(os.getenv('FLASK_PORT', 5002))
+        worker_name = os.getenv('WORKER_NAME', 'Analysis Worker')
+        worker_cores = os.getenv('WORKER_CORES', '2')
         
         logger.info(f"Starting Flask server: {worker_name}")
         logger.info(f"Port: {port}, Cores: {worker_cores}")
@@ -561,4 +346,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"Failed to start server: {str(e)}")
         sys.exit(1)
-

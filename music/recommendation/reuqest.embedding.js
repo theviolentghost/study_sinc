@@ -4,21 +4,21 @@ import music from '../music.js'
 async function request_embedding(song_id) {
     if(!song_id) return;
     try {
-        if (!song_id || song_id.trim() === '' || song_id === 'undefined' || song_id === 'null') {
-            console.error('No song_id provided');
-            return;
-        }
-        const response = await fetch('http://localhost:54321/request_embedding', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ song_id: song_id }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || 'Unknown error');
-        }
+        // if (!song_id || song_id.trim() === '' || song_id === 'undefined' || song_id === 'null') {
+        //     console.error('No song_id provided');
+        //     return;
+        // }
+        // const response = await fetch('http://localhost:54321/request_embedding', {
+        //     method: 'POST',
+        //     headers: {
+        //         'Content-Type': 'application/json',
+        //     },
+        //     body: JSON.stringify({ song_id: song_id }),
+        // });
+        // const data = await response.json();
+        // if (!response.ok) {
+        //     throw new Error(data.error || 'Unknown error');
+        // }
     } catch (error) {
         console.error('Error:', error);
         return;
@@ -33,9 +33,9 @@ async function request_embedding_for_spotify_items(spotify_items) {
     // wait till a track is done before moving on to next with a 5 second delay between each request.
     // confirm track is of type track, then also fecth video_id
 
-    spotify_track_embedding_queue.push(...spotify_items);
+    // spotify_track_embedding_queue.push(...spotify_items);
     
-    process_spotify_track_embedding_queue();
+    // process_spotify_track_embedding_queue();
 }
 
 let processing_queue = false;
@@ -58,7 +58,7 @@ async function process_spotify_track_embedding_queue() {
 }
 
 async function is_song_in_process_queue(song_id) {
-    const response = await fetch(`http://localhost:54321/is_song_in_process_queue?song_id=${encodeURIComponent(song_id)}`, {
+    const response = await fetch(`http://localhost:5002/is_song_in_process_queue?song_id=${encodeURIComponent(song_id)}`, {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json',

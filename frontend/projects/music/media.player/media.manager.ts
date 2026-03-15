@@ -21,7 +21,7 @@ export enum Audio_Error {
 export enum Audio_Error_Message {
     UNKNOWN = "Unknown error",
     FETCH_VIDEO_ID = "Failed to fetch video ID",
-    FETCH_PLAYBACK_URL = "Failed to fetch playback URL",
+    FETCH_PLAYBACK_URL = "Failed to fetch HTTP Live Streaming URL",
     DOES_NOT_EXIST = "The requested track does not exist",
     PLAYBACK = "Playback error",
 }
@@ -200,9 +200,6 @@ class MusicMediaManager {
     }
 
     public get_silent_audio_position(): number {
-        // if(this.buffer_controller.timestamps_of_tracks_cache[this.buffer_controller.timestamps_of_tracks_cache.length - 1].video_id === '#silent_audio') {
-        //     return this.buffer_controller.timestamps_of_tracks_cache[this.buffer_controller.timestamps_of_tracks_cache.length - 1].start_timestamp;
-        // }
         for(let index = 0; index < this.buffer_controller.timestamps_of_tracks_cache.length; index++) {
             const track = this.buffer_controller.timestamps_of_tracks_cache[index];
             if(!track) continue;
@@ -228,6 +225,12 @@ class MusicMediaManager {
 
         const song_key = this.playlist_manager.current_song_key;
         this.loading_tracks.set(song_key, 'loaded');
+        // add song to recently played
+        if(this.current_song) {
+            this.media.add_to_recently_played(this.current_song).catch((error) => {
+                console.error('Error adding to recently played:', error);
+            });
+        }
     }
 
     public on_song_ended(): void {
@@ -355,8 +358,18 @@ class MusicMediaManager {
         throw new Error('Failed to create blob URL');
     }
 
-    private load_error(song_key: string, error: Audio_Error = Audio_Error.UNKNOWN, auto_skip: boolean = false): void {
-        this.notification_service.error(`${error} - Failed to load track: ${song_key}`, {dismissTime: 7000, autoDismiss: true});
+    private load_error(song_key: string, error: Audio_Error = Audio_Error.UNKNOWN, auto_skip: boolean = false, song_title: string = 'track'): void {
+        // only notify if the song_key is the current song
+        if(this.is_song_key_equal_to_current(song_key)) {
+            this.notification_service.error(
+                `Failed to load ${song_title}`,
+                {
+                    details: `${error} - ${Audio_Error_Message[error]} - ${song_key}`,
+                    dismissTime: 7000,
+                    autoDismiss: true
+                }
+            );
+        }
         if (auto_skip) {
             if(this.auto_skip_failure_count < this.max_auto_skip_before_failure) {
                 this.auto_skip_failure_count++;
@@ -435,14 +448,14 @@ class MusicMediaManager {
             song_key = this.media.song_key(data.id);
         } else {
             console.error('Invalid data provided to load_track:', data);
-            this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, true);
+            this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, true, song_data ? song_data.song_name : 'track');
             return null;
         }
 
         // at this point, song_key and song_identifier must be set
         if(!song_key || !song_identifier) {
             console.error('Failed to determine song key or identifier in load_track:', data);
-            this.load_error(song_key || 'unknown', Audio_Error.DOES_NOT_EXIST, true);
+            this.load_error(song_key || 'unknown', Audio_Error.DOES_NOT_EXIST, true, song_data ? song_data.song_name : 'track');
             return null;
         }
 
@@ -508,7 +521,7 @@ class MusicMediaManager {
                             this.queue_updated();
                         } else {
                             this.loading_tracks.delete(song_key);
-                            if(this.is_song_key_equal_to_current(song_key)) this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key));
+                            if(this.is_song_key_equal_to_current(song_key)) this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key), song_data ? song_data.song_name : 'track');
                             return null;
                         }
                         break;
@@ -516,7 +529,7 @@ class MusicMediaManager {
                     default: {
                         console.error('Unsupported source for fetching video ID:', song_identifier.source);
                         this.loading_tracks.delete(song_key);
-                        if(this.is_song_key_equal_to_current(song_key)) this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key));
+                        if(this.is_song_key_equal_to_current(song_key)) this.load_error(song_key, Audio_Error.FETCH_VIDEO_ID, this.is_song_key_equal_to_current(song_key), song_data ? song_data.song_name : 'track');
                         return null;
                     }
                 }
@@ -533,7 +546,7 @@ class MusicMediaManager {
             if(!song_identifier.video_id || song_identifier.video_id === '') {
                 console.error('No valid video ID found in song identifier for load:', song_identifier);
                 this.loading_tracks.delete(song_key);
-                this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, this.is_song_key_equal_to_current(song_key));
+                this.load_error(song_key, Audio_Error.DOES_NOT_EXIST, this.is_song_key_equal_to_current(song_key), song_data ? song_data.song_name : 'track');
                 return null;
             }
 
@@ -568,7 +581,7 @@ class MusicMediaManager {
                     }).catch(error => {
                         if(error.name !== 'AbortError') {
                             console.error('Error fetching HLS bundle:', error);
-                            this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key));
+                            this.load_error(song_key, Audio_Error.FETCH_PLAYBACK_URL, this.is_song_key_equal_to_current(song_key), song_data ? song_data.song_name : 'track');
                         }
                         this.loading_tracks.delete(song_key);
                     });
@@ -600,6 +613,7 @@ class MusicMediaManager {
 
     public queue_updated(skip_buffer_flush: boolean = false): void {
         this.set_streaming_playlist_queue(this.playlist_manager.full_queue, skip_buffer_flush);
+        this.playlist_manager.preload_upcoming_songs();
     }
 
     public async set_streaming_playlist(playlist_url: string | null): Promise<void> {
@@ -697,7 +711,10 @@ class MusicMediaManager {
         // Update position state when metadata changes
         this.update_media_session_position();
         await this.update_colors_from_artwork(metadata);
+        await this.media.save_song_to_indexDB(this.media.song_key(metadata.id), metadata);
         this.player.update_theme();
+        // await this.update_lyrics(metadata);
+        // await this.media.save_song_to_indexDB(this.media.song_key(metadata.id), metadata);
     }
 
     private async update_colors_from_artwork(song_data: Song_Data): Promise<void> {
@@ -718,8 +735,8 @@ class MusicMediaManager {
             }
         }
 
-        this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
-        this._media_data = song_data;
+        // this.media.save_song_to_indexDB(this.media.song_key(song_data.id), song_data);
+        if(this.is_song_key_equal_to_current(this.media.song_key(this._media_data.id))) this._media_data = song_data;
     }
 
     private sleep_timer_interval: any = null;
@@ -753,6 +770,18 @@ class MusicMediaManager {
 
     public set_sleep_timer_to_end_of_track(): void {
         this.sleep_timer_to_end_of_track = true;
+    }
+
+    private async update_lyrics(song_data: Song_Data): Promise<void> {
+        if(!song_data) return;
+        if(song_data.lyrics) return;
+        try {
+            const lyrics = await this.media.get_song_lyrics(song_data.id.video_id);
+            song_data.lyrics = lyrics;
+            if(this.is_song_key_equal_to_current(this.media.song_key(this._media_data.id))) this._media_data = song_data;
+        } catch (error) {
+            console.error('Error fetching lyrics for song:', error);
+        }
     }
 }
 

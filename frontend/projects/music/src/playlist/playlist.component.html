@@ -82,6 +82,7 @@
             [attr.data-video-key]="video_key(video)"
             [style.transform]="swiping_video === video_key(video) ? 'translateX(' + swipe_x + 'px)' : ''"
             [style.border-bottom]="is_downloading(video?.id?.video_id || '') ? 'solid 1px transparent' : null"
+            [style.display]="video_exists(video) ? null : 'none'"
     >
         <div class="thumbnail" [style.background-color]="video?.colors?.primary || '#1a1c1b'" *ngIf="playlist_identifier.playlist_type !== 'album'">
             <img 

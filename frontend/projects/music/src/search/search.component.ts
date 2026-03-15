@@ -10,10 +10,11 @@ import { GlobalInfoService } from '../../global.info.service';
 import { InViewDirective } from './in-view.directive';
 import { LoadingService } from '../../loading.service';
 import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
+import { HomeComponent } from '../home/home.component';
 
 @Component({
   selector: 'media-search',
-  imports: [FormsModule, CommonModule, InViewDirective, ProgressiveLoadDirective],
+  imports: [FormsModule, CommonModule, InViewDirective, ProgressiveLoadDirective, HomeComponent],
   templateUrl: './search.component.html',
   styleUrl: './search.component.css'
 })
@@ -67,10 +68,30 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     search_recommendations: any[] = []; 
 
     source_dropdown_open: boolean = false;
-    source_dropdown_options: {source: Song_Source, color: string}[] = [{source: 'spotify', color: "#1cd760"}, {source: 'youtube', color: "#ff0033"}];
+    source_dropdown_options: {
+        source: Song_Source, 
+        color: string
+    }[] = [
+        {
+            source: 'spotify', 
+            color: "#1cd760"
+        }, 
+        {
+            source: 'youtube', 
+            color: "#ff0033"
+        },
+        {
+            source: 'youtubemusic',
+            color: "#ff0033"
+        }
+    ];
 
     // mood_categories: {params: string, title: string}[] = [];
     // mood_playlists: any[] = [];
+
+    get input_has_focus(): boolean {
+        return document.activeElement === this.searchInput?.nativeElement;
+    }
 
     toggle_source_dropdown(): void {
         this.source_dropdown_open = !this.source_dropdown_open;
@@ -226,14 +247,15 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
                 this.query_abort_controller.abort();
             }
             this.query_abort_controller = new AbortController();
-
-            this.search_query = query.trim();
-            console.log(`Searching for: ${query}:`, this.search_source);
-
+            query = query.trim();
             this.song_data_cache.clear();
             this.searching = true;
 
             this.search_results = await this.media.search(query, this.search_source, this.query_abort_controller.signal);
+            if(this.query_abort_controller.signal.aborted) {
+                console.log('Search aborted for query:', query);
+                return null;
+            }
             if (this.search_results) this.last_query = query;
             this.searching = false;
             this.set_catalog();
@@ -296,6 +318,43 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
                     media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
                     media_controller.playlist_manager.add_song_to_playlist(this.media.song_key(song.id));
                     this.player.add_song_to_cache(song);
+                });
+            } else {
+                console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
+            }
+        }).catch((error) => {
+            console.error('Error fetching watch playlist:', error);
+        });
+    }
+
+    async youtube_music_play(video: any): Promise<void> {
+        console.log('Playing YouTube Music video:', video);
+        this.player.song_changed.emit();
+        const cache = this.song_data_cache.get(this.media.song_key({source: 'youtubemusic', video_id: video.videoId}));
+        let partial_song_data: Song_Data | null = cache || await this.hot_action.youtube_music_track_data(video);
+        if(!partial_song_data) return; // partial_song_data should be full data here, called partial_song_data for consistency with spotify
+        const single_song_playlist: Song_Playlist = {
+            name: partial_song_data.song_name,
+            songs: new Map<string, Song_Identifier>(),
+            song_added_timestamps: new Map<string, number>(),
+            sorting_method: 'recent_to_old',
+            default: false,
+        };
+        await this.player.load_playlist(null, single_song_playlist, false);
+
+        this.player.pause();
+        this.player.open_player.emit();
+
+        const complete_song_data: Song_Data = await this.player.load_and_play_track(partial_song_data);
+        if(!complete_song_data) return;
+
+        const media_controller = this.player.media_controller;
+        this.media.get_watch_playlist(complete_song_data.id.video_id).then(async (playlist) => {
+            console.log('Fetched watch playlist for YouTube Music video:', playlist);
+            if (playlist && playlist.songs && playlist.songs.length > 0) {
+                playlist.song_data.forEach((song: Song_Data) => {
+                    media_controller.playlist_manager.add_song_to_end_of_queue(this.media.song_key(song.id));
+                    media_controller.playlist_manager.add_song_to_playlist(this.media.song_key(song.id));
                 });
             } else {
                 console.warn('No tracks found in the watch playlist for:', complete_song_data?.id.video_id);
@@ -398,7 +457,8 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
     get_video_identifier(video: any, source: Song_Source): Song_Identifier | null {
         switch(source) {
             case 'youtube': return { video_id: video.snippet?.videoId || video.id?.videoId, source: 'youtube' };
-            case 'spotify': return { video_id: '', source_id:  video.id  || video.uri  || '', source }
+            case 'spotify': return { video_id: '', source_id:  video.id  || video.uri  || '', source: 'spotify' };
+            case 'youtubemusic': return { video_id: video.videoId || video.id, source: 'youtubemusic' };
             default: return null; // Unsupported source
         }
     }
@@ -531,6 +591,19 @@ export class SearchComponent implements AfterViewInit, OnInit, OnDestroy {
         this.router.navigate(['/artist', channel_id], { 
             queryParams: {
                 source: 'youtube'
+            }
+        });
+    }
+
+    youtube_music_open_channel(channel: any): void {
+        const channel_id = channel.id;
+        if (!channel_id) return;
+
+        // add to media cache
+        // this.media.add_channel_to_recents(channel);
+        this.router.navigate(['/artist', channel_id], { 
+            queryParams: {
+                source: 'youtubemusic'
             }
         });
     }

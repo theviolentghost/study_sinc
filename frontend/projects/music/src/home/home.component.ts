@@ -6,7 +6,7 @@ import { MusicMediaService } from '../../music.media.service';
 import { Router } from '@angular/router';
 
 @Component({
-  selector: 'app-home',
+  selector: 'search-home',
   imports: [CommonModule, ScrollSnapActiveDirective],
   templateUrl: './home.component.html',
   styleUrl: './home.component.css',

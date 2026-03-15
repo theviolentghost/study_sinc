@@ -65,7 +65,25 @@ export interface Song_Identifier {
 }
 
 export interface Song_Lyrics {
-    // nothing for now
+    info: {
+        source: 'lrclib' | 'musik';
+        duration: number;
+        language_probabilities: { language: string, probability: number };
+    },
+    blocks: 
+        {
+            start_time: number,
+            end_time: number,
+            text: string,
+            probability: number
+        }[];
+    lyrics: 
+        {
+            start_time: number,
+            end_time: number,
+            text: string,
+            probability: number
+        }[];
 }
 
 export interface Song_Playlist_Identifier {
@@ -120,7 +138,7 @@ export interface Artist_Identifier {
     source: Song_Source; 
 }
 
-export type Song_Source = 'youtube' | 'spotify' | 'musi' | 'musix' | 'other';
+export type Song_Source = 'youtube' | 'spotify' | 'musi' | 'musix' | 'youtubemusic' | 'other';
 
 @Injectable({
   providedIn: 'root'
@@ -1916,6 +1934,21 @@ export class MusicMediaService {
             return response;
         } catch (error) {
             throw error;
+        }
+    }
+
+    public async get_song_lyrics(video_id: string): Promise<Song_Lyrics | null> {
+        try {
+            const response = await lastValueFrom(
+                this.http.get(`/music/lyrics`, { params: { video_id } })
+            );
+            if (response) {
+                return (response as any) as Song_Lyrics;
+            }
+            return null;
+        } catch (error) {
+            console.error('Error fetching song lyrics:', error);
+            return null;
         }
     }
 }

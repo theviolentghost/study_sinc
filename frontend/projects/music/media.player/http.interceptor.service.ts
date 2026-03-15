@@ -45,8 +45,13 @@ export interface Track_Timestamp {
 })
 export class SessionPlaylistInterceptorService {
     @Output() public playlist_updated: EventEmitter<number[]> = new EventEmitter<number[]>();
+    @Output() public time_offset_needed: EventEmitter<number> = new EventEmitter<number>();
 
     private readonly PLAYLIST_CACHE_NAME = 'sinc_music_playlists_v1';
+    
+    // Promise that resolves when initialization is complete
+    private initialization_promise: Promise<void>;
+    private is_initialized: boolean = false;
 
     public profiles = {
         'opus': {
@@ -185,7 +190,68 @@ export class SessionPlaylistInterceptorService {
 
     constructor(private service_worker_message_distributor: ServiceWorkerMessageDistributorService, private media: MusicMediaService, private injector: Injector) { 
         console.log('🔧 SessionPlaylistInterceptorService constructor called');
-        this.initialize();
+        // Start initialization but store the promise so others can await it
+        this.initialization_promise = this.initialize();
+    }
+    
+    /**
+     * Wait for the service to be initialized AND playlists to be generated
+     * This waits for the song queue to be populated and playlists to be cached
+     */
+    public async wait_for_ready(): Promise<void> {
+        // First wait for service initialization
+        if (!this.is_initialized) {
+            console.log('⏳ Waiting for SessionPlaylistInterceptorService to be ready...');
+            await this.initialization_promise;
+        }
+        
+        // Check if song queue is empty - if so, we need to wait for it to be populated
+        // OR generate empty playlists if needed
+        if (this._song_queue.length === 0) {
+            console.log('⚠️ Song queue is empty - waiting for it to be populated...');
+            
+            // Wait up to 5 seconds for the queue to be populated
+            const max_wait = 5000;
+            const start_time = Date.now();
+            
+            while (this._song_queue.length === 0 && (Date.now() - start_time) < max_wait) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            if (this._song_queue.length === 0) {
+                console.warn('⚠️ Song queue still empty after waiting - generating empty playlists');
+                // Generate empty playlists as fallback
+                await this.update_session_playlists();
+                return;
+            }
+            
+            console.log('✅ Song queue populated with', this._song_queue.length, 'songs');
+        }
+        
+        // Then wait for playlists to actually exist in cache
+        // Check if master playlist exists - if not, wait for it
+        const master_url = '/music/session/master.m3u8';
+        const cache = await caches.open(this.PLAYLIST_CACHE_NAME);
+        let attempts = 0;
+        const max_attempts = 50; // 5 seconds max wait
+        
+        while (attempts < max_attempts) {
+            const cached = await cache.match(master_url);
+            if (cached) {
+                const text = await cached.text();
+                // Make sure it's not an empty playlist
+                if (text && text.includes('#EXT-X-STREAM-INF')) {
+                    console.log('✅ Playlists are ready in cache');
+                    return;
+                }
+            }
+            
+            // Wait 100ms and try again
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        console.warn('⚠️ Timeout waiting for playlists, continuing anyway...');
     }
 
     private async store_playlist_in_cache(url: string, data: string): Promise<void> {
@@ -208,10 +274,11 @@ export class SessionPlaylistInterceptorService {
     public async initialize(): Promise<void> {
         console.log('✅ SessionPlaylistInterceptorService initializing...');
         
-        // Pre-generate and store initial playlists
-        await this.update_session_playlists();
+        // DON'T pre-generate playlists here - song_queue is empty on page load!
+        // Playlists will be generated automatically when song_queue is set (via setter)
         
-        console.log('✅ SessionPlaylistInterceptorService initialized');
+        this.is_initialized = true;
+        console.log('✅ SessionPlaylistInterceptorService initialized (playlists will be generated when queue is populated)');
     }
 
     /**
@@ -219,8 +286,6 @@ export class SessionPlaylistInterceptorService {
      * Call this whenever the playlist changes
      */
     public async update_session_playlists(): Promise<void> {
-        console.log('🔄 Updating session playlists in Cache API...');
-        
         const tracks = this.get_tracks_for_session_playlist();
         
         // Generate and store master playlist
@@ -236,8 +301,6 @@ export class SessionPlaylistInterceptorService {
                 await this.store_playlist_in_cache(playlist_url, playlist);
             }
         }
-        
-        console.log('✅ Session playlists updated in Cache API');
         
         // Verify what's actually stored in the cache
         await this.verify_cache_contents();
@@ -375,15 +438,22 @@ export class SessionPlaylistInterceptorService {
             }
         }
 
+        lines.push('EXT-X-ENDLIST');
+
         return lines.join('\n');
     }
 
     private timestamps_of_tracks_cache: Track_Timestamp[] | null = null;
+    private skipped_duration_before_current_track: number = 0; // Track duration of null tracks before current playing track
     // private last_requested_tracks_cache: Track_Timestamp[] | null = null;
     public get_timestamps_of_tracks(): Track_Timestamp[] {
         const tracks = this.timestamps_of_tracks_cache || [];
         // this.last_requested_tracks_cache = tracks;
         return tracks;
+    }
+    
+    public get_skipped_duration_offset(): number {
+        return this.skipped_duration_before_current_track;
     }
 
     private media_sequence: number = 0;
@@ -412,6 +482,7 @@ export class SessionPlaylistInterceptorService {
         // let program_date_time = base_date.getTime();
         let is_first_source = true;
         let prevent_future_scoping = false; // prevent loading segments ahead of buffer_controller current_index if there is a null track
+        let skipped_duration = 0; // Track total duration of null/skipped tracks before current_track_index
 
         // add the silent audio at the start
         // lines.push('#EXT-X-DISCONTINUITY');
@@ -430,6 +501,18 @@ export class SessionPlaylistInterceptorService {
             const track = tracks[index];
             if(track == null || prevent_future_scoping) {
                 updated_timestamps.push(null);
+                
+                // If this null track is before the current playing track, we need to estimate its duration
+                // and add it to our skipped_duration offset
+                if(index < this.player.media_controller.buffer_controller.current_track_index) {
+                    // Try to get the duration from the old timestamps cache if available
+                    const old_timestamp = this.timestamps_of_tracks_cache?.[index];
+                    if(old_timestamp && old_timestamp.video_id !== '#silent_audio') {
+                        const estimated_duration = old_timestamp.end_timestamp - old_timestamp.start_timestamp;
+                        skipped_duration += estimated_duration;
+                    }
+                }
+                
                 if(index >= this.player.media_controller.buffer_controller.current_track_index) prevent_future_scoping = true;
                 continue;
                 // break;
@@ -517,6 +600,7 @@ export class SessionPlaylistInterceptorService {
         // }
 
         this.timestamps_of_tracks_cache = updated_timestamps;
+        this.skipped_duration_before_current_track = skipped_duration;
 
         // lines.push('#EXT-X-ENDLIST');
         return lines.join('\n');
@@ -528,6 +612,10 @@ export class SessionPlaylistInterceptorService {
             return;
             
         }
+        
+        // Store the old skipped duration before updating
+        const old_skipped_duration = this.skipped_duration_before_current_track;
+        
         this.hls_bundles.set(bundle.video_id, bundle);
         // now look through song queue and see if any missing, if so emit event to update playlists with the indexes of the missing tracks now available
         const missing_tracks: number[] = [];
@@ -542,8 +630,22 @@ export class SessionPlaylistInterceptorService {
 
         this.create_session_playlist(undefined, undefined, this.get_tracks_for_session_playlist(), null);
         this.update_session_playlists();
+        
+        // Check if the newly added duration affects the current playback position
+        const new_skipped_duration = this.skipped_duration_before_current_track;
+        const duration_added_before_current = new_skipped_duration - old_skipped_duration;
+        
         if (missing_tracks.length > 0) {
+            // Emit both the missing track indices and the duration offset that needs to be applied
             this.playlist_updated.emit(missing_tracks);
+            
+            // If a track was added before the current track, we need to adjust the playback time
+            if (duration_added_before_current < 0) {
+                // Duration decreased - a null track was replaced with actual data before current track
+                // We need to shift the player's time backward by this amount
+                console.log('⚠️ Track added before current position, time offset needed:', Math.abs(duration_added_before_current));
+                this.time_offset_needed.emit(Math.abs(duration_added_before_current));
+            }
         }
     }
 

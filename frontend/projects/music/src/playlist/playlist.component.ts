@@ -14,6 +14,7 @@ import { NotificationService } from '../../notification.service';
 import { LoadingService } from '../../loading.service';
 import { ProgressiveLoadDirective } from '../../progressive.image.loader.directive';
 import { cover } from 'three/src/extras/TextureUtils.js';
+import { set } from 'idb-keyval';
 
 @Component({
     selector: 'app-playlist',
@@ -472,6 +473,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     source_options: Map<Song_Source, string> = new Map([
         ['spotify', "#1cd760"],
         ['youtube', "#ff0033"],
+        ['youtubemusic', "#ff0033"],
         ['musi', "#ff8843"],
         ['musix', "#ff8843"],
     ]);
@@ -1129,16 +1131,10 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
     
     // ==================== END CUSTOM SCROLLBAR METHODS ====================
 
-    async play(track_data: Song_Data | null) {
+    async play(track_data: Song_Data | null): Promise<void> {
         if (!track_data) return;
         if(this.dont_play) return;
-        
-        this.player.open_player.emit();
-
-        this.player.media_controller.playlist_manager.current_song_key = this.media.song_key(track_data.id);
-        await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false);
-        this.player.load_and_play_track(track_data);
-        this.player.remove_song_from_playlist_queue(this.media.song_key(track_data.id));
+        await this.play_playlist(track_data);
     }
 
     public ms_to_time(ms: number, format: string = 'concise'): string {
@@ -1184,7 +1180,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         return this.is_current_playlist_playing ? 'player-pause' : 'player-play';
     }
 
-    public async play_playlist (): Promise<void> {
+    public async play_playlist(song_data: Song_Data = null): Promise<void> {
         if(!this.playlists.selected_playlist) return;
         if(this.playlists.selected_playlist.songs.size === 0) return;
 
@@ -1199,8 +1195,7 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
         } else {
             // Different playlist or no playlist loaded, load and play
             this.player.open_player.emit();
-            await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true);
-            this.player.playlist_changed.emit();
+            await this.player.load_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist, false, true, song_data);
             // this.player.play();
         }
     }
@@ -1393,5 +1388,14 @@ export class PlaylistComponent implements OnInit, AfterViewInit, OnDestroy {
             this.playlists.add_playlist(this.playlists.selected_playlist_identifier, this.playlists.selected_playlist);
             this.notification_service.info(`Added "${playlist_name}"`, {stackable: false, dismissTime: 3000});
         }
+    }
+
+    public video_exists(video: Song_Data | null): boolean {
+        if (!video) return false;
+        return !!(
+            video.song_name &&
+            video.original_song_name &&
+            video.original_artists
+        );
     }
 }

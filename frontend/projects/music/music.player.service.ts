@@ -143,7 +143,14 @@ export class MusicPlayerService {
     get is_playing(): boolean {
         return this.media_controller.buffer_controller.is_playing;
     }
-    
+    get lyrics_lines(): {
+        start_time: number;
+        end_time: number;
+        text: string;
+        probability: number;
+    }[] {
+        return this.media_controller.current_song?.lyrics?.blocks || [];
+    }
     // DJ Mode getters
     get is_dj_mode_enabled(): boolean {
         return this.settings.dj_mode_enabled;
@@ -374,15 +381,22 @@ export class MusicPlayerService {
         identifier: Song_Playlist_Identifier | null, 
         data: Song_Playlist | null, 
         preserve_history: boolean = false,
-        auto_play: boolean = false
+        auto_play: boolean = false,
+        song_to_play: Song_Data | null = null
     ): Promise<void> {
         this.playlist_changed.emit();
-        await this.media_controller.playlist_manager.load_playlist(identifier, data, preserve_history);
-        if (auto_play) {
-            const next_song_key = this.media_controller.playlist_manager.next_song_key_in_queue!;
-            // this.skip_to_next(Skip_Event.OMIT_HISTORY);
-            this.load_and_play_track(next_song_key);
-            this.remove_song_from_playlist_queue(next_song_key);
+        let first_song_key = song_to_play ? this.media.song_key(song_to_play.id) : null;
+        await this.media_controller.playlist_manager.load_playlist(identifier, data, preserve_history, first_song_key);
+        if(auto_play) {
+            if (first_song_key) {
+                const next_song_key = first_song_key;
+                this.load_and_play_track(next_song_key);
+                this.remove_song_from_playlist_queue(next_song_key);
+            } else {
+                const next_song_key = this.media_controller.playlist_manager.next_song_key_in_queue!;
+                this.load_and_play_track(next_song_key);
+                this.remove_song_from_playlist_queue(next_song_key);
+            }
         }
     }
 

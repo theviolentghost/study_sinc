@@ -70,10 +70,10 @@ class HLS_Audio_Decoder:
         # Map quality to bitrate and directory
         quality_map = {
             'ultra-low': ('32k', '32k.m3u8'),
-            'low': ('64k', '64k.m3u8'),
+            'low': ('96k', '96k.m3u8'),
             'medium': ('128k', '128k.m3u8'),
-            'high': ('192k', '192k.m3u8'),
-            'ultra-high': ('256k', '256k.m3u8')
+            'high': ('256k', '256k.m3u8'),
+            'ultra-high': ('320k', '320k.m3u8')
         }
         
         if quality not in quality_map:

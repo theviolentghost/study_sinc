@@ -44,6 +44,7 @@ export class SettingsService {
     public is_safari: boolean = this._is_safari; // togglable, used for safari workaround
     public shuffle_playback: boolean = false; 
     public repeat_playback: boolean = false;
+    public closed_captioning: boolean = false;
     
     // DJ Mode settings
     public dj_mode_enabled: boolean = false;
@@ -203,7 +204,21 @@ export class SettingsService {
                         // Implement theme change logic here
                         this.save_settings_to_local_storage();
                     }
-                }
+                },
+                {
+                    id: 'closed_captioning',
+                    label: 'Enable Closed Captioning',
+                    type: 'toggle',
+                    hidden: true,
+                    value: null, 
+                    notes: [
+                        { text: 'When enabled, lyrics will be displayed as subtitles.', severity: 'info' }
+                    ],
+                    on_change: (self, value: boolean) => {
+                        this.closed_captioning = value;
+                        this.save_settings_to_local_storage();
+                    }
+                },
             ],
             About: [
                 

@@ -19,7 +19,10 @@ import youtubeAccount from './youtube-account.js';
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import youtubeHomepage from './youtube-homepage.js';
+import { getWorkerManager, PRIORITY } from './worker_manager.js';
+
 const upload = multer();
+const workerManager = getWorkerManager();
 
 const app = Express();
 
@@ -1298,7 +1301,7 @@ app.get('/music/top_releases', async (req, res) => {
 });
 // /music/artists/new_releases param artist_ids[]
 app.get('/music/artists/new_releases', async (req, res) => {
-    const artist_ids = req.query.artist_ids;
+    const artist_ids = Array.from(req.query.artist_ids);
     if (!artist_ids || !Array.isArray(artist_ids)) {
         return res.status(400).json({ error: 'Artist IDs are required as an array' });
     }
@@ -1310,16 +1313,126 @@ app.get('/music/artists/new_releases', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+// /music/lyrics
+app.get('/music/lyrics', async (req, res) => {
+    const { video_id, source_preference = 'lrclib' } = req.query;
+    if (!video_id) {
+        return res.status(400).json({ error: 'Video ID is required' });
+    }
+    try {
+        const lyrics = await Music.fetch_lyrics({id: video_id}, source_preference);
+        if (!lyrics) {
+            return res.status(404).json({ error: 'No lyrics found for the given video ID' });
+        }
+        res.json(lyrics);
+    } catch (error) {
+        console.error('Error fetching lyrics:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
+// ==================== Worker Manager API ====================
 
+// Get worker stats
+app.get('/api/workers/stats', (req, res) => {
+    res.json(workerManager.getStats());
+});
 
+// Request lyrics transcription
+app.post('/api/lyrics/transcribe', async (req, res) => {
+    try {
+        const { video_id, audio_path, priority = 'normal' } = req.body;
+        
+        if (!video_id && !audio_path) {
+            return res.status(400).json({
+                success: false,
+                error: 'video_id or audio_path is required'
+            });
+        }
 
+        // Map priority string to constant
+        const priorityMap = {
+            'urgent': PRIORITY.URGENT,
+            'high': PRIORITY.HIGH,
+            'normal': PRIORITY.NORMAL,
+            'low': PRIORITY.LOW,
+            'idle': PRIORITY.IDLE
+        };
+        const priorityLevel = priorityMap[priority.toLowerCase()] || PRIORITY.NORMAL;
 
+        // Queue the transcription task
+        const result = await workerManager.transcribeLyrics(video_id, audio_path, priorityLevel);
+        
+        res.json(result);
+    } catch (error) {
+        console.error('Transcription error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
+// Request audio analysis
+app.post('/api/audio/analyze', async (req, res) => {
+    try {
+        const { video_id, priority = 'normal' } = req.body;
+        
+        if (!video_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'video_id is required'
+            });
+        }
 
+        const priorityMap = {
+            'urgent': PRIORITY.URGENT,
+            'high': PRIORITY.HIGH,
+            'normal': PRIORITY.NORMAL,
+            'low': PRIORITY.LOW,
+            'idle': PRIORITY.IDLE
+        };
+        const priorityLevel = priorityMap[priority.toLowerCase()] || PRIORITY.NORMAL;
 
+        const result = await workerManager.analyzeAudio(video_id, priorityLevel);
+        
+        res.json(result);
+    } catch (error) {
+        console.error('Analysis error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
-
+// Promote task priority
+app.post('/api/workers/promote', (req, res) => {
+    const { task_id, priority } = req.body;
+    
+    const priorityMap = {
+        'urgent': PRIORITY.URGENT,
+        'high': PRIORITY.HIGH,
+        'normal': PRIORITY.NORMAL,
+        'low': PRIORITY.LOW,
+        'idle': PRIORITY.IDLE
+    };
+    const newPriority = priorityMap[priority.toLowerCase()];
+    
+    if (!newPriority) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid priority'
+        });
+    }
+    
+    const promoted = workerManager.promoteTask(task_id, newPriority);
+    
+    res.json({
+        success: promoted,
+        message: promoted ? 'Task priority updated' : 'Task not found'
+    });
+});
 
 // Serve static files for music app with no cache for index.html
 app.use('/music', Express.static(
@@ -1347,10 +1460,6 @@ app.use('/', Express.static(
     }
 ));
 
-app.get('/.well-known/appspecific/:path', (req, res) => {
-    res.status(404).end(); // Just return 404 for DevTools requests
-});
-
 // Serve the Angular study app (this should be LAST)
 app.get(/.*/, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -1367,6 +1476,32 @@ app.get(/.*/, (req, res) => {
 });
 
 app.listen(port, host, () => {
-    // console.log(`Server is running on http://${host}:${port}`);
-    console.log(`Server is running on http://localhost:${port}`);
+    console.log(`\n🎵 Music Server Started`);
+    console.log(`   Server: http://${host}:${port}`);
+    console.log(`\n🔧 Starting Worker Manager...`);
+    
+    // Start worker manager
+    workerManager.start();
+    
+    // Listen for worker events
+    workerManager.on('task-complete', ({ worker, task }) => {
+        console.log(`✅ [${worker}] Task completed: ${task.type} (${task.id})`);
+    });
+    
+    workerManager.on('task-error', ({ worker, task, error }) => {
+        console.error(`❌ [${worker}] Task failed: ${task.type} - ${error.message}`);
+    });
+    
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+        console.log('\n🛑 Shutting down workers...');
+        workerManager.stop();
+        process.exit(0);
+    });
+    
+    process.on('SIGINT', () => {
+        console.log('\n🛑 Shutting down workers...');
+        workerManager.stop();
+        process.exit(0);
+    });
 });

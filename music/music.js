@@ -15,7 +15,7 @@ stream.initialize();
 import { promisify } from 'util';
 import { request_embedding, request_embedding_for_spotify_items } from './recommendation/reuqest.embedding.js';
 import youtube from '../youtube-search.js';
-// { search, getSearchSuggestions }
+import { fetch_lyrics } from './lyrics.js'
 
 const exec_async = promisify(exec);
 async function kill_processes_on_port(port) {
@@ -168,6 +168,44 @@ async function get_audio_file(audio_path = '') {
     }
 }
 
+async function youtube_music_search(query = 'NoCopyrightSounds') {
+    if (!query || query.trim() === '') {
+        console.error('Query must be a non-empty string');
+        return {
+            catalog: [],
+            videos: [],
+            artists: [],
+            recommendations: [],
+        };
+    }
+
+    try {
+        const response = await axios.get(`http://localhost:5001/youtube_music_search?q=${encodeURIComponent(query)}`, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        if (response.status !== 200) {
+            throw new Error(`Failed to fetch video id: ${response.statusText}`);
+        }
+
+        const search_data = response.data;
+        return {
+            catalog: search_data.catalog || [],
+            videos: search_data.videos || [],
+            artists: search_data.artists || [],
+            recommendations: search_data.recommendations || [],
+        };
+    } catch (error) {
+        console.error('Error fetching YouTube Music search results:', error);
+        return {
+            catalog: [],
+            videos: [],
+            artists: [],
+            recommendations: [],
+        };
+    }
+}
 
 async function youtube_search(query = 'NoCopyrightSounds', /* add more params in future */) {
     if (!query || query.trim() === '') {
@@ -181,11 +219,23 @@ async function youtube_search(query = 'NoCopyrightSounds', /* add more params in
     }
 
     try {
-        const [ result, recommendations ] = await Promise.all([
-            youtube.search(query),
-            get_search_recommendations(query)
+        const search_promise = youtube.search(query);
+        const recommendations_promise = get_search_recommendations(query);
+        const recommendation_race_timeout = new Promise((resolve) => {
+            setTimeout(() => {
+                resolve(null);
+            }, 5000);
+        });
+
+        const [recommendations_result, search_result] = await Promise.allSettled([
+            Promise.race([recommendation_race_timeout, recommendations_promise]),
+            search_promise
         ]);
-        const { videos, artists } = parse_youtube_search_result(result);
+
+        const search_data = search_result.status === 'fulfilled' ? search_result.value : { results: [] };
+        const recommendations = recommendations_result.status === 'fulfilled' ? recommendations_result.value : [];
+
+        const { videos, artists } = parse_youtube_search_result(search_data);
         return {
             catalog: [...videos, ...artists],
             videos: videos,
@@ -382,33 +432,167 @@ async function spotify_search(query = 'NoCopyrightSounds', total_results = 40) {
 
 function spotify_generate_catalog(spotify_data, query = '') {
     const { tracks, artists, albums, playlists } = spotify_data;
-    let catalog = [
-        ...(tracks?.items || []),
-        ...(artists?.items || []),
-        ...(albums?.items || []),
-        ...(playlists?.items || [])
-    ];
     
-    // Filter out null/undefined items
-    catalog = catalog.filter(item => item != null);
+    // Filter out null/undefined items early
+    const validTracks = (tracks?.items || []).filter(item => item != null);
+    const validArtists = (artists?.items || []).filter(item => item != null);
+    const validAlbums = (albums?.items || []).filter(item => item != null);
+    const validPlaylists = (playlists?.items || []).filter(item => item != null);
     
-    // If no query provided, just return unsorted catalog
+    // If no query provided, just return concatenated catalog
     if (!query || query.trim() === '') {
-        return catalog;
+        return [...validTracks, ...validArtists, ...validAlbums, ...validPlaylists];
     }
     
-    // Sort by relevance to query
-    catalog.sort((a, b) => {
-        // Safety checks for null items
-        if (!a && !b) return 0;
-        if (!a) return 1;
-        if (!b) return -1;
+    const queryLower = query.toLowerCase().trim();
+    
+    // Build artist-to-tracks mapping
+    const artistToTracks = new Map();
+    const artistToAlbums = new Map();
+    
+    validTracks.forEach((track, originalIndex) => {
+        track._originalIndex = originalIndex; // Preserve original order
+        const trackArtists = track.artists || [];
         
-        const scoreA = calculate_relevance_score(a, query);
-        const scoreB = calculate_relevance_score(b, query);
+        trackArtists.forEach(artist => {
+            if (!artist || !artist.id) return;
+            
+            if (!artistToTracks.has(artist.id)) {
+                artistToTracks.set(artist.id, []);
+            }
+            artistToTracks.get(artist.id).push(track);
+        });
+    });
+    
+    validAlbums.forEach(album => {
+        const albumArtists = album.artists || [];
         
-        // Higher scores come first
-        return scoreB - scoreA;
+        albumArtists.forEach(artist => {
+            if (!artist || !artist.id) return;
+            
+            if (!artistToAlbums.has(artist.id)) {
+                artistToAlbums.set(artist.id, []);
+            }
+            artistToAlbums.get(artist.id).push(album);
+        });
+    });
+    
+    // Calculate relevance scores for grouping
+    const scoredArtists = validArtists.map(artist => ({
+        item: artist,
+        score: calculate_relevance_score(artist, query),
+        type: 'artist'
+    }));
+    
+    const scoredPlaylists = validPlaylists.map(playlist => ({
+        item: playlist,
+        score: calculate_relevance_score(playlist, query),
+        type: 'playlist'
+    }));
+    
+    // Sort artists by relevance
+    scoredArtists.sort((a, b) => b.score - a.score);
+    
+    // Build the final catalog with artists grouped with their tracks and albums
+    const catalog = [];
+    const usedTrackIds = new Set();
+    const usedAlbumIds = new Set();
+    const usedArtistIds = new Set();
+    
+    // First pass: High-relevance artists with their tracks
+    scoredArtists.forEach(({ item: artist, score }) => {
+        if (score > 5000) { // High relevance threshold
+            catalog.push(artist);
+            usedArtistIds.add(artist.id);
+            
+            // Add this artist's tracks (in original order)
+            const artistTracks = artistToTracks.get(artist.id) || [];
+            artistTracks
+                .sort((a, b) => a._originalIndex - b._originalIndex)
+                .forEach(track => {
+                    if (!usedTrackIds.has(track.id)) {
+                        catalog.push(track);
+                        usedTrackIds.add(track.id);
+                    }
+                });
+            
+            // Add this artist's albums (positioned after tracks)
+            const artistAlbums = artistToAlbums.get(artist.id) || [];
+            artistAlbums.forEach(album => {
+                if (!usedAlbumIds.has(album.id)) {
+                    catalog.push(album);
+                    usedAlbumIds.add(album.id);
+                }
+            });
+        }
+    });
+    
+    // Second pass: Remaining tracks in original order (not yet added)
+    validTracks.forEach(track => {
+        if (!usedTrackIds.has(track.id)) {
+            const trackScore = calculate_relevance_score(track, query);
+            if (trackScore > 1000) { // Relevant tracks
+                catalog.push(track);
+                usedTrackIds.add(track.id);
+            }
+        }
+    });
+    
+    // Third pass: Medium-relevance artists with their content
+    scoredArtists.forEach(({ item: artist, score }) => {
+        if (score > 1000 && score <= 5000 && !usedArtistIds.has(artist.id)) {
+            catalog.push(artist);
+            usedArtistIds.add(artist.id);
+            
+            const artistTracks = artistToTracks.get(artist.id) || [];
+            artistTracks
+                .sort((a, b) => a._originalIndex - b._originalIndex)
+                .forEach(track => {
+                    if (!usedTrackIds.has(track.id)) {
+                        catalog.push(track);
+                        usedTrackIds.add(track.id);
+                    }
+                });
+            
+            const artistAlbums = artistToAlbums.get(artist.id) || [];
+            artistAlbums.forEach(album => {
+                if (!usedAlbumIds.has(album.id)) {
+                    catalog.push(album);
+                    usedAlbumIds.add(album.id);
+                }
+            });
+        }
+    });
+    
+    // Fourth pass: Playlists
+    scoredPlaylists
+        .sort((a, b) => b.score - a.score)
+        .forEach(({ item: playlist }) => {
+            catalog.push(playlist);
+        });
+    
+    // Fifth pass: Remaining albums (not associated with already-shown artists)
+    validAlbums.forEach(album => {
+        if (!usedAlbumIds.has(album.id)) {
+            catalog.push(album);
+            usedAlbumIds.add(album.id);
+        }
+    });
+    
+    // Sixth pass: Any remaining tracks
+    validTracks.forEach(track => {
+        if (!usedTrackIds.has(track.id)) {
+            catalog.push(track);
+            usedTrackIds.add(track.id);
+        }
+    });
+    
+    // Seventh pass: Any remaining artists
+    scoredArtists.forEach(({ item: artist }) => {
+        if (!usedArtistIds.has(artist.id)) {
+            catalog.push(artist);
+            usedArtistIds.add(artist.id);
+        }
     });
     
     return catalog;
@@ -608,6 +792,8 @@ async function search(query = 'NoCopyrightSounds', source = 'spotify') {
             return youtube_search(query);
         case 'spotify':
             return spotify_search(query);
+        case 'youtubemusic':
+            return youtube_music_search(query);
         default:
             console.error(`Unknown source: ${source}`);
             return {};
@@ -625,7 +811,7 @@ async function spotify_uri_to_video_id(uri) {
 
         console.log('Fetching Spotify video ID for:', spotify_id);
 
-        const response = await axios.get(`http://0.0.0.0:54321/get_video_id?q=open.spotify.com/track/${spotify_id}`, {
+        const response = await axios.get(`http://localhost:5001/get_video_id?q=open.spotify.com/track/${spotify_id}`, {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -681,7 +867,7 @@ async function spotify_get_artist_albums(artist_id, total_results = 50) {
 
 async function get_mix_information(current_song_id, next_song_id) {
     try {
-        const response = await axios.post(`http://localhost:5001/dj_calculate_mix`, {
+        const response = await axios.post(`http://localhost:5002/dj_calculate_mix`, {
             current_song_id,
             next_song_id
         });
@@ -1048,7 +1234,7 @@ async function get_search_recommendations(query = '') {
         return [];
     }
     try {
-        const response = await axios.get('http://0.0.0.0:54321/search_suggestions', {
+        const response = await axios.get('http://localhost:5001/search_suggestions', {
             params: {
                 q: query
             },
@@ -1069,7 +1255,7 @@ async function get_search_recommendations(query = '') {
 
 async function get_top_charts() {
     try {
-        const response = await axios.get('http://0.0.0.0:54321/charts', {
+        const response = await axios.get('http://localhost:5001/charts', {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -1086,7 +1272,7 @@ async function get_top_charts() {
 
 async function get_mood_categories() {
     try {
-        const response = await axios.get('http://0.0.0.0:54321/mood_categories', {
+        const response = await axios.get('http://localhost:5001/mood_categories', {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -1107,7 +1293,7 @@ async function get_mood_playlists(category) {
         return [];
     }
     try {
-        const response = await axios.get('http://0.0.0.0:54321/mood_playlists', {
+        const response = await axios.get('http://localhost:5001/mood_playlists', {
             params: {
                 mood: category
             },
@@ -1147,7 +1333,7 @@ async function get_watch_playlist(track_id) {
         return [];
     }
     try {
-        const response = await axios.get(`http://0.0.0.0:54321/watch_playlist`, {
+        const response = await axios.get(`http://localhost:5001/watch_playlist`, {
             params: {
                 track_id: track_id
             },
@@ -1192,8 +1378,8 @@ async function get_watch_playlist(track_id) {
                     url: {
                         audio: null,
                         artwork: {
-                            low: track?.thumbnail[0]?.url || null,
-                            high: track?.thumbnail[2]?.url || null
+                            low: track?.thumbnail[2]?.url || null,
+                            high: track?.thumbnail[0]?.url || null
                         }
                     },
                     colors: {
@@ -1298,7 +1484,7 @@ async function get_recommendations(youtube_video_id) {
         return [];
     }
     try {
-        const response = await axios.get(`http://localhost:54321/search_similar_songs?song_id=${youtube_video_id}`);
+        const response = await axios.get(`http://localhost:5002/search_similar_songs?song_id=${youtube_video_id}`);
         return response.data;
     } catch (error) {
         console.error('Error fetching recommendations:', error);
@@ -1396,6 +1582,7 @@ export default {
         get_playlist_tracks: spotify_get_playlist_tracks,
         get_top_releases: spotify_get_top_releases,
     },
+    fetch_lyrics: fetch_lyrics,
     search,
     get_search_recommendations: get_search_recommendations,
     get_top_charts: get_top_charts,

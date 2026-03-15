@@ -1,4 +1,4 @@
-import { Component, AfterViewInit, ElementRef, ViewChild, OnDestroy } from '@angular/core';
+import { Component, AfterViewInit, ElementRef, ViewChild, ViewChildren, QueryList, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { 
   trigger, 
@@ -76,8 +76,11 @@ import { ProgressiveLoadDirective } from '../../progressive.image.loader.directi
 export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
     @ViewChild('playerContainer', { static: false }) playerContainer!: ElementRef<HTMLElement>;
     @ViewChild('media', { static: false }) mediaContainer!: ElementRef<HTMLElement>;
+    @ViewChild('lyricsContent', { static: false }) lyricsContent!: ElementRef<HTMLElement>;
+    @ViewChildren('lyricsLine') lyricsLines!: QueryList<ElementRef<HTMLElement>>;
 
     _visibility_status: 'visible' | 'reduced' | 'hidden' = 'hidden';
+    private lastActiveLyricsIndex: number = -1;
 
     set visibility_status(status: 'visible' | 'reduced' | 'hidden') {
         this._visibility_status = status;
@@ -216,6 +219,20 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
             case 'loaded': 
             default: return '';
         }
+    }
+    get lyrics_lines(): {
+        start_time: number;
+        end_time: number;
+        text: string;
+        probability: number;
+    }[] {
+        return this.player.lyrics_lines;
+    }
+    get closed_captioning_enabled(): boolean {
+        return this.settings.closed_captioning;
+    }
+    toggle_closed_captioning(): void {
+        this.settings.set_setting_value('closed_captioning', !this.settings.closed_captioning);
     }
     player_error: string | null = null; // Error message if any
     player_hls_level = 0;
@@ -376,6 +393,55 @@ export class MediaPlayerComponent implements AfterViewInit, OnDestroy {
         this.player.set_visualization_element(canvas);
 
         this.setupTouchListeners();
+        this.setupLyricsScrollWatcher();
+    }
+
+    private setupLyricsScrollWatcher(): void {
+        // Watch for changes in audio time and scroll lyrics accordingly
+        setInterval(() => {
+            this.scrollToActiveLyrics();
+        }, 100); // Check every 100ms for smooth scrolling
+    }
+
+    private scrollToActiveLyrics(): void {
+        if (!this.lyricsContent || !this.lyricsLines || this.lyrics_lines.length === 0) {
+            return;
+        }
+
+        const currentTime = this.audio_current_time * 1000; // Convert to milliseconds
+        const activeLyricsIndex = this.lyrics_lines.findIndex(
+            line => line.start_time <= currentTime && line.end_time >= currentTime
+        );
+
+        if (activeLyricsIndex === -1 || activeLyricsIndex === this.lastActiveLyricsIndex) {
+            return; // No active lyrics or same as before
+        }
+
+        this.lastActiveLyricsIndex = activeLyricsIndex;
+
+        const lyricsArray = this.lyricsLines.toArray();
+        const activeLine = lyricsArray[activeLyricsIndex];
+
+        if (!activeLine) {
+            return;
+        }
+
+        const container = this.lyricsContent.nativeElement;
+        const lineElement = activeLine.nativeElement;
+
+        // Calculate the scroll position to center the active line
+        const containerHeight = container.clientHeight;
+        const lineOffsetTop = lineElement.offsetTop;
+        const lineHeight = lineElement.clientHeight;
+        
+        // Center the active line in the container
+        const scrollPosition = lineOffsetTop - (containerHeight / 2) + (lineHeight / 2);
+
+        // Smooth scroll to the position
+        container.scrollTo({
+            top: scrollPosition,
+            behavior: 'smooth',
+        });
     }
 
     // Touch event handlers
