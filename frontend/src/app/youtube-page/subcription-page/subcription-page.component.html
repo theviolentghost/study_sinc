@@ -2,10 +2,11 @@
     <div class="subscription_list">
         <img class="channel_icon" *ngFor="let subscription of subscriptions" [ngStyle]="{ 'background-image': 'url(' + subscription.iconUrl + ')' }" (click)="navigateToChannel(subscription.channelId)">
     </div>
+    <input id="time_void_amount">
 
     <div class="youtube_video_grid">
         <a class="video" #videoItem [attr.video-id]="video.id" [attr.playlist-id]="getPlaylistId(video.channelId)" (click)="playNewVideo(video)" *ngFor="let video of sortedUploads">
-            <div class="thumbnail" [attr.background-url]="video.videoThumbnailUrl" [ngStyle]="{ 'background-image': 'url(' + video.videoThumbnailUrl + ')' }">
+            <div class="thumbnail" [attr.background-url]="video.videoThumbnailUrl" [ngStyle]="{ 'background-image': 'url(' + '' + ')' }">
                 <div class="video_time_display"><div class="video_time_text">{{ video.duration }}</div></div>
                 <div class="video_progress_bar" *ngIf="wasWatched(video.id)" [style.width.%]="getVideoProgressPercent(video.id)"></div>
             </div>

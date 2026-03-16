@@ -33,8 +33,10 @@ export class SubcriptionPageComponent {
   ){}
 
   ngOnInit(){
+    var voidInput: HTMLInputElement = document.getElementById("time_void_amount") as HTMLInputElement;
+    voidInput.value = "60"
     window.scrollTo(0, 0);
-    setTimeout(() => this.canLoadMoreUploads = true, 500);
+    setTimeout(() => this.canLoadMoreUploads = true, 3000);
 
     this.onScreenObserver = new IntersectionObserver(this.handleIntersect.bind(this), {
       threshold: 0.1,
@@ -56,6 +58,7 @@ export class SubcriptionPageComponent {
 
       for(let channel = 0; channel < this.allChannelUploads.length; channel++){
         for(let video = 0; video < allChannelUploads[channel].uploads.length; video++){
+          if(this.timeStringToSeconds(allChannelUploads[channel].uploads[video].duration) < parseInt(voidInput.value)) continue;
           this.sortedUploads.push(allChannelUploads[channel].uploads[video]);
         }
       } 
@@ -141,29 +144,48 @@ export class SubcriptionPageComponent {
   }
 
   youtubeTimeAgoToSeconds(timeAgo: string): number {
-  const parts = timeAgo.split(" ");
-  if (parts.length < 2) return 0;
+    var parts = timeAgo.split(" ");
+    if(parts[0] == "Streamed") {
+      parts[0] = parts[1]
+      parts[1] = parts[2]
+    }
 
-  const value = parseInt(parts[0], 10);
-  const unit = parts[1].toLowerCase();
+    const value = parseInt(parts[0], 10);
+    const unit = parts[1].toLowerCase();
 
-  let seconds = 0;
-  if (unit.startsWith("second")) {
-    seconds = value;
-  } else if (unit.startsWith("minute")) {
-    seconds = value * 60;
-  } else if (unit.startsWith("hour")) {
-    seconds = value * 60 * 60;
-  } else if (unit.startsWith("day")) {
-    seconds = value * 24 * 60 * 60;
-  } else if (unit.startsWith("week")) {
-    seconds = value * 7 * 24 * 60 * 60;
-  } else if (unit.startsWith("month")) {
-    seconds = value * 30 * 24 * 60 * 60;
-  } else if (unit.startsWith("year")) {
-    seconds = value * 365 * 24 * 60 * 60;
+    let seconds = 0;
+    if (unit.startsWith("second")) {
+      seconds = value;
+    } else if (unit.startsWith("minute")) {
+      seconds = value * 60;
+    } else if (unit.startsWith("hour")) {
+      seconds = value * 60 * 60;
+    } else if (unit.startsWith("day")) {
+      seconds = value * 24 * 60 * 60;
+    } else if (unit.startsWith("week")) {
+      seconds = value * 7 * 24 * 60 * 60;
+    } else if (unit.startsWith("month")) {
+      seconds = value * 30 * 24 * 60 * 60;
+    } else if (unit.startsWith("year")) {
+      seconds = value * 365 * 24 * 60 * 60;
+    }
+
+    return seconds;
   }
 
-  return seconds;
-}
+  timeStringToSeconds(time: string): number {
+    if(!time) return 0;
+    const parts = time.split(':').map(Number);
+    let seconds = 0;
+
+    if (parts.length === 3) {
+      seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      seconds = parts[0] * 60 + parts[1];
+    } else if (parts.length === 1) {
+      seconds = parts[0];
+    }
+
+    return seconds;
+  }
 }

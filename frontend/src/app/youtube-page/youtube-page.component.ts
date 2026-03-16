@@ -3,6 +3,8 @@ import { RouterModule, RouterOutlet, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { YoutubeService } from './youtube.service';
+import { Subscription } from 'rxjs';
+import { YoutubeSubscriptionService } from './youtube-subscription.service';
 
 @Component({
   selector: 'app-youtube-page', 
@@ -25,7 +27,8 @@ export class YoutubePageComponent {
   displayLoginMenu: boolean = false;
 
   constructor(private router: Router,
-    private youtubeService: YoutubeService
+    private youtubeService: YoutubeService,
+    private subscriptionService: YoutubeSubscriptionService
   ) {
     this.router.navigate(['/youtube', { 
         outlets: { 
@@ -72,11 +75,15 @@ export class YoutubePageComponent {
   }
 
   public navigateToSubscriptionPage(): void {
-    this.router.navigate(['/youtube', { 
-        outlets: { 
-            youtube: ['subscription-page'] 
-        } 
-    }], { skipLocationChange: true });
+    if (this.router.url.includes('subscription-page')) {
+      this.subscriptionService.refreshSubcriptions();
+    } else {
+      this.router.navigate(['/youtube', {
+        outlets: {
+          youtube: ['subscription-page']
+        }
+      }], { skipLocationChange: true });
+    }
   }
 
   public navigateToSearchResults(): void {

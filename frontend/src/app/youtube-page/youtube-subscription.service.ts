@@ -157,10 +157,18 @@ export class YoutubeSubscriptionService {
         return list;
     }
 
-
     public isSubscribed(channelId: string): boolean{
         if(!this.channelIdList) return false;
         return this.channelIdList.includes(channelId);
+    }
+
+    public refreshSubcriptions(): void{
+        this._allChannelUploads = [];
+        var subscriptions = this.allSubscriptions;
+        for(let i = 0; i < subscriptions.length; i++){
+            this.allSubscriptions[i].initialized = false;
+            this.initializeChannelUploads(this.allSubscriptions[i]);
+        }
     }
 }
 

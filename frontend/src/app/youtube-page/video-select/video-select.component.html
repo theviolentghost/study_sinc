@@ -1,4 +1,6 @@
+
 <div id="youtube_video_grid" class="youtube_video_grid">
+    <span *ngIf="!homepageVideos">sign in to view your homepage(doesnt work sometimes though)</span>
     <a class="video" #videoItem (click)="playNewVideo(video)" *ngFor="let video of homepageVideos">
         <div class="thumbnail" [attr.background-url]="video.videoThumbnailUrl" [ngStyle]="{'background-image': 'url(' + video.videoThumbnailUrl + ')'}">
             <div class="video_time_display"><div class="video_time_text">{{formatDuration(video.duration)}}</div></div>
