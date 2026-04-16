@@ -15,6 +15,7 @@ import signal
 import traceback
 from functools import wraps
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -222,11 +223,61 @@ def youtube_music_search():
     
     try:
         results = ytmusic_search.search(query)
-        formatted = ytmusic_search.format_search_results(results)
+        formatted = ytmusic_search.format_search_results(query, results)
         return jsonify(formatted)
     except Exception as e:
         logger.error(f"YouTube Music search failed: {str(e)}")
         return jsonify({"error": "Search failed", "message": str(e)}), 500
+
+@app.route('/find_new_youtube_music_releases')
+@handle_errors
+def find_new_youtube_music_releases():
+    artist_id = request.args.get('artist_id')
+    if not artist_id:
+        return jsonify({"error": "Missing required parameter 'artist_id'"}), 400
+
+    date = request.args.get('date')
+    if not date:
+        return jsonify({"error": "Missing required parameter 'date'"}), 400
+
+    try:
+        date = datetime.fromisoformat(date)
+    except ValueError:
+        return jsonify({"error": "Invalid date format"}), 400
+
+    if ytmusic_search is None:
+        return jsonify({"error": "YouTube Music Search service unavailable"}), 503
+
+    logger.info(f"Finding new YouTube Music releases for artist: {artist_id} after {date}")
+
+    try:
+        results = ytmusic_search.find_albums_after_date(artist_id, date)
+        # formatted = ytmusic_search.format_search_results(results)
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"YouTube Music search failed: {str(e)}")
+        return jsonify({"error": "Search failed", "message": str(e)}), 500
+    
+@app.route('/find_youtube_music_lyrics')
+@handle_errors
+def find_youtube_music_lyrics():
+    video_id = request.args.get('video_id')
+    if not video_id:
+        return jsonify({"error": "Missing required parameter 'video_id'"}), 400
+
+    if ytmusic_search is None:
+        return jsonify({"error": "YouTube Music Search service unavailable"}), 503
+
+    logger.info(f"Finding YouTube Music lyrics for video: {video_id}")
+
+    try:
+        results = ytmusic_search.find_lyrics(video_id)
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"YouTube Music lyrics search failed: {str(e)}")
+        return jsonify({"error": "Search failed", "message": str(e)}), 500
+
+
 
 # Application entry point
 if __name__ == '__main__':

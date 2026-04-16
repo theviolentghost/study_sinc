@@ -33,6 +33,8 @@ Newton/
 hls/
 hls/*.{m3u8,ts}
 tools/
+*.ipa
+# app.to.ipa.js
 
 *.rest
 .gitignore

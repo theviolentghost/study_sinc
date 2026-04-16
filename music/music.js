@@ -1552,6 +1552,27 @@ async function spotify_get_top_releases(total_results = 50) {
     }
 }
 
+import { getWorkerManager, PRIORITY } from '../worker_manager.js';
+const workerManager = getWorkerManager();
+
+async function find_new_youtube_music_releases(artist_id, date) {
+    try {
+        return await workerManager.findNewYoutubeMusicReleases(artist_id, date, PRIORITY.NORMAL);
+    } catch (error) {
+        console.error('Error fetching new YouTube music releases:', error);
+        return [];
+    }
+}
+
+async function find_youtube_music_lyrics(video_id) {
+    try {
+        return await workerManager.findYoutubeMusicLyrics(video_id, PRIORITY.NORMAL);
+    } catch (error) {
+        console.error('Error fetching YouTube music lyrics:', error);
+        return [];
+    }
+}
+
 import new_music from './recommendation/new.music.js'
 
 export default {
@@ -1563,6 +1584,8 @@ export default {
         download_stream: download_audio_to_stream,
         stream: stream_audio,
         get_audio_url: get_audio_url,
+        find_new_youtube_music_releases: find_new_youtube_music_releases,
+        find_youtube_music_lyrics: find_youtube_music_lyrics,
     },
     spotify: {
         api: spotify_api,

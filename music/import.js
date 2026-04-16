@@ -29,7 +29,7 @@ async function get_html(url) {
         return html;
         
     } catch (error) {
-        console.error('Error fetching HTML:', error);
+        console.error('Error fetching HTML for url:', url, error);
         throw error;
     }
 }

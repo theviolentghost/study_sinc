@@ -1331,79 +1331,49 @@ app.get('/music/lyrics', async (req, res) => {
     }
 });
 
-// ==================== Worker Manager API ====================
-
-// Get worker stats
-app.get('/api/workers/stats', (req, res) => {
-    res.json(workerManager.getStats());
-});
-
-// Request lyrics transcription
-app.post('/api/lyrics/transcribe', async (req, res) => {
+// /music/find_new_youtube_music_releases
+app.get('/music/find_new_youtube_music_releases', async (req, res) => {
+    const { artist_id, date } = req.query;
+    if (!artist_id) {
+        return res.status(400).json({ error: 'Artist ID is required' });
+    }
+    if (!date) {
+        return res.status(400).json({ error: 'Date is required' });
+    }
     try {
-        const { video_id, audio_path, priority = 'normal' } = req.body;
-        
-        if (!video_id && !audio_path) {
-            return res.status(400).json({
-                success: false,
-                error: 'video_id or audio_path is required'
-            });
-        }
-
-        // Map priority string to constant
-        const priorityMap = {
-            'urgent': PRIORITY.URGENT,
-            'high': PRIORITY.HIGH,
-            'normal': PRIORITY.NORMAL,
-            'low': PRIORITY.LOW,
-            'idle': PRIORITY.IDLE
-        };
-        const priorityLevel = priorityMap[priority.toLowerCase()] || PRIORITY.NORMAL;
-
-        // Queue the transcription task
-        const result = await workerManager.transcribeLyrics(video_id, audio_path, priorityLevel);
-        
-        res.json(result);
+        const results = await Music.youtube.find_new_youtube_music_releases(artist_id, date);
+        res.json(results);
     } catch (error) {
-        console.error('Transcription error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Error fetching new YouTube music releases:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Request audio analysis
-app.post('/api/audio/analyze', async (req, res) => {
-    try {
-        const { video_id, priority = 'normal' } = req.body;
-        
-        if (!video_id) {
-            return res.status(400).json({
-                success: false,
-                error: 'video_id is required'
-            });
-        }
-
-        const priorityMap = {
-            'urgent': PRIORITY.URGENT,
-            'high': PRIORITY.HIGH,
-            'normal': PRIORITY.NORMAL,
-            'low': PRIORITY.LOW,
-            'idle': PRIORITY.IDLE
-        };
-        const priorityLevel = priorityMap[priority.toLowerCase()] || PRIORITY.NORMAL;
-
-        const result = await workerManager.analyzeAudio(video_id, priorityLevel);
-        
-        res.json(result);
-    } catch (error) {
-        console.error('Analysis error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+// /music/find_youtube_music_lyrics
+app.get('/music/find_youtube_music_lyrics', async (req, res) => {
+    const video_id = req.query.video_id;
+    if (!video_id) {
+        return res.status(400).json({ error: 'Video ID is required' });
     }
+    try {
+        const lyrics = await Music.youtube.find_youtube_music_lyrics(video_id);
+        res.json(lyrics);
+    } catch (error) {
+        console.error('Error fetching YouTube music lyrics:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.get('/musik/ios', (req, res) => {
+    const filePath = path.join(__dirname, 'MusiK.ipa');
+    res.download(filePath, 'MusiK.ipa', (err) => {
+        if (err) {
+            console.error("Error sending IPA file:", err);
+            if (!res.headersSent) {
+                res.status(500).send("Could not download the file.");
+            }
+        }
+    });
 });
 
 // Promote task priority

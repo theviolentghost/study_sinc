@@ -84,7 +84,7 @@ class Adaptive_Stream {
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'low': {
@@ -98,7 +98,7 @@ class Adaptive_Stream {
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'medium': {
@@ -112,7 +112,7 @@ class Adaptive_Stream {
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'high': {
@@ -126,7 +126,7 @@ class Adaptive_Stream {
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'on',
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'medium',
             },
             'ultra-high': {
@@ -140,7 +140,7 @@ class Adaptive_Stream {
                 compression_level: 10,
                 frame_duration: 20,
                 vbr: 'constrained',
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'medium',
             },
         },
@@ -158,7 +158,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'low': {
@@ -172,7 +172,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'medium': {
@@ -186,7 +186,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'fast',
             },
             'high': {
@@ -200,7 +200,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'medium',
             },
             'ultra-high': {
@@ -214,7 +214,7 @@ class Adaptive_Stream {
                 compression_level: null,
                 frame_duration: null,
                 vbr: null,
-                hls_time: '8.0',
+                hls_time: '4.0',
                 hls_preset: 'medium',
             },
         },
@@ -591,6 +591,7 @@ class Adaptive_Stream {
         for (const codec of available_codecs) {
             for (const profile of available_profiles) {
                 const profile_info = Adaptive_Stream.profiles?.[codec]?.[profile];
+                if (profile == "ultra-low") continue; // skip ultra-low, used for processing 
                 if (!profile_info) continue;
                 
                 lines.push(
@@ -1299,6 +1300,7 @@ class Adaptive_Stream {
                         '-map', total_profiles > 1 ? `[${codec}_${profile}]` : '0:a',
                         '-hls_time', profile_info.hls_time || '2.0',
                         '-hls_list_size', '0',
+                        '-hls_playlist_type', 'vod',
                         // '-hls_segment_type', 'mpegts',
                         // '-start_number', '0',
                         // '-avoid_negative_ts', 'make_zero',

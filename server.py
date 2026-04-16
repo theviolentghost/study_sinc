@@ -276,6 +276,8 @@ def search_similar_songs():
     except Exception as e:
         logger.error(f"Error searching similar songs: {str(e)}")
         return jsonify({"error": "Failed to search similar songs", "message": str(e)}), 500
+    
+
 
 @app.route('/dj_calculate_mix', methods=['POST'])
 def calculate_mix():
