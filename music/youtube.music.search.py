@@ -1,3 +1,4 @@
+# filepath: /Users/norbertzych/Desktop/Projects/study_sinc/music/youtube.music.search.py
 from ytmusicapi import YTMusic
 from datetime import datetime
 
@@ -6,7 +7,7 @@ class Youtube_Music_Search:
         self.ytmusic = YTMusic()
 
     def search(self, query):
-        return self.ytmusic.search(query, limit=40, ignore_spelling=True)
+        return self.ytmusic.search(query)
     
     def format_search_results(self, query, results):
         formatted_results = dict(
@@ -15,7 +16,7 @@ class Youtube_Music_Search:
             playlists=[item for item in results if item['resultType'] == 'playlist'],
             albums=[item for item in results if item['resultType'] == 'album'],
             catalog=results,
-            recommendations=self.ytmusic.get_search_suggestions(query=query, detailed_runs=False)
+            # recommendations=self.ytmusic.get_search_suggestions(query=query, detailed_runs=False)
         )
         return formatted_results
 
@@ -85,3 +86,9 @@ class Youtube_Music_Search:
                 return {"error": "Search failed", "message": str(e)}
         except Exception as e:
             return {"error": "Search failed", "message": str(e)}
+
+    def get_artist(self, artist_id):
+        try:
+            return self.ytmusic.get_artist(artist_id)
+        except Exception as e:
+            return {"error": "Failed to fetch artist", "message": str(e)}

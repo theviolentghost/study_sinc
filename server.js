@@ -1331,12 +1331,29 @@ app.get('/music/lyrics', async (req, res) => {
     }
 });
 
+// /music/youtube/artist
+app.get('/music/youtube/artist', async (req, res) => {
+    const { artist_id } = req.query;
+    if (!artist_id) {
+        return res.status(400).json({ error: 'Artist ID is required' });
+    }
+    try {
+        const worker_manager = getWorkerManager();
+        const artist_data = await worker_manager.getYoutubeMusicArtist(artist_id);
+        res.json(artist_data);
+    } catch (error) {
+        console.error('Error fetching YouTube Music artist:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // /music/find_new_youtube_music_releases
 app.get('/music/find_new_youtube_music_releases', async (req, res) => {
     const { artist_id, date } = req.query;
     if (!artist_id) {
         return res.status(400).json({ error: 'Artist ID is required' });
     }
+
     if (!date) {
         return res.status(400).json({ error: 'Date is required' });
     }

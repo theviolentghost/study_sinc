@@ -1,3 +1,4 @@
+# filepath: /Users/norbertzych/Desktop/Projects/study_sinc/worker_random.py
 """
 Random Worker - Fast startup, basic functionality
 Handles: Spotify search, YouTube video IDs, playlists, charts
@@ -116,6 +117,20 @@ signal.signal(signal.SIGINT, signal_handler)
 # ============================================================================
 # SPOTIFY/YOUTUBE ENDPOINTS
 # ============================================================================
+
+@app.route('/get_artist')
+@handle_errors
+def get_artist():
+    artist_id = request.args.get('artist_id')
+    if not artist_id:
+        return jsonify({"error": "Missing required parameter 'artist_id'"}), 400
+    
+    logger.info(f"Fetching YouTube Music artist: {artist_id}")
+    if ytmusic_search:
+        result = ytmusic_search.get_artist(artist_id)
+        return jsonify(result)
+    else:
+        return jsonify({"error": "YouTube Music Search not initialized"}), 503
 
 @app.route('/search_suggestions')
 @handle_errors

@@ -1,3 +1,4 @@
+// filepath: /Users/norbertzych/Desktop/Projects/study_sinc/worker_manager.js
 import { spawn, exec } from 'child_process';
 import { EventEmitter } from 'events';
 import { promisify } from 'util';
@@ -251,6 +252,15 @@ class WorkerManager extends EventEmitter {
             endpoint: `/find_youtube_music_lyrics?video_id=${encodeURIComponent(videoId)}`,
             method: 'GET',
             id: `find_youtube_music_lyrics-${videoId}`
+        }, priority);
+    }
+
+    async getYoutubeMusicArtist(artistId, priority = PRIORITY.NORMAL) {
+        return this.workers.random.addTask({
+            type: 'youtube_music',
+            endpoint: `/get_artist?artist_id=${encodeURIComponent(artistId)}`,
+            method: 'GET',
+            id: `get_artist-${artistId}`
         }, priority);
     }
 
