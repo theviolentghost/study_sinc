@@ -13,7 +13,7 @@ async function getFullChannelDetails(channelId){
         tag: channelData.current_tab.endpoint.payload.canonicalBaseUrl.substring(1),
         description: channelData.metadata.description,
         iconUrl: channelData.header.content.image.avatar.image[0].url,
-        bannerUrl: channelData.header.content.banner.image[0].url,
+        bannerUrl: channelData?.header?.content?.banner?.image[0]?.url || null,
     };
 }
 

@@ -51,12 +51,12 @@ export class LibraryPageComponent {
     entries.forEach(entry => {
       const videoElement = entry.target as HTMLElement;
       const thumbnail = videoElement.querySelector('.thumbnail') as HTMLElement;
-
-      thumbnail.dataset['backgroundImage'] = thumbnail.style.backgroundImage;;
       const originalUrl = thumbnail.getAttribute('background-url');
 
       if (entry.isIntersecting) {
-        thumbnail.style.backgroundImage = `url(${originalUrl})`;
+        if (originalUrl) {
+          thumbnail.style.backgroundImage = `url(${originalUrl})`;
+        }
       } else {
         thumbnail.style.backgroundImage = 'none';
       }

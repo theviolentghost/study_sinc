@@ -18,7 +18,7 @@
         </button>
 
         <button class="video" #videoItem *ngIf="!isChannel(result)" (click)="playNewVideo(result)">
-            <div class="thumbnail" [attr.background-url]="result.videoThumbnailUrl" [ngStyle]="{'background-image': 'url(' + result.videoThumbnailUrl + ')'}">
+            <div class="thumbnail" [attr.background-url]="result.videoThumbnailUrl">
                 <div class="video_time_display">{{ result.duration }}</div>
                 <div class="video_progress_bar" *ngIf="wasWatched(result.id)" [style.width.%]="getVideoProgressPercent(result.id)"></div>
             </div>

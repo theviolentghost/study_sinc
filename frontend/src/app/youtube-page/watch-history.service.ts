@@ -90,7 +90,7 @@ export class WatchHistoryService {
         if(!currentPosition) currentPosition = 0;
         let videoId = this.currentVideo.id;
         let historyData = this.allWatchHistory.get(videoId);
-        console.log(historyData);
+        if (!historyData) return;
         historyData.currentPosition = currentPosition;
         this.storeSingleVideo(videoId, historyData, loginId);
     }

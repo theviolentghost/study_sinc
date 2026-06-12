@@ -6,7 +6,7 @@
 .page_container{
     display: flex;
     flex-direction: row;
-    padding: 0px 24px 12px 72px;
+    padding: 12px 12px;
     width: 100%;
     text-overflow: ellipsis;
 }
@@ -132,7 +132,7 @@
 }
 
 .recommended_videos{
-    padding-left: 24px;
+    padding-left: 12px;
     width: 30%;
     height: calc(100vh - 48px);
     display: flex;

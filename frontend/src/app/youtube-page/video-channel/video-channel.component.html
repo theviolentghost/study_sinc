@@ -14,7 +14,7 @@
         <a class="video" (click)="playNewVideo(video)" *ngFor="let video of channelUploads">
             <div class="thumbnail" [ngStyle]="{'background-image': 'url(' + video.videoThumbnailUrl + ')'}">
                 <div class="video_time_display"><div class="video_time_text">{{ video.duration }}</div></div>
-                <div class="video_progress_bar" *ngIf="wasWatched('video.videoId')" [style.width.%]="getVideoProgressPercent('video.videoId')"></div>
+                <div class="video_progress_bar" *ngIf="wasWatched(video.id)" [style.width.%]="getVideoProgressPercent(video.id)"></div>
             </div>
 
             <div class="video_details">

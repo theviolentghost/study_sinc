@@ -1,5 +1,5 @@
 .page_container{
-    padding: 0px 24px 12px 72px;
+    padding: 12px 12px;
     width: 100%;
     text-overflow: ellipsis;
 }
@@ -86,7 +86,7 @@
 .channel_video_grid{
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
 }
 

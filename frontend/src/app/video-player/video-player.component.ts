@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 
@@ -33,14 +33,8 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
   initilizedVideoHistory: boolean;
   seekedFromHistory: boolean;
 
-  widthSub;
-  playerWidth = 0;
- 
-  minSub
+  minSub;
   isMinimized = true;
-
-  ySub
-  playerY = 0;
 
   constructor(private sanitizer: DomSanitizer,
     private youtubeService: YoutubeService,
@@ -48,21 +42,18 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit() {
-    this.widthSub = this.youtubeService.videoWidth$.subscribe(width => {
-      if(!width) return;
-      this.playerWidth = width;
-    });
-
-    this.ySub = this.youtubeService.videoY$.subscribe(y => {
-      this.playerY = 48 - y;
-    });
-
     this.minSub = this.youtubeService.videoMinimized$.subscribe(minimized => {
       this.isMinimized = minimized;
     });
 
     this.videoIdSub = this.youtubeService.videoId$.subscribe(videoId => {
       if(this.videoId == videoId) return;
+      
+      // Save progress of previous video before switching
+      if (this.videoId && this.player && this.initilizedVideoHistory) {
+        this.watchHistoryService.updateVideoProgress(this.player.currentTime, this.youtubeService.loginSessionId);
+      }
+
       this.videoId = videoId;
       if(!videoId) return;
       this.initilizedVideoHistory = false;
@@ -77,11 +68,21 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
     document.addEventListener('fullscreenchange', this.fullscreenFunction); 
   }
 
+  @HostListener('window:beforeunload', ['$event'])
+  saveProgressOnUnload(event: any) {
+    if (this.videoId && this.player && this.initilizedVideoHistory) {
+      this.watchHistoryService.updateVideoProgress(this.player.currentTime, this.youtubeService.loginSessionId);
+    }
+  }
+
   ngOnDestroy() {
     this.videoIdSub.unsubscribe();
     this.minSub.unsubscribe();
-    this.widthSub.unsubscribe();
-    this.ySub.unsubscribe();
+    
+    if (this.videoId && this.player && this.initilizedVideoHistory) {
+      this.watchHistoryService.updateVideoProgress(this.player.currentTime, this.youtubeService.loginSessionId);
+    }
+
     if (this.player) {
       this.player.destroy();
     }
@@ -123,16 +124,6 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
     event.stopPropagation();
     event.preventDefault();
   };
-
-  getPlayerWidth(){
-    if(this.isMinimized) return null;
-    return this.playerWidth;
-  }
-
-  getPlayerY(){
-    if(this.isMinimized) return null;
-    return this.playerY;
-  }
 
   initilizePlyr(videoId: string) {
     this.showControls();
@@ -267,13 +258,12 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
   }
 
   handleDoubleClick(event: MouseEvent): void{
-    const now = Date.now();
     if(this.isDoubleClick()){
       const mouseX = event.clientX;
       let element = document.getElementById('main_click_blocker');
       let hitBox = element.getBoundingClientRect();
       const relativeX = mouseX - hitBox.left;
-      const ratio = relativeX / hitBox.right;
+      const ratio = relativeX / hitBox.width;
       if(ratio > 0.5){
         this.jumpForward(10);
       }else{
@@ -283,12 +273,10 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
   }
 
   jumpForward(amount: number): void{
-    if(!this.isDoubleClick()) return;
     this.player.currentTime += amount;
   }
 
   rewind(amount: number): void{
-    if(!this.isDoubleClick()) return;
     this.player.currentTime -= amount;
   }
 
@@ -312,6 +300,9 @@ export class VideoPlayerComponent implements OnInit, OnDestroy {
   }
 
   xPlayer(){
+    if (this.player && this.initilizedVideoHistory) {
+      this.watchHistoryService.updateVideoProgress(this.player.currentTime, this.youtubeService.loginSessionId);
+    }
     this.player.pause();
     this.youtubeService.removeVideoPlaying();
     this.youtubeService.expandPlayer();

@@ -4,7 +4,7 @@ import { YoutubeService } from '../youtube.service';
 import { SubscriptionUploads, SubscriptionData, YouTubeChannel } from '../youtube-channel-search-results.model';
 import { YoutubeSubscriptionService } from '../youtube-subscription.service';
 import { PlaylistVideo } from '../youtube-playlist-results.model';
-import { take } from 'rxjs/operators';
+import { take, debounceTime } from 'rxjs/operators';
 import { WatchHistoryService } from '../watch-history.service';
 
 @Component({
@@ -42,7 +42,9 @@ export class SubcriptionPageComponent {
       threshold: 0.1,
     });
 
-    this.subscriptionsSub = this.youtubeSubsciptionService.channelDataList$.subscribe(channels => {
+    this.subscriptionsSub = this.youtubeSubsciptionService.channelDataList$
+      .pipe(debounceTime(100))
+      .subscribe(channels => {
       if(!channels) return;
       this.subscriptions = this.youtubeSubsciptionService.allSubscriptions;
       for(let i = 0; i < channels.length; i++){
@@ -51,19 +53,33 @@ export class SubcriptionPageComponent {
       }
     });
 
-    this.allChannelUploadsSub = this.youtubeSubsciptionService.channelUploadsList$.subscribe(allChannelUploads => {
+    this.allChannelUploadsSub = this.youtubeSubsciptionService.channelUploadsList$
+      .pipe(debounceTime(200))
+      .subscribe(allChannelUploads => {
       if(!allChannelUploads) return;
       this.allChannelUploads = allChannelUploads;
-      this.sortedUploads = [];
+      
+      const voidThreshold = parseInt(voidInput.value) || 60;
+      const videos: (PlaylistVideo & { secondsAgo?: number })[] = [];
 
       for(let channel = 0; channel < this.allChannelUploads.length; channel++){
-        for(let video = 0; video < allChannelUploads[channel].uploads.length; video++){
-          if(this.timeStringToSeconds(allChannelUploads[channel].uploads[video].duration) < parseInt(voidInput.value)) continue;
-          this.sortedUploads.push(allChannelUploads[channel].uploads[video]);
+        const uploads = this.allChannelUploads[channel].uploads;
+        for(let video = 0; video < uploads.length; video++){
+          const v = uploads[video];
+          if(this.timeStringToSeconds(v.duration) < voidThreshold) continue;
+          
+          (v as any).secondsAgo = this.youtubeTimeAgoToSeconds(v.uploadDate);
+          videos.push(v);
         }
       } 
-      this.sortedUploads.sort((a, b) => this.youtubeTimeAgoToSeconds(a.uploadDate) - this.youtubeTimeAgoToSeconds(b.uploadDate));
+      
+      videos.sort((a, b) => (a.secondsAgo || 0) - (b.secondsAgo || 0));
+      this.sortedUploads = videos;
     });
+  }
+
+  trackByVideoId(index: number, video: PlaylistVideo): string {
+    return video.id;
   }
 
   @ViewChildren('videoItem', { read: ElementRef })
@@ -86,12 +102,13 @@ export class SubcriptionPageComponent {
     entries.forEach(entry => {
       const videoElement = entry.target as HTMLElement;
       const thumbnail = videoElement.querySelector('.thumbnail') as HTMLElement;
-
-      thumbnail.dataset['backgroundImage'] = thumbnail.style.backgroundImage;;
       const originalUrl = thumbnail.getAttribute('background-url');
 
       if (entry.isIntersecting) {
-        thumbnail.style.backgroundImage = `url(${originalUrl})`;
+        if (originalUrl) {
+          thumbnail.style.backgroundImage = `url(${originalUrl})`;
+        }
+        
         let playlistId = videoElement.getAttribute('playlist-id');
         let videoId = videoElement.getAttribute('video-id');
 
@@ -144,30 +161,47 @@ export class SubcriptionPageComponent {
   }
 
   youtubeTimeAgoToSeconds(timeAgo: string): number {
-    var parts = timeAgo.split(" ");
-    if(parts[0] == "Streamed") {
-      parts[0] = parts[1]
-      parts[1] = parts[2]
-    }
+    if (!timeAgo) return 3153600000; // 100 years ago
 
-    const value = parseInt(parts[0], 10);
-    const unit = parts[1].toLowerCase();
+    const lowerTime = timeAgo.toLowerCase().trim();
+    if (lowerTime.includes("just now")) return 0;
+
+    // Remove "Streamed" prefix if present
+    let cleanTime = lowerTime.replace(/^streamed\s+/, '');
+
+    // Regex to match value and unit, handling optional space (e.g., "4m", "4 m", "4 minutes")
+    const match = cleanTime.match(/(\d+)\s*([a-z]+)/);
+    
+    if (!match) return 3153600000; // unknown format, push to bottom
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
 
     let seconds = 0;
-    if (unit.startsWith("second")) {
+    if (unit.startsWith("s")) {
       seconds = value;
-    } else if (unit.startsWith("minute")) {
+    } else if (unit.startsWith("mi")) {
       seconds = value * 60;
-    } else if (unit.startsWith("hour")) {
-      seconds = value * 60 * 60;
-    } else if (unit.startsWith("day")) {
-      seconds = value * 24 * 60 * 60;
-    } else if (unit.startsWith("week")) {
-      seconds = value * 7 * 24 * 60 * 60;
-    } else if (unit.startsWith("month")) {
-      seconds = value * 30 * 24 * 60 * 60;
-    } else if (unit.startsWith("year")) {
-      seconds = value * 365 * 24 * 60 * 60;
+    } else if (unit.startsWith("h")) {
+      seconds = value * 3600;
+    } else if (unit.startsWith("d")) {
+      seconds = value * 86400;
+    } else if (unit.startsWith("w")) {
+      seconds = value * 604800;
+    } else if (unit.startsWith("m")) {
+      // Month vs Minute check: minute is usually "m" or "min", month is "month"
+      // But in YouTube's joined format "4m ago" means minutes.
+      // If it starts with "mi" it's minutes. If it's just "m" it's usually minutes.
+      // If it's "mo" or "month" it's months.
+      if (unit.startsWith("mo")) {
+        seconds = value * 2592000;
+      } else {
+        seconds = value * 60;
+      }
+    } else if (unit.startsWith("y")) {
+      seconds = value * 31536000;
+    } else {
+      return 3153600000; // unknown unit
     }
 
     return seconds;

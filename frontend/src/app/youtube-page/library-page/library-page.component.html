@@ -3,7 +3,7 @@
 
     <div class="youtube_video_grid">
         <a class="video" #videoItem (click)="playNewVideo(video)" *ngFor="let video of sortedHistory">
-            <div class="thumbnail" [attr.background-url]="video.videoData.videoThumbnailUrl" [ngStyle]="{ 'background-image': 'url(' + video.videoData.videoThumbnailUrl + ')' }">
+            <div class="thumbnail" [attr.background-url]="video.videoData.videoThumbnailUrl">
                 <div class="video_time_display"><div class="video_time_text">{{ formatVideoDuration(video.videoData.length) }}</div></div>
                 <div class="video_progress_bar" [style.width.%]="getVideoProgressPercent(video.id)"></div>
             </div>
