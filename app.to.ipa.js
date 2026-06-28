@@ -86,7 +86,7 @@ function createAppToIpa(appPath) {
 }
 
 /**
- /Users/norbertzych/Library/Developer/Xcode/DerivedData/MusiK-fgictlqklccskbddurmwysxjbwau/Build/Products/Debug-iphoneos/MusiK.app
+/Users/norbertzych/Library/Developer/Xcode/DerivedData/MusiK-fgictlqklccskbddurmwysxjbwau/Build/Products/Debug-iphoneos/MusiK.app
  */
 
 // --- Main Execution ---

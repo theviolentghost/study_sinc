@@ -18,6 +18,10 @@ import youtube from '../youtube-search.js';
 import { fetch_lyrics } from './lyrics.js'
 
 const exec_async = promisify(exec);
+
+const PYTHON_YTMUSIC_URL = process.env.PYTHON_YTMUSIC_URL || 'http://localhost:5001';
+const PYTHON_RECOMMENDATION_URL = process.env.PYTHON_RECOMMENDATION_URL || 'http://localhost:5002';
+const PYTHON_SERVER_TIMEOUT = 15000;
 async function kill_processes_on_port(port) {
     try {
         console.log(`🧹 Checking for processes on port ${port}...`);
@@ -104,7 +108,6 @@ async function setup_spotify_auth(retry_depth = 0) {
         const creds = await spotify_api.clientCredentialsGrant();
         spotify_api.setAccessToken(creds.body.access_token);
         console.log('Spotify authentication set up successfully');
-        console.log('Token:', creds.body.access_token)
         return true;
     } catch (error) {
         console.error('Error setting up Spotify authentication');
@@ -147,10 +150,9 @@ async function spotify_api_with_retry(apiFunction, ...args) {
     }
 }
 setup_spotify_auth();
-setTimeout(() => {
+setInterval(() => {
     setup_spotify_auth();
-    console.log("Spotify authentication setup complete");
-}, 20 * 60 * 1000); 
+}, 50 * 60 * 1000);
 
 async function get_audio_file(audio_path = '') {
     try {
@@ -180,10 +182,8 @@ async function youtube_music_search(query = 'NoCopyrightSounds') {
     }
 
     try {
-        const response = await axios.get(`http://localhost:5001/youtube_music_search?q=${encodeURIComponent(query)}`, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/youtube_music_search?q=${encodeURIComponent(query)}`, {
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch video id: ${response.statusText}`);
@@ -338,10 +338,10 @@ async function spotify_search_for_artists(query = 'NoCopyrightSounds', total_res
     }
 
     try {
-        const data = await spotify_api_with_retry(() => 
+        const data = await spotify_api_with_retry(() =>
             spotify_api.search(query, ['artist'], { limit: total_results })
         );
-        return data.body.tracks;
+        return data.body.artists;
     } catch (error) {
         console.error('Error searching Spotify:', error);
         return {};
@@ -811,10 +811,8 @@ async function spotify_uri_to_video_id(uri) {
 
         console.log('Fetching Spotify video ID for:', spotify_id);
 
-        const response = await axios.get(`http://localhost:5001/get_video_id?q=open.spotify.com/track/${spotify_id}`, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/get_video_id?q=open.spotify.com/track/${spotify_id}`, {
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch video id: ${response.statusText}`);
@@ -867,10 +865,10 @@ async function spotify_get_artist_albums(artist_id, total_results = 50) {
 
 async function get_mix_information(current_song_id, next_song_id) {
     try {
-        const response = await axios.post(`http://localhost:5002/dj_calculate_mix`, {
+        const response = await axios.post(`${PYTHON_RECOMMENDATION_URL}/dj_calculate_mix`, {
             current_song_id,
             next_song_id
-        });
+        }, { timeout: PYTHON_SERVER_TIMEOUT });
         return response.data;
     } catch (error) {
         console.error('Error fetching mix information:', error);
@@ -1234,13 +1232,11 @@ async function get_search_recommendations(query = '') {
         return [];
     }
     try {
-        const response = await axios.get('http://localhost:5001/search_suggestions', {
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/search_suggestions`, {
             params: {
                 q: query
             },
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch recommendations: ${response.statusText}`);
@@ -1249,16 +1245,14 @@ async function get_search_recommendations(query = '') {
         // return youtube.getSearchSuggestions(query);
     } catch (error) {
         console.error('Error fetching search recommendations:', error);
-        return {};
+        return [];
     }
 }
 
 async function get_top_charts() {
     try {
-        const response = await axios.get('http://localhost:5001/charts', {
-            headers: {
-                'Content-Type': 'application/json'
-            }
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/charts`, {
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch top charts: ${response.statusText}`);
@@ -1272,10 +1266,8 @@ async function get_top_charts() {
 
 async function get_mood_categories() {
     try {
-        const response = await axios.get('http://localhost:5001/mood_categories', {
-            headers: {
-                'Content-Type': 'application/json'
-            }
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/mood_categories`, {
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch mood categories: ${response.statusText}`); 
@@ -1293,13 +1285,11 @@ async function get_mood_playlists(category) {
         return [];
     }
     try {
-        const response = await axios.get('http://localhost:5001/mood_playlists', {
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/mood_playlists`, {
             params: {
                 mood: category
             },
-            headers: {
-                'Content-Type': 'application/json'  
-            }
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch mood tracks: ${response.statusText}`);
@@ -1333,13 +1323,11 @@ async function get_watch_playlist(track_id) {
         return [];
     }
     try {
-        const response = await axios.get(`http://localhost:5001/watch_playlist`, {
+        const response = await axios.get(`${PYTHON_YTMUSIC_URL}/watch_playlist`, {
             params: {
                 track_id: track_id
             },
-            headers: {
-                'Content-Type': 'application/json'  
-            }
+            timeout: PYTHON_SERVER_TIMEOUT,
         });
         if (response.status !== 200) {
             throw new Error(`Failed to fetch mood tracks: ${response.statusText}`);
@@ -1484,7 +1472,9 @@ async function get_recommendations(youtube_video_id) {
         return [];
     }
     try {
-        const response = await axios.get(`http://localhost:5002/search_similar_songs?song_id=${youtube_video_id}`);
+        const response = await axios.get(`${PYTHON_RECOMMENDATION_URL}/search_similar_songs?song_id=${youtube_video_id}`, {
+            timeout: PYTHON_SERVER_TIMEOUT,
+        });
         return response.data;
     } catch (error) {
         console.error('Error fetching recommendations:', error);
@@ -1573,6 +1563,15 @@ async function find_youtube_music_lyrics(video_id) {
     }
 }
 
+async function fetch_song_analytics(youtube_video_id) {
+    try {
+        return await workerManager.analyzeAudio(youtube_video_id, PRIORITY.NORMAL);
+    } catch (error) {
+        console.error('Error fetching song analytics:', error);
+        return null;
+    }
+}
+
 import new_music from './recommendation/new.music.js'
 
 export default {
@@ -1586,6 +1585,7 @@ export default {
         get_audio_url: get_audio_url,
         find_new_youtube_music_releases: find_new_youtube_music_releases,
         find_youtube_music_lyrics: find_youtube_music_lyrics,
+        fetch_song_analytics: fetch_song_analytics,
     },
     spotify: {
         api: spotify_api,

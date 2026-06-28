@@ -8,6 +8,7 @@ import http from 'http';
 import crypto from 'crypto';
 
 import { request_embedding, is_song_in_process_queue } from './recommendation/reuqest.embedding.js';
+import music from './music.js';
 // import { get_mix_information }
 
 // cmd + shift + p => fold level
@@ -190,10 +191,10 @@ class Adaptive_Stream {
                 hls_preset: 'fast',
             },
             'high': {
-                bitrate: '256k',
+                bitrate: '192k',
                 sample_rate: 48000,
                 channels: 2,
-                bandwidth: 256 * 1024,
+                bandwidth: 192 * 1024,
                 codec: 'aac',
                 hls_codec: 'mp4a.40.2',
                 audio_profile: 'aac_low',
@@ -204,10 +205,10 @@ class Adaptive_Stream {
                 hls_preset: 'medium',
             },
             'ultra-high': {
-                bitrate: '320k',
+                bitrate: '256k',
                 sample_rate: 48000,
                 channels: 2,
-                bandwidth: 320 * 1024,
+                bandwidth: 256 * 1024,
                 codec: 'aac',
                 hls_codec: 'mp4a.40.2',
                 audio_profile: 'aac_low', // aac_low
@@ -221,6 +222,7 @@ class Adaptive_Stream {
     };
 
     codecs = ['opus','aac']; // Supported codecs
+    download_codecs = ['aac']
     profile_progression = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']; // Order of profiles for adaptive streaming
     hls_root = path.join(__dirname, 'storage', 'musik', 'hls'); 
     hls_raw_audio_directory = path.join(this.hls_root, 'raw');
@@ -331,91 +333,21 @@ class Adaptive_Stream {
                 });
             }
         });
-
-        // DJ Mix endpoint - creates a seamless stitched HLS mix between two songs
-        // Returns a SINGLE HLS stream that Safari/iOS can play without issues
-        app.get('/dj/mix', async (req, res) => {
-            try {
-                const { current_song_id, next_song_id, quality = 'high', mix_style = 'balanced' } = req.query;
-                
-                if (!this.is_valid_video_id(current_song_id) || !this.is_valid_video_id(next_song_id)) {
-                    return res.status(400).json({ 
-                        error: 'Invalid video IDs', 
-                        success: false 
-                    });
-                }
-                
-                console.log(`DJ Mix request: ${current_song_id} -> ${next_song_id} (quality: ${quality}, style: ${mix_style})`);
-                
-                // Ensure both songs are available in HLS (wait for completion)
-                await Promise.all([
-                    this.create_hls_stream(current_song_id, this.codecs, this.profile_progression),
-                    this.create_hls_stream(next_song_id, this.codecs, this.profile_progression)
-                ]);
-                
-                // Wait for both streams to be complete (needed for stitching)
-                await Promise.all([
-                    this.wait_for_stream_complete(current_song_id, 60000),
-                    this.wait_for_stream_complete(next_song_id, 60000)
-                ]);
-                
-                // Call Python DJ service to get mix data with crossfade WAV
-                const mix_result = await call_dj_api('/get_stitched_mix', {
-                    song_id_1: current_song_id,
-                    song_id_2: next_song_id,
-                    mix_style: mix_style
-                });
-                
-                console.log(`DJ Mix data received: ${mix_result.mix_id} (cached: ${mix_result.cached})`);
-                
-                // If already cached with HLS, return immediately
-                // if (mix_result.cached) {
-                //     return res.status(200).json({
-                //         success: true,
-                //         mix_id: mix_result.mix_id,
-                //         playlist_url: mix_result.playlist_url,
-                //         mix_info: mix_result.mix_info,
-                //         cached: true
-                //     });
-                // }
-
-                // Stitch the mix data into final HLS stream
-                const stitch_result = await this.stitch_mix_data_to_raw_audio(mix_result.mix_info);
-
-                return res.status(200).json({
-                    success: true,
-                    mix_id: stitch_result.mix_id,
-                    playlist_url: stitch_result.playlist_url,
-                    mix_info: stitch_result.mix_data,
-                    cached: false
-                });
-
-            } catch(error) {
-                console.error('Error during DJ mix request:', error.message);
-                return res.status(500).json({ 
-                    error: error.message || 'Internal server error', 
-                    success: false 
-                });
-            }
-        });
         
-        // DJ Analysis endpoint - analyze a single song
-        app.post('/dj/analyze', async (req, res) => {
+        app.get('/analyze', async (req, res) => {
             try {
-                const { song_id, quality = 'high' } = req.body;
-                
+                const { song_id } = req.query;
+
                 if (!this.is_valid_video_id(song_id)) {
                     return res.status(400).json({ error: 'Invalid video ID', success: false });
                 }
                 
-                // Ensure song is available in HLS
                 await this.create_hls_stream(song_id, this.codecs, this.profile_progression);
                 
-                // Call Python DJ service
-                const analysis_result = await call_dj_api('/analyze', { song_id, quality });
-                
-                return res.status(200).json(analysis_result);
-                
+                const analytics = await music.youtube.fetch_song_analytics(song_id);
+
+                return res.status(200).json(analytics.analysis);
+
             } catch(error) {
                 console.error('Error during DJ analysis request:', error.message);
                 return res.status(500).json({ 
@@ -476,7 +408,7 @@ class Adaptive_Stream {
                         qualities = [qualities];
                     }
                 }
-                
+
                 // Default to all profiles if not specified
                 if (!qualities || !Array.isArray(qualities) || qualities.length === 0) {
                     qualities = this.profile_progression;
@@ -494,7 +426,7 @@ class Adaptive_Stream {
                 // await this.mark_as_permanent(video_id);
                 
                 // Stream the bundle as JSON with base64 encoded segments
-                const bundle = await this.get_hls_bundle_with_data(video_id, qualities, this.codecs);
+                const bundle = await this.get_hls_bundle_with_data(video_id, qualities, this.download_codecs);
                 
                 res.setHeader('Content-Type', 'application/json');
                 res.setHeader('Cache-Control', 'no-cache');
@@ -563,7 +495,7 @@ class Adaptive_Stream {
             });
 
             // console.log(path.join(this.hls_raw_audio_directory, this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`))
-            await this.confirm_stream_creation(video_ids[0], 25000);
+            await this.confirm_stream_creation(video_ids[0], 30_000);
 
             const session_data = {
                 video_ids: video_ids,
@@ -576,7 +508,7 @@ class Adaptive_Stream {
         }
     }
 
-    async confirm_stream_creation(video_id, timeout = 25000, root = this.hls_raw_audio_directory) {
+    async confirm_stream_creation(video_id, timeout = 35_000, root = this.hls_raw_audio_directory) {
         try {
             await this.wait_for_first_readable_master_playlist(path.join(root, video_id, 'audio', this.codecs[0], this.profile_progression[0], `${Adaptive_Stream.profiles[this.codecs[0]][this.profile_progression[0]].bitrate}.m3u8`), timeout);
             console.log(`Stream creation confirmed: ${video_id}`);
@@ -923,7 +855,7 @@ class Adaptive_Stream {
                     // Non-fatal error - continue without metadata
                 }
             }
-            create_audio_metadata(); 
+            // create_audio_metadata(); 
 
             // ensure the session directory folders and raw audio directory folders
             await this.ensure_directories([
@@ -1052,9 +984,11 @@ class Adaptive_Stream {
                     resolved = true;
                     reject(new Error('Timeout waiting for yt-dlp process to start'));
                 }
-            }, 15000); // 15 second timeout for rate limiting
+            }, 20000); // 15 second timeout for rate limiting
 
             const process = spawn('yt-dlp', [
+                '--cookies-from-browser', 'chrome', 
+                '--remote-components', 'ejs:github',
                 '-f', 'bestaudio[ext=m4a]/bestaudio/best',
                 '--no-playlist',
                 // '--no-warnings',
@@ -1200,14 +1134,16 @@ class Adaptive_Stream {
                 }
             });
             
-            // Wait a bit to ensure the process started successfully
-            setTimeout(() => {
-                if (!resolved && !process.killed) {
-                    resolved = true;
-                    clearTimeout(startup_timeout);
-                    resolve(process.stdout);
-                }
-            }, 500); // let the process start normally
+            // Resolve as soon as yt-dlp has audio data buffered (non-destructive)
+            if (process.stdout) {
+                process.stdout.once('readable', () => {
+                    if (!resolved && !process.killed) {
+                        resolved = true;
+                        clearTimeout(startup_timeout);
+                        resolve(process.stdout);
+                    }
+                });
+            }
         });
     }
 
@@ -1226,6 +1162,7 @@ class Adaptive_Stream {
 
         return new Promise((resolve, reject) => {
             const process = spawn('yt-dlp', [
+                '--cookies-from-browser', 'chrome', '--remote-components', 'ejs:github',
                 '-f', 'bestaudio[ext=m4a]/bestaudio/best',
                 '--no-playlist',
                 '--no-warnings',
@@ -1262,7 +1199,12 @@ class Adaptive_Stream {
         const total_profiles = available_codecs.length * available_profiles.length;
         if(total_profiles === 0) throw new Error('No available codecs or profiles specified for FFmpeg process.');
 
-        const ffmpeg_process = ffmpeg(input_source);
+        const ffmpeg_process = ffmpeg(input_source)
+            .inputOptions([
+                '-fflags', '+nobuffer',
+                '-probesize', '32768',
+                '-analyzeduration', '0',
+            ]);
 
         if( total_profiles > 1 ) {
             const split_outputs = available_codecs.map(codec => {
@@ -1299,6 +1241,7 @@ class Adaptive_Stream {
                     .outputOptions([
                         '-map', total_profiles > 1 ? `[${codec}_${profile}]` : '0:a',
                         '-hls_time', profile_info.hls_time || '2.0',
+                        '-hls_init_time', '0.5',
                         '-hls_list_size', '0',
                         '-hls_playlist_type', 'vod',
                         // '-hls_segment_type', 'mpegts',
@@ -1369,7 +1312,7 @@ class Adaptive_Stream {
         });
     }
 
-    async wait_for_first_readable_segment(video_id, codec = 'aac', profile = this.profile_progression[0], timeout = 15000, root = this.hls_raw_audio_directory) {
+    async wait_for_first_readable_segment(video_id, codec = 'aac', profile = this.profile_progression[0], timeout = 30000, root = this.hls_raw_audio_directory) {
         return new Promise((resolve, reject) => {
             const segment_path = path.join(root, video_id, 'audio', codec, profile);
             const start_time = Date.now();
@@ -1383,7 +1326,7 @@ class Adaptive_Stream {
                         } else if (Date.now() - start_time >= timeout) {
                             reject(new Error('Timeout waiting for first readable segment'));
                         } else {
-                            setTimeout(check_segment, 500); // Check again after 500ms
+                            setTimeout(check_segment, 50);
                         }
                     })
                     .catch(err => {
@@ -1395,7 +1338,7 @@ class Adaptive_Stream {
         });
     }
 
-    async wait_for_first_readable_master_playlist(master_playlist_path, timeout = 10000) {
+    async wait_for_first_readable_master_playlist(master_playlist_path, timeout = 30000) {
         return new Promise((resolve, reject) => {
             const start_time = Date.now();
 
@@ -1408,7 +1351,7 @@ class Adaptive_Stream {
                         if (Date.now() - start_time >= timeout) {
                             reject(new Error('Timeout waiting for first readable master playlist'));
                         } else {
-                            setTimeout(check_playlist, 500); // Check again after 500ms
+                            setTimeout(check_playlist, 50);
                         }
                     });
             };
@@ -1501,6 +1444,7 @@ class Adaptive_Stream {
             return new Promise((resolve, reject) => {
                 const url = this.get_video_url(video_id);
                 const process = spawn('yt-dlp', [
+                '--cookies-from-browser', 'chrome', '--remote-components', 'ejs:github',
                     '--no-playlist',
                     '--no-warnings',
                     '--skip-download',

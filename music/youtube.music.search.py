@@ -7,7 +7,7 @@ class Youtube_Music_Search:
         self.ytmusic = YTMusic()
 
     def search(self, query):
-        return self.ytmusic.search(query)
+        return self.ytmusic.search(query, filter="songs")
     
     def format_search_results(self, query, results):
         formatted_results = dict(

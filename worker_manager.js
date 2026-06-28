@@ -230,9 +230,8 @@ class WorkerManager extends EventEmitter {
     async analyzeAudio(videoId, priority = PRIORITY.NORMAL) {
         return this.workers.analysis.addTask({
             type: 'analysis',
-            endpoint: '/api/analyze-audio',
-            method: 'POST',
-            body: { video_id: videoId },
+            endpoint: '/get_song_analysis?video_id=' + encodeURIComponent(videoId),
+            method: 'GET',
             id: `analyze-${videoId}`
         }, priority);
     }

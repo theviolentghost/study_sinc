@@ -555,7 +555,7 @@ app.get('/youtube_get_playlist_videos', async (req, res) => {
 app.get('/youtube_get_search_suggestions', async (req, res) => {
     const query = req.query.q;
 
-    if(!query) return [];
+    if(!query) return res.status(400).json({ error: 'Search query is required' });
 
     try{
         const results = await youtubeSearch.getSearchSuggestions(query);
@@ -570,7 +570,7 @@ app.get('/youtube_get_search_suggestions', async (req, res) => {
 app.get('/youtube_get_video_data', async (req, res) => {
     const videoId = req.query.videoId;
 
-    if(!videoId) return;
+    if(!videoId) return res.status(400).json({ error: 'Video ID is required' });
 
     try{
         const results = await youtubePlaylist.getVideoData(videoId);
@@ -679,7 +679,7 @@ app.get('/is_youtube_account_logged_in/:id', async (req, res) => {
 app.get('/end_youtube_login_session/:id', async (req, res) => {
     const { id } = req.params;
 
-    if(!youtubeLoginSessions[id]) res.status(404).send('Session not found');
+    if(!youtubeLoginSessions[id]) return res.status(404).send('Session not found');
 
     try{
         await youtubeLoginSessions[id].browser.close();
@@ -696,7 +696,7 @@ let db;
 let client;
 
 async function connectToMongo() {
-    client = new MongoClient("mongodb+srv://adrianzych05_db_user:Z%23aych3482@cluster0.tacdasz.mongodb.net/?appName=Cluster0");
+    client = new MongoClient(process.env.MONGODB_URI);
     await client.connect();
     db = client.db("youtube");
     console.log("Connected to Atlas");
